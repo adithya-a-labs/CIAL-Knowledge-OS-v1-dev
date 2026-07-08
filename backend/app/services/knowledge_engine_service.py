@@ -6,6 +6,7 @@ from collections.abc import Mapping
 import logging
 from pathlib import Path
 import sys
+from threading import RLock
 import time
 from typing import Any
 
@@ -39,17 +40,74 @@ class KnowledgeEngineService:
         self._import_error: Exception | None = None
         self._phase4_config_cls: Any | None = None
         self._phase4_pipeline_cls: Any | None = None
+        self._lock = RLock()
         self._load_engine_symbols()
 
     @property
     def engine_available(self) -> bool:
         return self._phase4_config_cls is not None and self._phase4_pipeline_cls is not None
 
+    def set_pipeline(self, pipeline: Any) -> None:
+        with self._lock:
+            old_pipeline = self._pipeline
+            self._pipeline = pipeline
+        if old_pipeline is not None and old_pipeline is not pipeline:
+            close = getattr(old_pipeline, "close", None)
+            if callable(close):
+                close()
+
+    def is_ready(self) -> bool:
+        with self._lock:
+            pipeline = self._pipeline
+        return bool(
+            pipeline is not None
+            and getattr(pipeline, "is_ready_for_answering", False)
+        )
+
+    def prepare_pipeline(
+        self,
+        *,
+        force_rebuild_index: bool,
+        response_length: str = "medium",
+    ) -> dict[str, int]:
+        """Run the deterministic Phase 4 startup sequence and keep it alive."""
+
+        if not self.engine_available:
+            raise KnowledgeEngineUnavailable(self._engine_error_message())
+
+        config = self.build_config(
+            response_length=response_length,
+            force_rebuild_index=force_rebuild_index,
+        )
+        pipeline = self._phase4_pipeline_cls(config)
+        try:
+            pipeline.load()
+            pipeline.chunk()
+            pipeline.embed()
+            pipeline.index()
+            self._load_reranker(pipeline)
+        except Exception:
+            close = getattr(pipeline, "close", None)
+            if callable(close):
+                close()
+            raise
+        self.set_pipeline(pipeline)
+        return self._pipeline_counts(pipeline)
+
+    def close(self) -> None:
+        with self._lock:
+            pipeline = self._pipeline
+            self._pipeline = None
+        if pipeline is not None:
+            close = getattr(pipeline, "close", None)
+            if callable(close):
+                close()
+
     def answer_question(self, request: ChatRequest) -> ChatResponse:
         if not self.engine_available:
             raise KnowledgeEngineUnavailable(self._engine_error_message())
 
-        pipeline = self._get_pipeline(request.response_length)
+        pipeline = self._ready_pipeline(request.response_length)
         started_at = time.perf_counter()
         try:
             response = pipeline.run(request.question)
@@ -67,20 +125,12 @@ class KnowledgeEngineService:
     def rebuild_index(self, *, force: bool) -> tuple[bool, str, int, int]:
         if not self.engine_available:
             return False, self._engine_error_message(), 0, 0
-        pipeline = self._get_pipeline("medium")
         try:
-            pipeline.config.force_rebuild_index = force
-            pipeline.load()
-            pipeline.chunk()
-            pipeline.embed()
-            pipeline.index()
+            counts = self.prepare_pipeline(force_rebuild_index=force)
         except Exception as exc:  # noqa: BLE001
             logger.exception("knowledge_engine_index_failed")
             return False, str(exc), 0, 0
-        summary = getattr(pipeline, "indexing_summary", {}) or {}
-        documents_seen = int(summary.get("documents_seen") or len(getattr(pipeline, "documents", []) or []))
-        documents_indexed = int(summary.get("chunks_added") or len(getattr(pipeline, "chunks", []) or []))
-        return True, "Index rebuild completed.", documents_seen, documents_indexed
+        return True, "Index rebuild completed.", counts["documents_seen"], counts["documents_indexed"]
 
     def _load_engine_symbols(self) -> None:
         if str(KNOWLEDGE_ENGINE_SRC) not in sys.path:
@@ -97,17 +147,36 @@ class KnowledgeEngineService:
         self._phase4_pipeline_cls = Phase4RAGPipeline
         self._import_error = None
 
+    def _ready_pipeline(self, response_length: str) -> Any:
+        with self._lock:
+            pipeline = self._pipeline
+        if pipeline is None or not getattr(pipeline, "is_ready_for_answering", False):
+            raise KnowledgeEngineUnavailable("Phase 4.5 engine is not ready.")
+        self._apply_response_length(pipeline.config, response_length)
+        return pipeline
+
     def _get_pipeline(self, response_length: str) -> Any:
         if self._pipeline is None:
-            config = self._build_config(response_length)
+            config = self.build_config(response_length=response_length)
             self._pipeline = self._phase4_pipeline_cls(config)
         else:
             self._apply_response_length(self._pipeline.config, response_length)
         return self._pipeline
 
-    def _build_config(self, response_length: str) -> Any:
+    def build_config(
+        self,
+        *,
+        response_length: str = "medium",
+        force_rebuild_index: bool | None = None,
+    ) -> Any:
         config = self._phase4_config_cls(
             project_root=REPO_ROOT,
+            data_dir=settings.data_root_path,
+            knowledge_root=settings.data_files_path,
+            document_manifest_path=settings.indexes_path / "document_manifest.json",
+            bm25_cache_dir=settings.bm25_path / "cial_phase4",
+            output_root=settings.outputs_path / "batch_answers",
+            observability_output_dir=settings.outputs_path / "runs",
             qdrant_mode=settings.qdrant_mode,
             qdrant_url=settings.qdrant_url,
             qdrant_api_key=settings.qdrant_api_key,
@@ -116,7 +185,17 @@ class KnowledgeEngineService:
             ollama_model_name=settings.ollama_model_name,
             embedding_model_name=settings.embedding_model_name,
             reranker_model_name=settings.reranker_model_name,
+            reranker_device=settings.reranker_device,
+            reranker_batch_size=settings.reranker_batch_size,
             reranker_local_files_only=settings.reranker_local_files_only,
+            force_rebuild_index=(
+                settings.force_rebuild_on_startup
+                if force_rebuild_index is None
+                else force_rebuild_index
+            ),
+            max_answer_words=settings.max_answer_words,
+            generation_retries=settings.generation_retries,
+            retry_cooldown_seconds=settings.retry_cooldown_seconds,
             observability_console=False,
         )
         self._apply_response_length(config, response_length)
@@ -138,6 +217,58 @@ class KnowledgeEngineService:
         if self._import_error is None:
             return "Phase 4.5 engine is unavailable."
         return f"Phase 4.5 engine import failed: {self._import_error}"
+
+    def check_ollama_model(self, config: Any | None = None) -> tuple[bool, str]:
+        """Check the configured local generation model without answering."""
+
+        config = config or self.build_config()
+        try:
+            from ollama import ResponseError, list as list_ollama_models
+            from httpx import HTTPError
+        except Exception as exc:  # noqa: BLE001
+            return False, f"Ollama dependencies are unavailable: {exc}"
+
+        try:
+            available_models = {
+                model.model
+                for model in list_ollama_models().models
+                if model.model is not None
+            }
+        except (HTTPError, OSError, ResponseError) as exc:
+            return False, (
+                "The local Ollama service is unavailable. Start Ollama and "
+                f"confirm that '{config.ollama_model_name}' is installed. {exc}"
+            )
+        if config.ollama_model_name not in available_models:
+            return False, (
+                f"Configured Ollama model '{config.ollama_model_name}' is not "
+                "installed locally."
+            )
+        return True, "Configured Ollama model is available."
+
+    @staticmethod
+    def _load_reranker(pipeline: Any) -> None:
+        reranker = getattr(pipeline, "reranker", None)
+        load = getattr(reranker, "load", None)
+        if callable(load) and bool(getattr(pipeline.config, "reranker_enabled", True)):
+            load()
+
+    @staticmethod
+    def _pipeline_counts(pipeline: Any) -> dict[str, int]:
+        plan = getattr(pipeline, "indexing_plan", None)
+        if plan is not None:
+            documents_seen = sum(
+                len(getattr(plan, name, []) or [])
+                for name in ("new", "changed", "unchanged")
+            )
+        else:
+            documents_seen = len(getattr(pipeline, "documents", []) or [])
+        documents_indexed = documents_seen
+        return {
+            "documents_seen": int(documents_seen),
+            "documents_indexed": int(documents_indexed),
+            "chunks_indexed": len(getattr(pipeline, "chunks", []) or []),
+        }
 
     def _to_chat_response(
         self,

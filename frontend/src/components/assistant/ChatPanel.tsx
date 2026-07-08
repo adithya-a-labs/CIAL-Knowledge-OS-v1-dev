@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Mic, Paperclip, Send } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Mic, Paperclip, RefreshCcw, Send } from 'lucide-react';
 import ChatControlBar from './ChatControlBar';
 import ChatMessage, { ChatMessageData } from './ChatMessage';
 import ContextChips from './ContextChips';
 import ContextManagerDialog from './ContextManagerDialog';
 import RetrievalTimeline from './RetrievalTimeline';
 import SourceViewerPanel from './SourceViewerPanel';
-import { askQuestion, uploadDocument } from '@/api/client';
+import { askQuestion, getHealth, uploadDocument } from '@/api/client';
 import { toAssistantMessage, toChatRequest } from '@/api/adapters';
+import type { HealthResponse } from '@/api/types';
 import {
   CONTEXT_DOCUMENTS,
   INITIAL_ASSISTANT_MESSAGES,
@@ -25,6 +27,17 @@ import type {
 } from '@/types/assistant';
 
 const supportedFileTypes = '.pdf,.docx,.pptx,.xlsx,.csv,.txt,image/*';
+
+function readinessLabel(healthStatus: HealthResponse | undefined) {
+  if (!healthStatus) return 'Backend starting';
+  if (healthStatus.engine_ready && healthStatus.status === 'ready') return 'Ready';
+  if (healthStatus.status === 'indexing') return 'Indexing documents';
+  if (healthStatus.status === 'no_documents') return 'No documents found';
+  if (!healthStatus.qdrant_ready) return 'Qdrant unavailable';
+  if (!healthStatus.models_ready) return 'Model unavailable';
+  if (healthStatus.status === 'failed') return 'Startup failed';
+  return 'Backend starting';
+}
 
 function createUploadedFileContext(file: File): UploadedFileContext {
   return {
@@ -58,6 +71,14 @@ export default function ChatPanel() {
   const [feedbackByMessageId, setFeedbackByMessageId] = useState<Record<string, FeedbackType>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const healthQuery = useQuery({
+    queryKey: ['backend-health'],
+    queryFn: getHealth,
+    retry: false,
+    refetchInterval: 5000,
+  });
+  const chatReady = Boolean(healthQuery.data?.engine_ready);
+  const healthLabel = readinessLabel(healthQuery.data);
 
   const selectedDocuments = useMemo(
     () => CONTEXT_DOCUMENTS.filter((doc) => selectedContextIds.includes(doc.id)),
@@ -97,6 +118,13 @@ export default function ChatPanel() {
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
+    if (!chatReady) {
+      toast({
+        title: 'Backend is not ready',
+        description: healthQuery.data?.message ?? 'Startup checks are still running.',
+      });
+      return;
+    }
 
     const requestPayload: ChatRequestPayload = {
       query: input.trim(),
@@ -184,6 +212,30 @@ export default function ChatPanel() {
           onResponseLengthChange={setResponseLength}
           onManageContext={() => setContextManagerOpen(true)}
         />
+        <div
+          className={`border-b px-4 py-2 text-xs ${
+            chatReady
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : 'border-amber-200 bg-amber-50 text-amber-900'
+          }`}
+          data-testid="backend-readiness-banner"
+        >
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              <strong>{healthLabel}</strong>
+              {healthQuery.data?.message ? `: ${healthQuery.data.message}` : ''}
+            </span>
+            <button
+              type="button"
+              onClick={() => healthQuery.refetch()}
+              className="inline-flex items-center gap-1 self-start font-medium sm:self-auto"
+              data-testid="button-refresh-backend-health"
+            >
+              <RefreshCcw size={13} />
+              Refresh
+            </button>
+          </div>
+        </div>
 
         <div className="scrollbar-soft min-h-0 flex-1 space-y-4 overflow-y-auto bg-[hsl(210_20%_98%)] p-3 sm:space-y-5 sm:p-5" data-testid="chat-messages">
           {messages.map((msg) => (
@@ -263,7 +315,7 @@ export default function ChatPanel() {
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) handleSend();
               }}
-              placeholder="Ask a grounded question..."
+              placeholder={chatReady ? 'Ask a grounded question...' : 'Backend readiness pending...'}
               className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
               data-testid="input-chat"
             />
@@ -273,7 +325,7 @@ export default function ChatPanel() {
             <button
               type="button"
               onClick={handleSend}
-              disabled={!input.trim() || isLoading}
+              disabled={!input.trim() || isLoading || !chatReady}
               className="ce-action ce-action-primary h-8 w-8 shrink-0 p-0 disabled:border-gray-300 disabled:bg-gray-300"
               data-testid="button-send"
               aria-label="Send message"

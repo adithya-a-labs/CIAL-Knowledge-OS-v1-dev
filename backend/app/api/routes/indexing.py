@@ -4,24 +4,16 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from backend.app.schemas.indexing import (
-    IndexStatusResponse,
-    RebuildIndexRequest,
-    RebuildIndexResponse,
-)
+from backend.app.schemas.indexing import IndexStatusResponse, RebuildIndexRequest
 
 router = APIRouter()
 
 
-@router.post("/index/rebuild", response_model=RebuildIndexResponse)
-def rebuild_index(payload: RebuildIndexRequest, request: Request) -> RebuildIndexResponse:
-    status = request.app.state.indexing_service.rebuild(force=payload.force)
-    return RebuildIndexResponse(
-        status="completed" if status.status == "completed" else "failed",
-        message=status.message,
-    )
+@router.post("/index/rebuild", response_model=IndexStatusResponse)
+def rebuild_index(payload: RebuildIndexRequest, request: Request) -> dict[str, object]:
+    return request.app.state.indexing_service.rebuild(force=payload.force)
 
 
 @router.get("/index/status", response_model=IndexStatusResponse)
-def index_status(request: Request) -> IndexStatusResponse:
+def index_status(request: Request) -> dict[str, object]:
     return request.app.state.indexing_service.status()

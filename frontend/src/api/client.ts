@@ -31,10 +31,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch {
       detail = await response.text();
     }
-    const message =
+    const rawDetail =
       typeof detail === 'object' && detail !== null && 'detail' in detail
-        ? String((detail as { detail: unknown }).detail)
-        : `Request failed with status ${response.status}`;
+        ? (detail as { detail: unknown }).detail
+        : detail;
+    const message =
+      typeof rawDetail === 'object' && rawDetail !== null && 'message' in rawDetail
+        ? String((rawDetail as { message: unknown }).message)
+        : typeof rawDetail === 'string'
+          ? rawDetail
+          : `Request failed with status ${response.status}`;
     throw new ApiError(message, response.status, detail);
   }
 

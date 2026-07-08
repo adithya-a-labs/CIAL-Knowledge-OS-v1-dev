@@ -1,10 +1,18 @@
 export type ResponseLength = 'short' | 'medium' | 'long';
+export type RuntimeStatus = 'starting' | 'ready' | 'indexing' | 'degraded' | 'failed' | 'no_documents';
 
 export interface HealthResponse {
-  status: 'ok';
+  status: RuntimeStatus;
   service: string;
   phase: string;
   engine_available: boolean;
+  engine_ready: boolean;
+  qdrant_ready: boolean;
+  models_ready: boolean;
+  documents_seen: number;
+  documents_indexed: number;
+  index_fresh: boolean;
+  message: string;
 }
 
 export interface ChatRequest {
@@ -80,15 +88,30 @@ export interface RebuildIndexRequest {
 }
 
 export interface RebuildIndexResponse {
-  status: 'started' | 'completed' | 'failed';
+  status: RuntimeStatus;
+  engine_available: boolean;
+  engine_ready: boolean;
+  documents_seen: number;
+  documents_indexed: number;
+  index_fresh: boolean;
+  qdrant_ready: boolean;
+  models_ready: boolean;
+  last_startup_check_at: string | null;
+  last_index_run_at: string | null;
   message: string;
 }
 
 export interface IndexStatusResponse {
-  status: 'idle' | 'indexing' | 'completed' | 'failed';
+  status: RuntimeStatus;
+  engine_available: boolean;
+  engine_ready: boolean;
   documents_seen: number;
   documents_indexed: number;
-  last_run_at: string | null;
+  index_fresh: boolean;
+  qdrant_ready: boolean;
+  models_ready: boolean;
+  last_startup_check_at: string | null;
+  last_index_run_at: string | null;
   message: string;
 }
 
