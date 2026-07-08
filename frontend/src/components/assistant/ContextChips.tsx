@@ -1,15 +1,15 @@
 import { FileText, UploadCloud, X } from 'lucide-react';
+import type { SelectedContextItem } from '@/api/types';
 import type {
-  ContextDocument,
   SearchScope,
   UploadedFileContext,
 } from '@/types/assistant';
 
 interface ContextChipsProps {
-  selectedDocuments: ContextDocument[];
+  selectedContextItems: SelectedContextItem[];
   uploadedFiles: UploadedFileContext[];
   searchScope: SearchScope;
-  onRemoveDocument: (id: string) => void;
+  onRemoveContext: (id: string) => void;
   onRemoveFile: (id: string) => void;
 }
 
@@ -20,15 +20,15 @@ function formatFileSize(size: number) {
 }
 
 export default function ContextChips({
-  selectedDocuments,
+  selectedContextItems,
   uploadedFiles,
   searchScope,
-  onRemoveDocument,
+  onRemoveContext,
   onRemoveFile,
 }: ContextChipsProps) {
-  const visibleDocuments = selectedDocuments.slice(0, 3);
-  const hiddenDocumentCount = Math.max(0, selectedDocuments.length - visibleDocuments.length);
-  const hasAnyContext = selectedDocuments.length > 0 || uploadedFiles.length > 0;
+  const visibleContext = selectedContextItems.slice(0, 4);
+  const hiddenContextCount = Math.max(0, selectedContextItems.length - visibleContext.length);
+  const hasAnyContext = selectedContextItems.length > 0 || uploadedFiles.length > 0;
 
   return (
     <div className="border-t border-border bg-white px-3 py-2.5 sm:px-4" data-testid="chat-context-area">
@@ -46,28 +46,28 @@ export default function ContextChips({
 
       {hasAnyContext && (
         <div className="flex flex-wrap gap-2">
-          {visibleDocuments.map((document) => (
+          {visibleContext.map((item) => (
             <span
-              key={document.id}
+              key={item.id}
               className="ce-chip"
             >
               <FileText size={12} className="shrink-0 text-primary" />
-              <span className="safe-text max-w-[13rem] truncate">{document.title}</span>
+              <span className="safe-text max-w-[13rem] truncate">{item.title}</span>
               <button
                 type="button"
-                onClick={() => onRemoveDocument(document.id)}
+                onClick={() => onRemoveContext(item.id)}
                 className="rounded-md p-0.5 text-muted-foreground hover:bg-muted hover:text-primary"
-                aria-label={`Remove ${document.title}`}
-                data-testid={`button-remove-context-${document.id}`}
+                aria-label={`Remove ${item.title}`}
+                data-testid={`button-remove-context-${item.id}`}
               >
                 <X size={12} />
               </button>
             </span>
           ))}
 
-          {hiddenDocumentCount > 0 && (
+          {hiddenContextCount > 0 && (
             <span className="ce-chip bg-accent text-primary">
-              +{hiddenDocumentCount} more
+              +{hiddenContextCount} more
             </span>
           )}
 
