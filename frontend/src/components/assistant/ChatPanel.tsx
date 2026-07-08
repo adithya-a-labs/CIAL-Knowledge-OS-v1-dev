@@ -7,11 +7,10 @@ import ContextChips from './ContextChips';
 import ContextManagerDialog from './ContextManagerDialog';
 import RetrievalTimeline from './RetrievalTimeline';
 import SourceViewerPanel from './SourceViewerPanel';
-import { askQuestion, getHealth, uploadDocument } from '@/api/client';
-import { toAssistantMessage, toChatRequest } from '@/api/adapters';
-import type { HealthResponse } from '@/api/types';
+import { askQuestion, getCorpusTree, getHealth, uploadDocument } from '@/api/client';
+import { flattenCorpusTree, toAssistantMessage, toChatRequest } from '@/api/adapters';
+import type { HealthResponse, SelectedContextItem } from '@/api/types';
 import {
-  CONTEXT_DOCUMENTS,
   INITIAL_ASSISTANT_MESSAGES,
   MOCK_CHAT_SOURCES,
   RETRIEVAL_STAGES,
@@ -27,6 +26,7 @@ import type {
 } from '@/types/assistant';
 
 const supportedFileTypes = '.pdf,.docx,.pptx,.xlsx,.csv,.txt,image/*';
+const ASSISTANT_CONTEXT_STORAGE_KEY = 'cial-assistant-selected-context';
 
 function readinessLabel(healthStatus: HealthResponse | undefined) {
   if (!healthStatus) return 'Backend starting';
@@ -60,10 +60,14 @@ export default function ChatPanel() {
   const [activeStageIndex, setActiveStageIndex] = useState(0);
   const [searchScope, setSearchScope] = useState<SearchScope>('hybrid');
   const [responseLength, setResponseLength] = useState<ResponseLength>('detailed');
-  const [selectedContextIds, setSelectedContextIds] = useState<string[]>([
-    'enterprise-airfield-lighting',
-    'enterprise-electrical-sop',
-  ]);
+  const [selectedContextItems, setSelectedContextItems] = useState<SelectedContextItem[]>(() => {
+    try {
+      const value = window.localStorage.getItem(ASSISTANT_CONTEXT_STORAGE_KEY);
+      return value ? (JSON.parse(value) as SelectedContextItem[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFileContext[]>([]);
   const [contextManagerOpen, setContextManagerOpen] = useState(false);
   const [selectedSource, setSelectedSource] = useState<ChatSource | null>(null);
@@ -77,13 +81,27 @@ export default function ChatPanel() {
     retry: false,
     refetchInterval: 5000,
   });
+  const corpusTreeQuery = useQuery({
+    queryKey: ['corpus-tree-assistant'],
+    queryFn: getCorpusTree,
+    retry: false,
+    staleTime: 30_000,
+  });
   const chatReady = Boolean(healthQuery.data?.engine_ready);
   const healthLabel = readinessLabel(healthQuery.data);
 
-  const selectedDocuments = useMemo(
-    () => CONTEXT_DOCUMENTS.filter((doc) => selectedContextIds.includes(doc.id)),
-    [selectedContextIds]
-  );
+  const corpusLookup = useMemo(() => {
+    if (!corpusTreeQuery.data?.root) return { documentsById: new Map(), documents: [] };
+    const flattened = flattenCorpusTree(corpusTreeQuery.data.root);
+    return {
+      documentsById: new Map(flattened.documents.map((document) => [document.id, document])),
+      documents: flattened.documents,
+    };
+  }, [corpusTreeQuery.data]);
+
+  useEffect(() => {
+    window.localStorage.setItem(ASSISTANT_CONTEXT_STORAGE_KEY, JSON.stringify(selectedContextItems));
+  }, [selectedContextItems]);
 
   const allVisibleSources = useMemo(() => {
     const sourceMap = new Map<string, ChatSource>();
@@ -112,7 +130,20 @@ export default function ChatPanel() {
   }, [isLoading]);
 
   const openSource = (source: ChatSource) => {
-    setSelectedSource(source);
+    const matchedDocument =
+      corpusLookup.documentsById.get(source.documentId) ??
+      corpusLookup.documents.find((document) => document.relative_path === source.relativePath || document.relative_path === source.documentId) ??
+      corpusLookup.documents.find((document) => document.name === source.documentTitle || source.documentTitle.endsWith(document.name));
+    setSelectedSource(
+      matchedDocument
+        ? {
+            ...source,
+            documentId: matchedDocument.id,
+            relativePath: matchedDocument.relative_path,
+            documentTitle: matchedDocument.name,
+          }
+        : source,
+    );
     setSourceViewerOpen(true);
   };
 
@@ -130,7 +161,21 @@ export default function ChatPanel() {
       query: input.trim(),
       searchScope,
       responseLength,
-      selectedContextIds,
+      selectedDocumentIds: [
+        ...selectedContextItems.filter((item) => item.type === 'document').map((item) => item.id),
+        ...selectedContextItems
+          .filter((item) => item.type === 'folder')
+          .flatMap((folder) =>
+            corpusLookup.documents
+              .filter((document) =>
+                folder.relative_path
+                  ? document.relative_path.startsWith(`${folder.relative_path}/`)
+                  : true
+              )
+              .map((document) => document.id)
+          ),
+      ],
+      selectedFolderIds: selectedContextItems.filter((item) => item.type === 'folder').map((item) => item.id),
       uploadedFileIds: uploadedFiles.map((file) => file.id),
     };
 
@@ -207,7 +252,7 @@ export default function ChatPanel() {
         <ChatControlBar
           searchScope={searchScope}
           responseLength={responseLength}
-          selectedContextCount={selectedContextIds.length}
+          selectedContextCount={selectedContextItems.length}
           uploadedFileCount={uploadedFiles.length}
           onSearchScopeChange={setSearchScope}
           onResponseLengthChange={setResponseLength}
@@ -272,11 +317,11 @@ export default function ChatPanel() {
         </div>
 
         <ContextChips
-          selectedDocuments={selectedDocuments}
+          selectedContextItems={selectedContextItems}
           uploadedFiles={uploadedFiles}
           searchScope={searchScope}
-          onRemoveDocument={(id) =>
-            setSelectedContextIds((current) => current.filter((contextId) => contextId !== id))
+          onRemoveContext={(id) =>
+            setSelectedContextItems((current) => current.filter((context) => context.id !== id))
           }
           onRemoveFile={(id) =>
             setUploadedFiles((current) => current.filter((file) => file.id !== id))
@@ -338,8 +383,8 @@ export default function ChatPanel() {
 
         <ContextManagerDialog
           open={contextManagerOpen}
-          selectedIds={selectedContextIds}
-          onApply={setSelectedContextIds}
+          selectedItems={selectedContextItems}
+          onApply={setSelectedContextItems}
           onClose={() => setContextManagerOpen(false)}
         />
       </div>

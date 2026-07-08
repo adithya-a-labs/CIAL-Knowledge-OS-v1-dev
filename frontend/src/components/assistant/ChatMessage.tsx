@@ -8,6 +8,7 @@ import {
   ThumbsUp,
   XCircle,
 } from 'lucide-react';
+import type { ReactNode } from 'react';
 import SourceCitationCard from './SourceCitationCard';
 import {
   RESPONSE_LENGTH_LABELS,
@@ -55,18 +56,10 @@ function renderContentWithCitations(
   sources: ChatSource[],
   onCitationClick: (source: ChatSource) => void
 ) {
-  const citationPattern = /(\[\d+\])/g;
-
-  return content.split('\n').map((line, lineIndex) => {
-    const numbered = line.match(/^(\d+)\.\s(.+)/);
-    const text = numbered ? numbered[2] : line;
-    const parts = text.split(citationPattern);
-
+  const renderInline = (text: string, lineIndex: number) => {
+    const tokenPattern = /(\[\d+\]|\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
+    const parts = text.split(tokenPattern);
     const renderedParts = parts.map((part, index) => {
-      const citationNumber = Number(part);
-      if (/^\d+$/.test(part) && parts[index - 1]?.startsWith('[') && parts[index + 1] === ']') {
-        return null;
-      }
       if (/^\[\d+\]$/.test(part)) {
         const indexNumber = Number(part.replace(/\[|\]/g, ''));
         const source = sources.find((candidate) => candidate.citationIndex === indexNumber);
@@ -83,29 +76,90 @@ function renderContentWithCitations(
           </button>
         );
       }
-      if (part === '[' || part === ']' || !Number.isNaN(citationNumber)) return part;
+      if (/^\*\*[^*]+\*\*$/.test(part)) {
+        return <strong key={`${lineIndex}-${index}`}>{part.slice(2, -2)}</strong>;
+      }
+      if (/^`[^`]+`$/.test(part)) {
+        return <code key={`${lineIndex}-${index}`} className="rounded bg-muted px-1 py-0.5 text-[0.9em]">{part.slice(1, -1)}</code>;
+      }
+      const link = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      if (link) {
+        const href = link[2].startsWith('http') ? link[2] : '#';
+        return (
+          <a key={`${lineIndex}-${index}`} href={href} target="_blank" rel="noreferrer" className="font-semibold text-primary underline underline-offset-2">
+            {link[1]}
+          </a>
+        );
+      }
       return part;
     });
+    return renderedParts;
+  };
 
-    if (!line.trim()) return null;
+  const blocks: ReactNode[] = [];
+  const codeBuffer: string[] = [];
+  let inCodeBlock = false;
 
+  content.split('\n').forEach((rawLine, lineIndex) => {
+    const line = rawLine.trimEnd();
+    if (line.trim().startsWith('```')) {
+      if (inCodeBlock) {
+        blocks.push(
+          <pre key={`code-${lineIndex}`} className="scrollbar-soft my-2 overflow-x-auto rounded-lg bg-slate-950 p-3 text-xs leading-5 text-white">
+            <code>{codeBuffer.splice(0).join('\n')}</code>
+          </pre>
+        );
+      }
+      inCodeBlock = !inCodeBlock;
+      return;
+    }
+    if (inCodeBlock) {
+      codeBuffer.push(rawLine);
+      return;
+    }
+    if (!line.trim()) {
+      blocks.push(<div key={`space-${lineIndex}`} className="h-1" />);
+      return;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.+)/);
+    if (heading) {
+      blocks.push(
+        <h3 key={`heading-${lineIndex}`} className="mt-3 text-sm font-semibold text-foreground">
+          {renderInline(heading[2], lineIndex)}
+        </h3>
+      );
+      return;
+    }
+    const bullet = line.match(/^[-*]\s+(.+)/);
+    if (bullet) {
+      blocks.push(
+        <div key={`bullet-${lineIndex}`} className="mt-1 flex gap-2">
+          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+          <span className="safe-text text-sm leading-6 text-foreground">{renderInline(bullet[1], lineIndex)}</span>
+        </div>
+      );
+      return;
+    }
+    const numbered = line.match(/^(\d+)\.\s(.+)/);
     if (numbered) {
-      return (
+      blocks.push(
         <div key={`line-${lineIndex}`} className="mt-1.5 flex gap-2">
           <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-primary text-[10px] font-bold text-white">
             {numbered[1]}
           </span>
-          <span className="safe-text text-sm text-foreground">{renderedParts}</span>
+          <span className="safe-text text-sm leading-6 text-foreground">{renderInline(numbered[2], lineIndex)}</span>
         </div>
       );
+      return;
     }
-
-    return (
+    blocks.push(
       <p key={`line-${lineIndex}`} className="safe-text mt-1 text-sm leading-6 text-foreground">
-        {renderedParts}
+        {renderInline(line, lineIndex)}
       </p>
     );
   });
+
+  return blocks;
 }
 
 function MetadataPanel({ metadata }: { metadata: AssistantMessageMetadata }) {
