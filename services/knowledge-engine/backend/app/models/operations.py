@@ -1,0 +1,54 @@
+"""Operational metadata models."""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Text, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from backend.app.db.base import Base, UUIDPrimaryKeyMixin
+
+
+class IngestionRun(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "ingestion_runs"
+    __table_args__ = (Index("ix_ingestion_runs_status", "status"),)
+
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    files_seen: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    files_indexed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    files_failed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    message: Mapped[str | None] = mapped_column(Text)
+    started_by_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+
+
+class IndexingJob(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "indexing_jobs"
+    __table_args__ = (Index("ix_indexing_jobs_status", "status"),)
+
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    force_rebuild: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    message: Mapped[str | None] = mapped_column(Text)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+
+
+class AuditEvent(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        Index("ix_audit_events_user_id", "user_id"),
+        Index("ix_audit_events_entity_type_entity_id", "entity_type", "entity_id"),
+    )
+
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    entity_type: Mapped[str | None] = mapped_column(Text)
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
