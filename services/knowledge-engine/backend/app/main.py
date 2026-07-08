@@ -3,25 +3,50 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import logging
+import sys
 from threading import Thread
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api.routes import chat, documents, evaluation, exports, health, indexing
+from backend.app.core.paths import KNOWLEDGE_ENGINE_SRC
+
+if str(KNOWLEDGE_ENGINE_SRC) not in sys.path:
+    sys.path.insert(0, str(KNOWLEDGE_ENGINE_SRC))
+
+from backend.app.api.routes import chat, corpus, documents, evaluation, exports, health, indexing
 from backend.app.core.config import settings
 from backend.app.core.logging import configure_logging
 from backend.app.core.runtime_state import RuntimeState
+from backend.app.db.session import SessionLocal
 from backend.app.services.document_service import DocumentService
 from backend.app.services.evaluation_service import EvaluationService
 from backend.app.services.export_service import ExportService
 from backend.app.services.indexing_service import IndexingService
 from backend.app.services.knowledge_engine_service import KnowledgeEngineService
 from backend.app.services.startup_service import StartupService
+from cial_knowledge_os.corpus.service import CorpusService
+from cial_knowledge_os.corpus.watcher import CorpusWatcher
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    watcher = None
+    if settings.corpus_watch:
+        watcher = CorpusWatcher(
+            root=settings.data_files_path,
+            sync_callback=app.state.corpus_service.sync,
+        )
+        try:
+            watcher.start()
+            app.state.corpus_watcher = watcher
+        except Exception as exc:  # noqa: BLE001 - watcher is optional.
+            logger.exception("corpus_watcher_start_failed")
+            app.state.corpus_watcher_error = str(exc)
+            watcher = None
     startup_thread = Thread(
         target=app.state.startup_service.run_startup,
         name="phase45-startup",
@@ -32,6 +57,8 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if watcher is not None:
+            watcher.stop()
         app.state.knowledge_engine.close()
 
 
@@ -48,9 +75,20 @@ def create_app() -> FastAPI:
 
     engine = KnowledgeEngineService()
     runtime_state = RuntimeState(engine_available=engine.engine_available)
-    startup_service = StartupService(engine=engine, runtime_state=runtime_state)
+    corpus_service = CorpusService(
+        root=settings.data_files_path,
+        session_factory=SessionLocal,
+        hash_algorithm=settings.corpus_hash,
+        batch_size=settings.metadata_batch_size,
+    )
+    startup_service = StartupService(
+        engine=engine,
+        runtime_state=runtime_state,
+        corpus_service=corpus_service,
+    )
     app.state.runtime_state = runtime_state
     app.state.knowledge_engine = engine
+    app.state.corpus_service = corpus_service
     app.state.startup_service = startup_service
     app.state.document_service = DocumentService(root=settings.data_files_path)
     app.state.indexing_service = IndexingService(engine, runtime_state)
@@ -58,6 +96,7 @@ def create_app() -> FastAPI:
     app.state.export_service = ExportService()
 
     app.include_router(health.router, prefix="/api", tags=["health"])
+    app.include_router(corpus.router, prefix="/api", tags=["corpus"])
     app.include_router(chat.router, prefix="/api", tags=["chat"])
     app.include_router(documents.router, prefix="/api", tags=["documents"])
     app.include_router(indexing.router, prefix="/api", tags=["indexing"])

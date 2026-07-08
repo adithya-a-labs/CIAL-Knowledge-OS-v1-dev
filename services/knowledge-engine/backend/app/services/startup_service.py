@@ -9,6 +9,7 @@ from typing import Any
 from backend.app.core.config import settings
 from backend.app.core.runtime_state import RuntimeState, utc_now_iso
 from backend.app.services.knowledge_engine_service import KnowledgeEngineService
+from cial_knowledge_os.corpus.service import CorpusService
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +58,11 @@ class StartupService:
         *,
         engine: KnowledgeEngineService,
         runtime_state: RuntimeState,
+        corpus_service: CorpusService | None = None,
     ) -> None:
         self.engine = engine
         self.runtime_state = runtime_state
+        self.corpus_service = corpus_service
 
     def run_startup(self) -> None:
         """Prepare the Phase 4.5 pipeline without crashing the API process."""
@@ -74,6 +77,7 @@ class StartupService:
         )
         try:
             self.ensure_required_folders()
+            self.sync_corpus_metadata()
             documents_seen = self.detect_documents()
             self.runtime_state.update(documents_seen=documents_seen)
 
@@ -162,6 +166,22 @@ class StartupService:
                 models_ready=False,
                 message=f"Phase 4.5 startup failed: {exc}",
             )
+
+    def sync_corpus_metadata(self) -> None:
+        if not settings.corpus_sync_on_startup or self.corpus_service is None:
+            return
+        try:
+            summary = self.corpus_service.sync()
+        except Exception as exc:  # noqa: BLE001 - metadata sync must not crash chat startup.
+            logger.exception("corpus_startup_sync_failed")
+            self.runtime_state.update(
+                message=f"Corpus metadata sync failed; continuing startup: {exc}",
+            )
+            return
+        logger.info(
+            "corpus_startup_sync_completed",
+            extra={"event": "corpus_sync", **summary.to_dict()},
+        )
 
     def ensure_required_folders(self) -> None:
         for path in (
