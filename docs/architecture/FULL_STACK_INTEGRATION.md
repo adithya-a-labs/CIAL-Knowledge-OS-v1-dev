@@ -23,6 +23,7 @@ See `docs/architecture/METADATA_DATABASE.md`.
 The backend also owns the Corpus layer. The Knowledge Center and future
 document-picking UI should consume the Corpus API backed by PostgreSQL metadata
 instead of scanning `data/files`. See `docs/architecture/CORPUS_ARCHITECTURE.md`.
+Frontend wiring details are in `docs/architecture/FRONTEND_CORPUS_INTEGRATION.md`.
 
 The real FastAPI backend source is `services/knowledge-engine/backend/app`.
 The root-level `backend/` directory is not importable and contains only a
