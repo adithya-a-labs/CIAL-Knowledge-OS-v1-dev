@@ -81,6 +81,7 @@ class CorpusExplorer:
         return {
             "folder": folder_to_dict(folder),
             "folders": [folder_to_dict(item) for item in subfolders],
+            "files": [document_to_dict(item) for item in documents],
             "documents": [document_to_dict(item) for item in documents],
         }
 
@@ -89,4 +90,3 @@ class CorpusExplorer:
         if document is None:
             return None
         return document_to_dict(document)
-
