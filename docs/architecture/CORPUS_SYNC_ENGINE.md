@@ -37,10 +37,11 @@ authoritative vector store.
 4. Compare the tree against PostgreSQL metadata.
 5. Update `folders`, `documents`, and `document_versions` transactionally.
 6. Record `ingestion_runs`.
-7. Queue `indexing_jobs` for added, modified, moved, renamed, or deleted
-   documents.
+7. Queue `indexing_jobs` for added or content-modified documents.
 
-The sync engine never performs retrieval, prompt rendering, generation,
+Moves, renames, and deletes are metadata updates only. Deleted files are marked
+`deleted`; they are not hard-deleted and do not trigger vector rebuilds in this
+phase. The sync engine never performs retrieval, prompt rendering, generation,
 citation construction, or vector writes.
 
 ## Startup Behavior
@@ -80,4 +81,3 @@ Current sync is deterministic and simple:
 
 Future large-corpus optimization can add provider cursors, filesystem mtimes as
 a pre-hash guard, and chunked DB writes while preserving the same Corpus API.
-

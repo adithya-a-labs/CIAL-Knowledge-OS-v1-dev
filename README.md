@@ -71,6 +71,7 @@ cd services/knowledge-engine
 cd ..\..
 curl.exe http://localhost:8000/api/health
 curl.exe http://localhost:8000/api/corpus/tree
+curl.exe -X POST http://localhost:8000/api/corpus/sync
 curl.exe http://localhost:8000/api/documents
 cd frontend
 pnpm run typecheck

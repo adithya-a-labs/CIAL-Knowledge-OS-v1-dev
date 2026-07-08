@@ -120,6 +120,10 @@ Returns one folder, immediate child folders, and immediate documents.
 
 Returns document metadata by PostgreSQL document id.
 
+`POST /api/corpus/sync`
+
+Runs a manual Corpus synchronization and returns the sync summary.
+
 ## Architectural Pillars
 
 The Corpus layer is a core CIAL Knowledge OS pillar alongside:
@@ -128,4 +132,3 @@ The Corpus layer is a core CIAL Knowledge OS pillar alongside:
 - Knowledge Engine: Phase 4.5
 - Vector Store: Qdrant
 - Frontend: Knowledge Center and related UI surfaces
-

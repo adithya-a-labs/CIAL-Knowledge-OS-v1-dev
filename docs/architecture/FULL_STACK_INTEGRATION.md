@@ -91,6 +91,7 @@ unavailability does not block current chat or retrieval behavior.
 - `GET /api/corpus/tree` returns the hierarchical Corpus Tree from PostgreSQL metadata.
 - `GET /api/corpus/folder?path=<relative>` returns folder contents from PostgreSQL metadata.
 - `GET /api/corpus/document/{id}` returns document metadata from PostgreSQL metadata.
+- `POST /api/corpus/sync` scans `data/files`, synchronizes PostgreSQL metadata, and queues indexing jobs for new/content-changed documents.
 - `POST /api/chat` first checks `runtime_state.engine_ready`. If false, it returns HTTP 503 with structured detail such as `no_documents_found`, `indexing_in_progress`, `qdrant_unavailable`, `model_unavailable`, or `startup_failed`. If ready, it calls `KnowledgeEngineService.answer_question()` and adapts the Phase 4 response into answer, citations, source chunks, and metadata.
 - `GET /api/documents` lists files discovered under `data/files`.
 - `POST /api/documents/upload` saves uploaded files to `data/files`.
