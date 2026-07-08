@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>CIAL Operations Updates</title>
+    <link>http://localhost/cial/updates</link>
+    <description>Synthetic RSS feed for multimodal ingestion testing.</description>
+    <language>en-IN</language>
+    <item>
+      <title>Runway Lighting Inspection Window</title>
+      <pubDate>Wed, 08 Jul 2026 08:30:00 +0530</pubDate>
+      <category>Maintenance</category>
+      <description>Electrical maintenance will inspect runway lighting circuit B7 between 01:00 and 03:00. Teams must attach SOP references to all work logs.</description>
+    </item>
+    <item>
+      <title>Terminal Passenger Flow Trial</title>
+      <pubDate>Wed, 08 Jul 2026 10:00:00 +0530</pubDate>
+      <category>Operations</category>
+      <description>Terminal staff will evaluate a revised passenger queue layout near Gate 18. Observations must be recorded in the shift report.</description>
+    </item>
+    <item>
+      <title>Knowledge OS OCR Validation</title>
+      <pubDate>Wed, 08 Jul 2026 14:15:00 +0530</pubDate>
+      <category>IT</category>
+      <description>The Phase 4.5 notebook will validate OCR extraction for scanned notices, invoices, and photographed forms.</description>
+    </item>
+  </channel>
+</rss>

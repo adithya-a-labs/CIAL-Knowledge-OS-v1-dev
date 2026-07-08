@@ -1,0 +1,311 @@
+import { useMemo, useRef, useState } from 'react';
+import type { ComponentType, KeyboardEvent } from 'react';
+import {
+  Building2,
+  ChevronDown,
+  FileText,
+  Folder,
+  Layers,
+  ListChecks,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  Zap,
+} from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
+import type { ResponseLength, SearchScope } from '@/types/assistant';
+
+type IconType = ComponentType<{ size?: number; className?: string }>;
+
+interface SettingsOption<T extends string> {
+  value: T;
+  title: string;
+  description: string;
+  icon: IconType;
+  recommended?: boolean;
+  iconTone?: string;
+}
+
+interface SettingsPopoverProps<T extends string> {
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  value: T;
+  options: SettingsOption<T>[];
+  defaultNote: string;
+  triggerIcon: IconType;
+  onChange: (value: T) => void;
+}
+
+const searchModeOptions: SettingsOption<SearchScope>[] = [
+  {
+    value: 'enterprise',
+    title: 'Enterprise Only',
+    description: 'Search only the enterprise knowledge base.',
+    icon: Building2,
+    iconTone: 'bg-[hsl(95_24%_94%)] text-primary',
+  },
+  {
+    value: 'workspace',
+    title: 'My Workspace Only',
+    description: 'Search only documents in your personal workspace.',
+    icon: Folder,
+    iconTone: 'bg-[#f0edff] text-[#6b5ecf]',
+  },
+  {
+    value: 'hybrid',
+    title: 'Hybrid',
+    description: 'Search across enterprise knowledge and your workspace.',
+    icon: Layers,
+    recommended: true,
+    iconTone: 'bg-[hsl(95_24%_94%)] text-primary',
+  },
+  {
+    value: 'current_upload',
+    title: 'Current Upload Only',
+    description: 'Search only files uploaded in this conversation.',
+    icon: FileText,
+    iconTone: 'bg-[#eef6fc] text-[#2f76b7]',
+  },
+];
+
+const responseLengthOptions: SettingsOption<ResponseLength>[] = [
+  {
+    value: 'quick',
+    title: 'Quick',
+    description: 'Short concise answers.',
+    icon: Zap,
+    iconTone: 'bg-[#fff6db] text-[#a97000]',
+  },
+  {
+    value: 'standard',
+    title: 'Standard',
+    description: 'Balanced responses for everyday work.',
+    icon: SlidersHorizontal,
+    iconTone: 'bg-[#eef6fc] text-[#2f76b7]',
+  },
+  {
+    value: 'detailed',
+    title: 'Detailed',
+    description: 'Comprehensive explanations with supporting context.',
+    icon: ListChecks,
+    recommended: true,
+    iconTone: 'bg-[hsl(95_24%_94%)] text-primary',
+  },
+  {
+    value: 'operational',
+    title: 'Operational',
+    description: 'Enterprise decision-ready responses with risks, citations and actionable recommendations.',
+    icon: ShieldCheck,
+    iconTone: 'bg-[#f0edff] text-[#6b5ecf]',
+  },
+];
+
+function OptionCard<T extends string>({
+  option,
+  selected,
+  onSelect,
+  buttonRef,
+}: {
+  option: SettingsOption<T>;
+  selected: boolean;
+  onSelect: () => void;
+  buttonRef: (node: HTMLButtonElement | null) => void;
+}) {
+  const Icon = option.icon;
+
+  return (
+    <button
+      ref={buttonRef}
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={cn(
+        'group flex w-full items-center gap-4 rounded-xl border px-4 py-4 text-left transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+        selected
+          ? 'border-primary bg-[hsl(95_24%_94%)] shadow-sm'
+          : 'border-border bg-white hover:border-[hsl(95_28%_78%)] hover:bg-[hsl(210_20%_98%)] hover:shadow-sm'
+      )}
+    >
+      <span
+        className={cn(
+          'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-colors duration-200',
+          selected ? 'bg-primary text-white' : option.iconTone ?? 'bg-muted text-muted-foreground'
+        )}
+      >
+        <Icon size={20} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className={cn('text-sm font-semibold', selected ? 'text-primary' : 'text-foreground')}>
+            {option.title}
+          </span>
+          {option.recommended && (
+            <span className="ce-badge ce-badge-accent text-[10px]">Recommended</span>
+          )}
+        </span>
+        <span className="safe-text mt-1 block text-xs leading-5 text-muted-foreground">
+          {option.description}
+        </span>
+      </span>
+      <span
+        aria-hidden="true"
+        className={cn(
+          'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-200',
+          selected ? 'border-primary bg-primary' : 'border-[hsl(214_16%_78%)] bg-white group-hover:border-primary'
+        )}
+      >
+        {selected && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+      </span>
+    </button>
+  );
+}
+
+function SettingsPopover<T extends string>({
+  eyebrow,
+  title,
+  subtitle,
+  value,
+  options,
+  defaultNote,
+  triggerIcon: TriggerIcon,
+  onChange,
+}: SettingsPopoverProps<T>) {
+  const [open, setOpen] = useState(false);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const selectedOption = useMemo(
+    () => options.find((option) => option.value === value) ?? options[0],
+    [options, value]
+  );
+
+  const focusOption = (index: number) => {
+    const nextIndex = (index + options.length) % options.length;
+    optionRefs.current[nextIndex]?.focus();
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const currentIndex = options.findIndex((option, index) => optionRefs.current[index] === document.activeElement);
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      focusOption(currentIndex >= 0 ? currentIndex + 1 : 0);
+    }
+
+    if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+      event.preventDefault();
+      focusOption(currentIndex >= 0 ? currentIndex - 1 : options.length - 1);
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      if (currentIndex >= 0) {
+        event.preventDefault();
+        onChange(options[currentIndex].value);
+        setOpen(false);
+      }
+    }
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="ce-control flex min-h-10 min-w-[10rem] items-center gap-3 bg-white px-3 text-left hover:bg-[hsl(210_20%_98%)]"
+          aria-label={`Open ${title} selector`}
+          aria-haspopup="dialog"
+        >
+          <TriggerIcon size={17} className="shrink-0 text-primary" />
+          <span className="text-[11px] font-semibold uppercase text-muted-foreground">{eyebrow}</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+            {selectedOption.title}
+          </span>
+          <ChevronDown size={15} className="shrink-0 text-muted-foreground" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={12}
+        className="w-[min(calc(100vw-2rem),34rem)] rounded-2xl border-border bg-white p-0 shadow-lg"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          const selectedIndex = options.findIndex((option) => option.value === value);
+          window.requestAnimationFrame(() => focusOption(selectedIndex >= 0 ? selectedIndex : 0));
+        }}
+      >
+        <div className="p-6">
+          <h3 className="text-lg font-semibold tracking-normal text-foreground">{title}</h3>
+          <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">{subtitle}</p>
+          <div
+            role="radiogroup"
+            aria-label={title}
+            className="mt-5 space-y-3"
+            onKeyDown={handleKeyDown}
+          >
+            {options.map((option, index) => (
+              <OptionCard
+                key={option.value}
+                option={option}
+                selected={value === option.value}
+                onSelect={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+                buttonRef={(node) => {
+                  optionRefs.current[index] = node;
+                }}
+              />
+            ))}
+          </div>
+          <p className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
+            <Sparkles size={14} className="text-primary" />
+            {defaultNote}
+          </p>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export function SearchModePopover({
+  value,
+  onChange,
+}: {
+  value: SearchScope;
+  onChange: (value: SearchScope) => void;
+}) {
+  return (
+    <SettingsPopover
+      eyebrow="Scope"
+      title="AI Search Mode"
+      subtitle="Choose where the assistant searches for information."
+      value={value}
+      options={searchModeOptions}
+      defaultNote="Hybrid is your default search mode."
+      triggerIcon={Layers}
+      onChange={onChange}
+    />
+  );
+}
+
+export function ResponseLengthPopover({
+  value,
+  onChange,
+}: {
+  value: ResponseLength;
+  onChange: (value: ResponseLength) => void;
+}) {
+  return (
+    <SettingsPopover
+      eyebrow="Length"
+      title="Response Length"
+      subtitle="Choose the depth and detail of the answer."
+      value={value}
+      options={responseLengthOptions}
+      defaultNote="Detailed is your default response length."
+      triggerIcon={SlidersHorizontal}
+      onChange={onChange}
+    />
+  );
+}

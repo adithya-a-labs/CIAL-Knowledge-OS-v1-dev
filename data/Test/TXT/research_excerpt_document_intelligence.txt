@@ -1,0 +1,19 @@
+Research Excerpt: Deterministic Enterprise Document Intelligence
+
+Abstract:
+Enterprise knowledge systems often fail when information is fragmented across document silos. A deterministic document-intelligence pipeline can improve retrieval quality by combining structured ingestion, metadata-aware chunking, hybrid search, reranking, and citation-preserving answer generation.
+
+1. Introduction
+Modern organizations store knowledge in PDFs, spreadsheets, presentations, scanned forms, configuration files, web pages, and plain text notes. A production-grade retrieval system must support these formats without relying on uncontrolled generative reasoning. The central goal is not to make the model more creative, but to make the evidence pipeline more reliable.
+
+2. Method
+The proposed approach normalizes every file into a common evidence schema. Each extracted unit records source path, file type, section, page, slide, sheet, row range, modality, and content. Text chunks are embedded into a vector database, while keyword indexes preserve exact-match recall. Hybrid retrieval combines semantic and lexical matching.
+
+3. Results
+In pilot evaluations, table-aware spreadsheet chunking improved answer traceability because users could verify claims against sheet names and row ranges. OCR-enabled image ingestion allowed scanned notices and invoices to participate in search, but OCR confidence varied with image quality.
+
+4. Limitations
+The system cannot infer visual facts from images unless OCR or a local vision model extracts them. Deterministic verification can detect missing citations but may not fully determine semantic entailment.
+
+5. Conclusion
+For critical enterprise settings, the most trustworthy approach is a deterministic evidence pipeline with strong citations, careful metadata, and transparent reporting.

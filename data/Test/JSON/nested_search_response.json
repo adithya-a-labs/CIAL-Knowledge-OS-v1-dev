@@ -1,0 +1,44 @@
+{
+  "request_id": "run-test-2026-07-08-001",
+  "query": "Which formats are supported by the multimodal test corpus?",
+  "status": "answered",
+  "answer": "The test corpus supports office documents, spreadsheets, presentations, text files, web/config formats, and OCR images.",
+  "diagnostics": {
+    "latency_ms": 2841,
+    "retrieval": {
+      "dense_hits": 18,
+      "bm25_hits": 22,
+      "fused_hits": 31,
+      "reranked_hits": 8
+    },
+    "modalities": {
+      "text": 42,
+      "table": 7,
+      "ocr": 3,
+      "metadata": 11
+    },
+    "citations": [
+      {
+        "id": 1,
+        "source": "phase45_test_config.json",
+        "section": "ingestion.supported_formats",
+        "score": 0.91
+      },
+      {
+        "id": 2,
+        "source": "meeting_notes_airport_ops.txt",
+        "section": "Action Items",
+        "score": 0.84
+      }
+    ]
+  },
+  "user": {
+    "workspace": {
+      "id": "local-cial-test",
+      "permissions": [
+        "read:test-corpus",
+        "run:manual-qa"
+      ]
+    }
+  }
+}

@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Runtime data
+data/raw/
+data/qdrant/
+data/qdrant_server/
+data/indexes/
+data/cache/
+data/exports/
+outputs/
+
+# Real documents
+data/files/
+data/pdf/
+data/documents/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+data/bm25/
+*.pkl
+*.lock
+*.tmp

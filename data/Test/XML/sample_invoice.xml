@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<invoice id="INV-CIAL-2026-071">
+  <seller>
+    <name>Kerala Airport Systems Pvt Ltd</name>
+    <gstin>32ABCDE1234F1Z5</gstin>
+    <address>Kakkanad, Kochi, Kerala</address>
+  </seller>
+  <buyer>
+    <name>Cochin International Airport Limited</name>
+    <department>Electrical Maintenance</department>
+    <address>Nedumbassery, Kochi, Kerala</address>
+  </buyer>
+  <issueDate>2026-07-08</issueDate>
+  <dueDate>2026-07-22</dueDate>
+  <currency>INR</currency>
+  <lineItems>
+    <item>
+      <description>Runway LED inspection module</description>
+      <quantity>4</quantity>
+      <unitPrice>18500.00</unitPrice>
+      <amount>74000.00</amount>
+    </item>
+    <item>
+      <description>Control cabinet diagnostic service</description>
+      <quantity>1</quantity>
+      <unitPrice>32000.00</unitPrice>
+      <amount>32000.00</amount>
+    </item>
+    <item>
+      <description>Emergency maintenance documentation pack</description>
+      <quantity>1</quantity>
+      <unitPrice>8500.00</unitPrice>
+      <amount>8500.00</amount>
+    </item>
+  </lineItems>
+  <tax rate="18">20610.00</tax>
+  <total>135110.00</total>
+  <paymentTerms>Net 14 days</paymentTerms>
+  <notes>Attach this invoice to the runway lighting work-log compliance record.</notes>
+</invoice>

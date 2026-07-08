@@ -1,0 +1,57 @@
+# Local tool state
+.agents/
+.local/
+
+# Environment files
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Node / frontend
+node_modules/
+frontend/node_modules/
+frontend/**/node_modules/
+dist/
+frontend/dist/
+frontend/**/dist/
+*.tsbuildinfo
+
+# Runtime and generated backend state
+outputs/
+data/bm25/
+data/indexes/
+data/outputs/
+data/qdrant/
+data/qdrant_server/
+data/chunks/
+data/embeddings/
+data/processed/
+data/raw/
+
+# Enterprise corpus mount points
+data/files/
+data/pdf/
+data/documents/
+
+# Logs and temp files
+*.log
+*.tmp
+*.lock
+*.pkl
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/

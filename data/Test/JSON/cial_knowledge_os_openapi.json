@@ -1,0 +1,148 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "CIAL Knowledge OS Test API",
+    "version": "1.0.0",
+    "description": "Synthetic OpenAPI specification for testing JSON ingestion, nested objects, and endpoint retrieval."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000/api"
+    }
+  ],
+  "paths": {
+    "/documents/search": {
+      "post": {
+        "summary": "Search indexed enterprise documents",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Search results with citations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ingestion/status": {
+      "get": {
+        "summary": "Get ingestion status",
+        "responses": {
+          "200": {
+            "description": "Current ingestion status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestionStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "SearchRequest": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "enterprise",
+              "workspace",
+              "hybrid",
+              "upload"
+            ]
+          },
+          "max_results": {
+            "type": "integer",
+            "default": 10
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "Citation": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer",
+            "nullable": true
+          },
+          "slide": {
+            "type": "integer",
+            "nullable": true
+          },
+          "sheet": {
+            "type": "string",
+            "nullable": true
+          },
+          "row_range": {
+            "type": "string",
+            "nullable": true
+          },
+          "score": {
+            "type": "number"
+          }
+        }
+      },
+      "SearchResponse": {
+        "type": "object",
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Citation"
+            }
+          }
+        }
+      },
+      "IngestionStatus": {
+        "type": "object",
+        "properties": {
+          "processed_files": {
+            "type": "integer"
+          },
+          "unsupported_files": {
+            "type": "integer"
+          },
+          "ocr_images": {
+            "type": "integer"
+          },
+          "last_run_status": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

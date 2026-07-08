@@ -1,0 +1,38 @@
+CIAL Operations Review Meeting Notes
+Date: 2026-07-08
+Location: Terminal Operations Conference Room
+Chair: Operations Control Manager
+
+Attendees:
+- Airside Operations Lead
+- Electrical Maintenance Supervisor
+- Safety Compliance Officer
+- IT Systems Engineer
+- Terminal Duty Manager
+
+Agenda:
+1. Runway lighting maintenance window
+2. Passenger flow analytics
+3. Knowledge OS multimodal test corpus
+4. Incident response documentation
+
+Key Decisions:
+- Runway lighting inspection logs must be cross-checked against the latest SOP before approval.
+- Electrical maintenance teams will submit daily work-log summaries by 18:00.
+- The Knowledge OS test corpus will include PDFs, DOCX, PPTX, XLSX, CSV, YAML, JSON, XML, HTML, Markdown, TXT, and OCR images.
+- The next internal audit preparation review is scheduled for 2026-07-15.
+
+Action Items:
+1. Priya Nair will collect the latest runway lighting SOP by Friday.
+2. Arjun Menon will export June passenger movement data to CSV.
+3. Adithya A will run the Phase 4.5 multimodal notebook on the test corpus.
+4. Safety team will validate OCR results for scanned notices and invoice samples.
+5. IT will verify that Qdrant server mode is healthy before the batch run.
+
+Risks:
+- OCR quality may drop for skewed or low-resolution scanned documents.
+- Excel files with merged headers may require table-aware chunking.
+- PPTX slides with image-only diagrams may need optional vision captioning later.
+
+Closing Note:
+The team agreed that Phase 4.5 should remain deterministic and evidence-grounded. Agentic Phase 5 experiments should remain disabled for production testing.

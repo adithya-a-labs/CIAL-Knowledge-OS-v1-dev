@@ -1,0 +1,23 @@
+Chapter 1: Terminal at Midnight
+
+At 00:47, Terminal 3 was not empty. It only appeared that way to passengers who had already gone home.
+
+Behind the glass walls, the airport kept breathing. Conveyor belts hummed in short bursts. A cleaning machine moved in slow circles near Gate 18. Somewhere below, an electrical panel clicked, paused, and clicked again.
+
+Meera adjusted her radio and looked at the maintenance tablet. The alert was small, almost forgettable: LIGHTING CIRCUIT B7 — INTERMITTENT RESPONSE. In most places, this would not matter until morning. At an airport, a flicker could become a delay, a delay could become a diversion, and a diversion could become a story no one wanted to explain.
+
+She opened the archived maintenance log. The last technician had written only three words: "Checked. Seems fine."
+
+Meera frowned. The new rule was clear. Every inspection needed the exact SOP reference, the asset ID, the measurement reading, and the approving supervisor. The old note had none of them.
+
+Above her, the departure board refreshed. Every city name glowed like a promise.
+
+She called the control room.
+
+"This is Meera near Gate 18. I need the lighting SOP and the last three work orders for circuit B7."
+
+The answer came back immediately.
+
+"Knowledge OS is pulling them now."
+
+For the first time that night, the terminal felt less like a maze and more like a memory that could speak.

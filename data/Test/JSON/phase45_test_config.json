@@ -1,0 +1,54 @@
+{
+  "environment": "local-test",
+  "phase": "4.5",
+  "retrieval": {
+    "mode": "hybrid",
+    "dense_top_k": 40,
+    "bm25_top_k": 40,
+    "rrf_k": 60,
+    "reranker_enabled": true,
+    "evidence_top_k": 8
+  },
+  "ingestion": {
+    "knowledge_root": "data/files/test",
+    "recursive": true,
+    "supported_formats": [
+      "pdf",
+      "docx",
+      "doc",
+      "xlsx",
+      "xls",
+      "csv",
+      "pptx",
+      "ppt",
+      "txt",
+      "md",
+      "html",
+      "json",
+      "xml",
+      "yaml",
+      "yml",
+      "png",
+      "jpg",
+      "jpeg",
+      "tiff"
+    ],
+    "ocr": {
+      "enabled": true,
+      "engine": "local",
+      "minimum_confidence": 0.72
+    }
+  },
+  "exports": {
+    "csv": true,
+    "xlsx": true,
+    "json": true,
+    "html": true,
+    "inline_citations": true
+  },
+  "safety": {
+    "phase5_agents_enabled": false,
+    "unsupported_query_policy": "return_insufficient_evidence",
+    "require_citations": true
+  }
+}
