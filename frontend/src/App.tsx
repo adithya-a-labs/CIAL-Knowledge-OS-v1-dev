@@ -6,6 +6,7 @@ import AppShell from "@/components/layout/AppShell";
 import DashboardPage from "@/pages/DashboardPage";
 import AIAssistantPage from "@/pages/AIAssistantPage";
 import KnowledgeCenterPage from "@/pages/KnowledgeCenterPage";
+import DocumentsPage from "@/pages/DocumentsPage";
 import FAQsPage from "@/pages/FAQsPage";
 import ExpertDirectoryPage from "@/pages/ExpertDirectoryPage";
 import LearningHubPage from "@/pages/LearningHubPage";
@@ -27,7 +28,7 @@ function Router() {
         <Route path="/assistant" component={AIAssistantPage} />
         <Route path="/knowledge-center" component={KnowledgeCenterPage} />
         <Route path="/knowledge-center/:tab" component={KnowledgeCenterPage} />
-        <Route path="/documents" component={KnowledgeCenterPage} />
+        <Route path="/documents" component={DocumentsPage} />
         <Route path="/knowledge" component={KnowledgeCenterPage} />
         <Route path="/policies" component={KnowledgeCenterPage} />
         <Route path="/faqs" component={FAQsPage} />

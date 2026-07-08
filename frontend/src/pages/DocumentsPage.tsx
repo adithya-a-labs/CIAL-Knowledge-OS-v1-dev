@@ -1,5 +1,8 @@
-import { useState } from 'react';
-import { Upload } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { RefreshCcw, Upload } from 'lucide-react';
+import { getIndexStatus, listDocuments, rebuildIndex } from '@/api/client';
+import { toUiDocument } from '@/api/adapters';
 import PageHeader from '@/components/common/PageHeader';
 import SearchBar from '@/components/common/SearchBar';
 import FilterBar from '@/components/common/FilterBar';
@@ -19,7 +22,28 @@ export default function DocumentsPage() {
   const [filters, setFilters] = useState({ category: '', department: '', type: '', sort: '' });
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [page, setPage] = useState(1);
+  const [indexActionMessage, setIndexActionMessage] = useState<string | null>(null);
+  const [isRebuilding, setIsRebuilding] = useState(false);
   const PER_PAGE = 10;
+
+  const documentsQuery = useQuery({
+    queryKey: ['documents'],
+    queryFn: listDocuments,
+    retry: false,
+  });
+  const indexStatusQuery = useQuery({
+    queryKey: ['index-status'],
+    queryFn: getIndexStatus,
+    retry: false,
+    refetchInterval: 5000,
+  });
+
+  const documents = useMemo(() => {
+    if (!documentsQuery.data) return DOCUMENTS;
+    return documentsQuery.data.documents.map(toUiDocument);
+  }, [documentsQuery.data]);
+
+  const usingMockFallback = documentsQuery.isError || !documentsQuery.data;
 
   const userRole = CURRENT_USER.role as Role;
   const canUpload = hasPermission(userRole, 'canUpload');
@@ -31,7 +55,7 @@ export default function DocumentsPage() {
     setPage(1);
   };
 
-  const filtered = DOCUMENTS.filter(doc => {
+  const filtered = documents.filter(doc => {
     if (search && !doc.name.toLowerCase().includes(search.toLowerCase())) return false;
     if (filters.category && doc.category !== filters.category) return false;
     if (filters.department && doc.department !== filters.department) return false;
@@ -45,19 +69,67 @@ export default function DocumentsPage() {
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
   const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
+  const handleRebuildIndex = async () => {
+    setIsRebuilding(true);
+    setIndexActionMessage(null);
+    try {
+      const response = await rebuildIndex(false);
+      setIndexActionMessage(response.message);
+      await indexStatusQuery.refetch();
+    } catch (error) {
+      setIndexActionMessage(error instanceof Error ? error.message : 'Index rebuild failed.');
+    } finally {
+      setIsRebuilding(false);
+    }
+  };
+
   return (
     <div className="fluid-section" data-testid="documents-page">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader title="Documents" subtitle="Search, filter and access all documents." />
         {canUpload && (
-          <button
-            onClick={() => setShowUploadModal(true)}
-            className="flex w-full flex-shrink-0 items-center justify-center gap-2 rounded-xl bg-[#4a7c3f] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#3d6834] sm:mt-1 sm:w-auto"
-            data-testid="button-upload"
-          >
-            <Upload size={15} />
-            Upload Document
-          </button>
+          <div className="flex flex-col gap-2 sm:mt-1 sm:flex-row">
+            <button
+              onClick={handleRebuildIndex}
+              disabled={isRebuilding}
+              className="flex w-full flex-shrink-0 items-center justify-center gap-2 rounded-xl border border-[#ddecd6] bg-white px-4 py-2.5 text-sm font-medium text-[#4a7c3f] transition-colors hover:bg-[#f0f7ed] disabled:opacity-50 sm:w-auto"
+              data-testid="button-rebuild-index"
+            >
+              <RefreshCcw size={15} />
+              {isRebuilding ? 'Indexing...' : 'Rebuild Index'}
+            </button>
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="flex w-full flex-shrink-0 items-center justify-center gap-2 rounded-xl bg-[#4a7c3f] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#3d6834] sm:w-auto"
+              data-testid="button-upload"
+            >
+              <Upload size={15} />
+              Upload Document
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="mb-4 rounded-xl border border-[#e2eedd] bg-white px-4 py-3 text-xs text-[#5a7a52] shadow-sm">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            Documents source:{' '}
+            <strong className="text-[#1a2e14]">
+              {documentsQuery.isLoading ? 'Loading backend...' : usingMockFallback ? 'Mock fallback' : 'Backend data/files'}
+            </strong>
+          </span>
+          <span>
+            Index status:{' '}
+            <strong className="text-[#1a2e14]">
+              {indexStatusQuery.data?.status ?? 'unavailable'}
+            </strong>
+            {indexStatusQuery.data ? ` / ${indexStatusQuery.data.documents_indexed} indexed` : ''}
+          </span>
+        </div>
+        {(indexActionMessage || documentsQuery.isError) && (
+          <p className="mt-2 text-[#8a5208]">
+            {indexActionMessage ?? 'Backend documents API is unavailable; showing mock documents.'}
+          </p>
         )}
       </div>
 

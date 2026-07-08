@@ -6,10 +6,11 @@ import ContextChips from './ContextChips';
 import ContextManagerDialog from './ContextManagerDialog';
 import RetrievalTimeline from './RetrievalTimeline';
 import SourceViewerPanel from './SourceViewerPanel';
+import { askQuestion, uploadDocument } from '@/api/client';
+import { toAssistantMessage, toChatRequest } from '@/api/adapters';
 import {
   CONTEXT_DOCUMENTS,
   INITIAL_ASSISTANT_MESSAGES,
-  MOCK_AI_RESPONSES,
   MOCK_CHAT_SOURCES,
   RETRIEVAL_STAGES,
 } from '@/data/assistantData';
@@ -36,28 +37,13 @@ function createUploadedFileContext(file: File): UploadedFileContext {
   };
 }
 
-function createMetadata(
-  requestPayload: ChatRequestPayload,
-  sources: ChatSource[],
-  selectedDocumentCount: number
-) {
-  return {
-    searchScope: requestPayload.searchScope,
-    responseLength: requestPayload.responseLength,
-    documentsSearched: Math.max(selectedDocumentCount + requestPayload.uploadedFileIds.length, 3),
-    chunksRetrieved: requestPayload.responseLength === 'operational' ? 24 : 18,
-    sourcesUsed: sources.length,
-    confidence: requestPayload.searchScope === 'current_upload' ? 86 : 91,
-    generationTimeSeconds: requestPayload.responseLength === 'quick' ? 1.4 : 2.4,
-  };
-}
-
 export default function ChatPanel() {
   const [messages, setMessages] = useState<ChatMessageData[]>(
     INITIAL_ASSISTANT_MESSAGES as ChatMessageData[]
   );
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeStageIndex, setActiveStageIndex] = useState(0);
   const [searchScope, setSearchScope] = useState<SearchScope>('hybrid');
   const [responseLength, setResponseLength] = useState<ResponseLength>('detailed');
@@ -109,7 +95,7 @@ export default function ChatPanel() {
     setSourceViewerOpen(true);
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
     const requestPayload: ChatRequestPayload = {
@@ -130,33 +116,51 @@ export default function ChatPanel() {
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
     setIsLoading(true);
+    setErrorMessage(null);
 
-    window.setTimeout(() => {
-      const response = MOCK_AI_RESPONSES[Math.floor(Math.random() * MOCK_AI_RESPONSES.length)];
-      const sources = MOCK_CHAT_SOURCES;
+    try {
+      const response = await askQuestion(toChatRequest(requestPayload));
+      const adapted = toAssistantMessage(response, requestPayload);
       const aiMsg: ChatMessageData = {
         id: `ai-${Date.now()}`,
         role: 'assistant',
-        content: response.content,
+        content: adapted.content,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        sources,
-        metadata: createMetadata(requestPayload, sources, selectedDocuments.length),
-        relatedQuestions: response.relatedQuestions,
+        sources: adapted.sources,
+        metadata: adapted.metadata,
+        relatedQuestions: adapted.relatedQuestions,
       };
 
-      // TODO: Replace this mock response path with the retrieval/chat backend call.
       setMessages((prev) => [...prev, aiMsg]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The backend could not answer this question.';
+      setErrorMessage(message);
+      toast({
+        title: 'Assistant request failed',
+        description: message,
+      });
+    } finally {
       setIsLoading(false);
-    }, 1600);
+    }
   };
 
-  const handleFileChange = (files: FileList | null) => {
+  const handleFileChange = async (files: FileList | null) => {
     if (!files?.length) return;
 
     const newFiles = Array.from(files).map(createUploadedFileContext);
-    // TODO: Upload and index files with backend before marking them retrievable.
     setUploadedFiles((current) => [...current, ...newFiles]);
     if (fileInputRef.current) fileInputRef.current.value = '';
+
+    const results = await Promise.allSettled(Array.from(files).map((file) => uploadDocument(file)));
+    const failed = results.filter((result) => result.status === 'rejected').length;
+    if (failed > 0) {
+      toast({
+        title: 'Some uploads failed',
+        description: `${failed} file${failed === 1 ? '' : 's'} could not be saved to the backend.`,
+      });
+      return;
+    }
+    toast({ title: 'Upload saved', description: 'The file was saved under data/files.' });
   };
 
   const handleCopy = async (content: string) => {
@@ -204,6 +208,11 @@ export default function ChatPanel() {
           {isLoading && (
             <div className="flex justify-start">
               <RetrievalTimeline activeStageIndex={activeStageIndex} />
+            </div>
+          )}
+          {errorMessage && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" data-testid="assistant-error">
+              {errorMessage}
             </div>
           )}
           <div ref={messagesEndRef} />

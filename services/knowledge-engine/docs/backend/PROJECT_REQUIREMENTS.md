@@ -389,6 +389,23 @@ This principle must remain true throughout the lifetime of the project.
 - Support explicit full rebuild and legacy full-processing configuration
   without changing retrieval, reranking, or evidence-selection semantics.
 
+## 23. Full-Stack Development Integration
+
+- The first integrated development backend must use thin FastAPI routes, typed
+  Pydantic schemas, and service-layer adapters.
+- FastAPI route files must not contain retrieval, reranking, indexing, citation,
+  or generation logic.
+- The development API may wrap the existing deterministic Phase 4.5 engine, but
+  must not introduce Phase 5 agents, orchestration packages, live dashboards, or
+  reporting folders.
+- Frontend API calls must remain centralized under `frontend/src/api`.
+- Mock frontend data may remain as an explicit fallback while chat, documents,
+  indexing status, evaluation run discovery, and export discovery are wired
+  incrementally.
+- Backend/frontend integration must preserve offline-first assumptions and
+  return actionable errors when local Qdrant, Ollama, model weights, indexes, or
+  Python dependencies are unavailable.
+
 ## Pending Clarifications
 
 None currently recorded.

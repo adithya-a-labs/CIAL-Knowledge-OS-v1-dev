@@ -25,7 +25,7 @@ export interface UploadedFileContext {
   size: number;
   type: string;
   sourceType: 'upload';
-  uploadStatus: 'mock_uploaded';
+  uploadStatus: 'mock_uploaded' | 'uploaded' | 'upload_failed';
 }
 
 export interface ChatRequestPayload {
