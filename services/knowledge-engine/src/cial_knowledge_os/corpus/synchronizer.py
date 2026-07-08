@@ -61,9 +61,11 @@ class CorpusSynchronizer:
             elapsed_ms=int((perf_counter() - started) * 1000),
             message="Corpus synchronization completed.",
         )
+        log_payload = summary.to_dict()
+        log_payload["sync_message"] = log_payload.pop("message", "")
         logger.info(
             "corpus_sync_completed",
-            extra={"event": "corpus_sync", **summary.to_dict()},
+            extra={"event": "corpus_sync", **log_payload},
         )
         return summary
 
@@ -172,6 +174,7 @@ class CorpusSynchronizer:
         for relative_path, file in sorted(tree.files_by_path.items()):
             existing = existing_by_path.get(relative_path)
             action: str | None = None
+            queue_indexing = False
             if existing is None:
                 existing = self._match_moved_document(file, unmatched_existing, matched_existing_ids)
                 if existing is None:
@@ -179,6 +182,7 @@ class CorpusSynchronizer:
                     session.add(existing)
                     counters.files_added += 1
                     action = "added"
+                    queue_indexing = True
                 else:
                     old_path = existing.relative_path
                     old_name = existing.name
@@ -201,21 +205,22 @@ class CorpusSynchronizer:
                 if content_changed:
                     counters.files_modified += 1
                     action = "modified"
+                    queue_indexing = True
                 else:
                     counters.files_unchanged += 1
 
             existing.folder_id = folders_by_path[file.folder_relative_path].id
             if action is not None:
-                existing.indexed = False
-                existing.indexing_status = PENDING_STATUS
-                if action in {"added", "modified"}:
+                if queue_indexing:
+                    existing.indexed = False
+                    existing.indexing_status = PENDING_STATUS
                     self._add_document_version(existing, file, store, session)
-                store.add_indexing_job(
-                    action=action,
-                    document=existing,
-                    message=f"Corpus document {action}: {existing.relative_path}",
-                )
-                jobs_created += 1
+                    store.add_indexing_job(
+                        action=action,
+                        document=existing,
+                        message=f"Corpus document {action}: {existing.relative_path}",
+                    )
+                    jobs_created += 1
             elif existing.indexing_status != DELETED_STATUS and existing.indexing_status != PENDING_STATUS:
                 existing.indexing_status = INDEXED_STATUS if existing.indexed else existing.indexing_status
 
@@ -224,13 +229,7 @@ class CorpusSynchronizer:
                 continue
             document.indexed = False
             document.indexing_status = DELETED_STATUS
-            store.add_indexing_job(
-                action="deleted",
-                document=document,
-                message=f"Corpus document deleted: {path}",
-            )
             counters.files_removed += 1
-            jobs_created += 1
 
         return jobs_created
 
