@@ -2,6 +2,11 @@ import type {
   ApiDocument,
   ChatRequest,
   ChatResponse,
+  CorpusDocument,
+  CorpusFolderResponse,
+  CorpusSyncResponse,
+  CorpusTreeResponse,
+  DocumentPreview,
   DocumentListResponse,
   EvaluationRunRequest,
   EvaluationRunResponse,
@@ -56,6 +61,33 @@ export function askQuestion(payload: ChatRequest) {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+}
+
+export function getCorpusTree() {
+  return request<CorpusTreeResponse>('/api/corpus/tree');
+}
+
+export function getCorpusFolder(path = '') {
+  const query = path ? `?path=${encodeURIComponent(path)}` : '';
+  return request<CorpusFolderResponse>(`/api/corpus/folder${query}`);
+}
+
+export function getCorpusDocument(id: string) {
+  return request<CorpusDocument>(`/api/corpus/document/${encodeURIComponent(id)}`);
+}
+
+export function getDocumentPreview(documentId: string, chunkId?: string, page?: number) {
+  const params = new URLSearchParams();
+  if (chunkId) params.set('chunk_id', chunkId);
+  if (page !== undefined) params.set('page', String(page));
+  const query = params.toString();
+  return request<DocumentPreview>(
+    `/api/corpus/document/${encodeURIComponent(documentId)}/preview${query ? `?${query}` : ''}`,
+  );
+}
+
+export function syncCorpus() {
+  return request<CorpusSyncResponse>('/api/corpus/sync', { method: 'POST' });
 }
 
 export function listDocuments() {

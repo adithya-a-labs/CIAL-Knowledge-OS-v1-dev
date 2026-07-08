@@ -32,7 +32,8 @@ export interface ChatRequestPayload {
   query: string;
   searchScope: SearchScope;
   responseLength: ResponseLength;
-  selectedContextIds: string[];
+  selectedDocumentIds: string[];
+  selectedFolderIds: string[];
   uploadedFileIds: string[];
 }
 
@@ -40,6 +41,7 @@ export interface ChatSource {
   id: string;
   citationIndex: number;
   documentId: string;
+  relativePath?: string;
   documentTitle: string;
   sourceType: ContextSourceType;
   department?: string;

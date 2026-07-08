@@ -7,7 +7,18 @@ import type {
   ChatSource as UiChatSource,
   ResponseLength as UiResponseLength,
 } from '@/types/assistant';
-import type { ApiDocument, ChatCitation, ChatResponse, ChatSource, ResponseLength } from './types';
+import type {
+  ApiDocument,
+  ChatCitation,
+  ChatResponse,
+  ChatSource,
+  CorpusDocument,
+  CorpusFolder,
+  CorpusFolderResponse,
+  CorpusTreeNode,
+  ResponseLength,
+  SelectedContextItem,
+} from './types';
 
 export function toApiResponseLength(value: UiResponseLength): ResponseLength {
   if (value === 'quick') return 'short';
@@ -16,10 +27,14 @@ export function toApiResponseLength(value: UiResponseLength): ResponseLength {
 }
 
 export function toChatRequest(payload: ChatRequestPayload) {
+  const maxAnswerWords = payload.responseLength === 'quick' ? 200 : undefined;
   return {
     question: payload.query,
-    selected_document_ids: [...payload.selectedContextIds, ...payload.uploadedFileIds],
+    selected_document_ids: [...payload.selectedDocumentIds, ...payload.uploadedFileIds],
+    selected_folder_ids: [...payload.selectedFolderIds],
     response_length: toApiResponseLength(payload.responseLength),
+    profile: payload.responseLength,
+    max_answer_words: maxAnswerWords,
     include_sources: true,
   };
 }
@@ -39,7 +54,7 @@ export function toAssistantMessageMetadata(
   return {
     searchScope: request.searchScope,
     responseLength: request.responseLength,
-    documentsSearched: request.selectedContextIds.length + request.uploadedFileIds.length,
+    documentsSearched: request.selectedDocumentIds.length + request.uploadedFileIds.length + request.selectedFolderIds.length,
     chunksRetrieved: sources.length,
     sourcesUsed: citations.length,
     confidence: citations.length > 0 ? 84 : 0,
@@ -113,6 +128,7 @@ export function toUiChatSources(response: ChatResponse): UiChatSource[] {
       id: source.id || `source-${index + 1}`,
       citationIndex,
       documentId: source.path || source.id || documentTitleFromSource(source),
+      relativePath: source.path || undefined,
       documentTitle: documentTitleFromSource(source),
       sourceType: 'enterprise',
       pageNumber: source.page ?? undefined,
@@ -122,6 +138,44 @@ export function toUiChatSources(response: ChatResponse): UiChatSource[] {
       reason: `Retrieved through ${metadata.retrieval_mode} / Phase ${metadata.phase}.`,
     };
   });
+}
+
+export function corpusDocumentToContext(document: CorpusDocument): SelectedContextItem {
+  return {
+    id: document.id,
+    type: 'document',
+    title: document.name,
+    relative_path: document.relative_path,
+  };
+}
+
+export function corpusFolderToContext(folder: CorpusFolder): SelectedContextItem {
+  return {
+    id: folder.id ?? folder.relative_path,
+    type: 'folder',
+    title: folder.name || 'Root',
+    relative_path: folder.relative_path,
+    document_count: folder.document_count,
+  };
+}
+
+export function flattenCorpusTree(root: CorpusTreeNode): { folders: CorpusFolder[]; documents: CorpusDocument[] } {
+  const folders: CorpusFolder[] = [];
+  const documents: CorpusDocument[] = [];
+  const visit = (node: CorpusTreeNode) => {
+    folders.push(node);
+    (node.documents ?? node.files ?? []).forEach((document) => documents.push(document));
+    node.children.forEach(visit);
+  };
+  visit(root);
+  return { folders, documents };
+}
+
+export function normalizeCorpusFolderResponse(response: CorpusFolderResponse): CorpusFolderResponse {
+  return {
+    ...response,
+    files: response.files ?? response.documents ?? [],
+  };
 }
 
 function looksLikeStructuredDump(value: string): boolean {
