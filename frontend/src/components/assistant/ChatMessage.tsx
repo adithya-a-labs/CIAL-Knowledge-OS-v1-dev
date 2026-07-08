@@ -14,6 +14,7 @@ import {
   SEARCH_SCOPE_LABELS,
 } from '@/data/assistantData';
 import type {
+  ChatCitation,
   AssistantMessageMetadata,
   ChatSource,
   FeedbackType,
@@ -24,6 +25,7 @@ export interface ChatMessageData {
   role: 'user' | 'assistant';
   content: string;
   timestamp: string;
+  citations?: ChatCitation[];
   sources?: ChatSource[];
   metadata?: AssistantMessageMetadata;
   relatedQuestions?: string[];
@@ -108,10 +110,47 @@ function renderContentWithCitations(
 
 function MetadataPanel({ metadata }: { metadata: AssistantMessageMetadata }) {
   return (
-    <div className="rounded-lg border border-border bg-muted px-3 py-2 text-[11px] font-medium text-muted-foreground">
+    <div className="rounded-lg border border-border bg-muted px-3 py-2 text-[11px] font-medium leading-5 text-muted-foreground">
       {SEARCH_SCOPE_LABELS[metadata.searchScope]} / {RESPONSE_LENGTH_LABELS[metadata.responseLength]} /{' '}
       {metadata.documentsSearched} docs / {metadata.chunksRetrieved} chunks / {metadata.sourcesUsed} sources /{' '}
       {metadata.confidence}% confidence / {metadata.generationTimeSeconds.toFixed(1)}s
+    </div>
+  );
+}
+
+function CitationList({
+  citations,
+  sources,
+  onCitationClick,
+}: {
+  citations: ChatCitation[];
+  sources: ChatSource[];
+  onCitationClick: (source: ChatSource) => void;
+}) {
+  if (citations.length === 0) return null;
+
+  return (
+    <div className="ce-card p-3" data-testid="assistant-citations">
+      <p className="mb-2 text-xs font-semibold text-foreground">Citations</p>
+      <div className="flex flex-wrap gap-2">
+        {citations.map((citation) => {
+          const source = sources.find((candidate) => candidate.citationIndex === citation.citationIndex);
+          return (
+            <button
+              key={citation.id}
+              type="button"
+              disabled={!source}
+              onClick={() => source && onCitationClick(source)}
+              className="inline-flex max-w-full items-center gap-1 rounded-lg border border-[hsl(95_28%_78%)] bg-[hsl(95_24%_94%)] px-2.5 py-1.5 text-left text-[11px] font-semibold text-primary hover:bg-accent disabled:cursor-default disabled:opacity-70"
+              data-testid={`citation-chip-${citation.citationIndex}`}
+            >
+              <span>[{citation.citationIndex}]</span>
+              <span className="truncate">{citation.documentTitle}</span>
+              {citation.pageNumber ? <span className="text-muted-foreground">p. {citation.pageNumber}</span> : null}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -140,6 +179,8 @@ export default function ChatMessage({
   }
 
   const sources = message.sources ?? [];
+  const citations = message.citations ?? [];
+  const answer = message.content?.trim() || 'No answer returned.';
 
   return (
     <div className="flex justify-start" data-testid={`chat-message-ai-${message.id}`}>
@@ -149,12 +190,16 @@ export default function ChatMessage({
             <p className="text-xs font-semibold text-foreground">Grounded response</p>
             <span className="ce-meta-text">{message.timestamp}</span>
           </div>
-          {renderContentWithCitations(message.content, sources, onCitationClick)}
+          <div className="max-w-prose text-sm leading-6">
+            {renderContentWithCitations(answer, sources, onCitationClick)}
+          </div>
         </div>
 
-        {message.metadata && <MetadataPanel metadata={message.metadata} />}
+        <CitationList citations={citations} sources={sources} onCitationClick={onCitationClick} />
 
         <SourceCitationCard sources={sources} onOpenSource={onSourceOpen} />
+
+        {message.metadata && <MetadataPanel metadata={message.metadata} />}
 
         {message.relatedQuestions && message.relatedQuestions.length > 0 && (
           <div className="ce-card p-3">

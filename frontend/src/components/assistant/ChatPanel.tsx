@@ -154,6 +154,7 @@ export default function ChatPanel() {
         role: 'assistant',
         content: adapted.content,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        citations: adapted.citations,
         sources: adapted.sources,
         metadata: adapted.metadata,
         relatedQuestions: adapted.relatedQuestions,
@@ -201,7 +202,7 @@ export default function ChatPanel() {
   };
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 gap-4" data-testid="assistant-workspace">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 gap-4 overflow-hidden" data-testid="assistant-workspace">
       <div className="ce-panel responsive-card flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-testid="chat-panel">
         <ChatControlBar
           searchScope={searchScope}

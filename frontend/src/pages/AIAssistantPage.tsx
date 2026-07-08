@@ -8,8 +8,8 @@ export default function AIAssistantPage() {
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
 
   return (
-    <div className="fluid-section flex min-h-[calc(100dvh-8rem)] flex-col" data-testid="ai-assistant-page">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="fluid-section flex h-full min-h-0 flex-col overflow-hidden" data-testid="ai-assistant-page">
+      <div className="shrink-0 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <PageHeader title="Knowledge Assistant" subtitle="Ask grounded questions, inspect cited sources, and keep context visible while you work." />
 
         {/* Mobile: open history drawer */}
@@ -23,13 +23,13 @@ export default function AIAssistantPage() {
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1 gap-4">
+      <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
         {/* Chat Panel (full width on mobile, flex-1 on desktop) */}
         <ChatPanel />
 
         {/* Conversation History Sidebar – desktop only */}
         <div
-          className="ce-panel hidden w-64 flex-col overflow-hidden xl:flex 2xl:w-72"
+          className="ce-panel hidden h-full min-h-0 w-64 flex-col overflow-hidden xl:flex 2xl:w-72"
           data-testid="conversation-history-sidebar"
         >
           <ConversationHistory variant="sidebar" />

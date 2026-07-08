@@ -151,7 +151,7 @@ export default function SourceViewerPanel({
 
   return (
     <>
-      <aside className="ce-panel hidden w-[22rem] shrink-0 overflow-hidden lg:block 2xl:w-[26rem]" data-testid="source-viewer-panel">
+      <aside className="ce-panel hidden h-full min-h-0 w-[22rem] shrink-0 overflow-hidden lg:block 2xl:w-[26rem]" data-testid="source-viewer-panel">
         <SourceViewerContent
           source={source}
           sources={sources}

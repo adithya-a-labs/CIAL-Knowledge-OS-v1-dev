@@ -2,11 +2,12 @@ import type { ChatMessageData } from '@/components/assistant/ChatMessage';
 import type { Document } from '@/types';
 import type {
   AssistantMessageMetadata,
+  ChatCitation as UiChatCitation,
   ChatRequestPayload,
   ChatSource as UiChatSource,
   ResponseLength as UiResponseLength,
 } from '@/types/assistant';
-import type { ApiDocument, ChatResponse, ResponseLength } from './types';
+import type { ApiDocument, ChatCitation, ChatResponse, ChatSource, ResponseLength } from './types';
 
 export function toApiResponseLength(value: UiResponseLength): ResponseLength {
   if (value === 'quick') return 'short';
@@ -27,44 +28,145 @@ export function toAssistantMessageMetadata(
   response: ChatResponse,
   request: ChatRequestPayload,
 ): AssistantMessageMetadata {
+  const sources = Array.isArray(response.sources) ? response.sources : [];
+  const citations = Array.isArray(response.citations) ? response.citations : [];
+  const metadata = response.metadata ?? {
+    retrieval_mode: 'unknown',
+    phase: '4.5',
+    latency_ms: 0,
+    model: '',
+  };
   return {
     searchScope: request.searchScope,
     responseLength: request.responseLength,
     documentsSearched: request.selectedContextIds.length + request.uploadedFileIds.length,
-    chunksRetrieved: response.sources.length,
-    sourcesUsed: response.citations.length,
-    confidence: response.citations.length > 0 ? 84 : 0,
-    generationTimeSeconds: response.metadata.latency_ms / 1000,
+    chunksRetrieved: sources.length,
+    sourcesUsed: citations.length,
+    confidence: citations.length > 0 ? 84 : 0,
+    generationTimeSeconds: Number(metadata.latency_ms || 0) / 1000,
   };
 }
 
-export function toUiChatSources(response: ChatResponse): UiChatSource[] {
-  const sourceById = new Map(response.sources.map((source) => [source.id, source]));
-  return response.citations.map((citation, index) => {
-    const source = sourceById.get(citation.id);
+function normalizeChatResponse(response: ChatResponse): ChatResponse {
+  if (!response || typeof response !== 'object') {
     return {
-      id: citation.id,
-      citationIndex: index + 1,
-      documentId: source?.path || citation.document_name,
-      documentTitle: citation.document_name,
+      answer: 'No answer returned.',
+      citations: [],
+      sources: [],
+      metadata: {
+        retrieval_mode: 'unknown',
+        phase: '4.5',
+        latency_ms: 0,
+        model: '',
+      },
+    };
+  }
+
+  const payload = response as Partial<ChatResponse>;
+  return {
+    answer: typeof payload.answer === 'string' ? payload.answer : '',
+    citations: Array.isArray(payload.citations) ? payload.citations : [],
+    sources: Array.isArray(payload.sources) ? payload.sources : [],
+    metadata: payload.metadata ?? {
+      retrieval_mode: 'unknown',
+      phase: '4.5',
+      latency_ms: 0,
+      model: '',
+    },
+  };
+}
+
+function citationIndexById(citations: ChatCitation[]): Map<string, number> {
+  return new Map(citations.map((citation, index) => [citation.id, index + 1]));
+}
+
+function documentTitleFromSource(source: ChatSource): string {
+  return source.document_name || source.path?.split('/').pop() || 'Unknown document';
+}
+
+export function toUiChatCitations(response: ChatResponse): UiChatCitation[] {
+  const citations = Array.isArray(response.citations) ? response.citations : [];
+  return citations.map((citation, index) => ({
+    id: citation.id || `citation-${index + 1}`,
+    citationIndex: index + 1,
+    documentTitle: citation.document_name || 'Unknown document',
+    pageNumber: citation.page ?? undefined,
+    snippet: citation.snippet || undefined,
+    score: citation.score ?? undefined,
+  }));
+}
+
+export function toUiChatSources(response: ChatResponse): UiChatSource[] {
+  const sources = Array.isArray(response.sources) ? response.sources : [];
+  const citations = Array.isArray(response.citations) ? response.citations : [];
+  const citationIndexes = citationIndexById(citations);
+  const metadata = response.metadata ?? {
+    retrieval_mode: 'unknown',
+    phase: '4.5',
+    latency_ms: 0,
+    model: '',
+  };
+
+  return sources.map((source, index) => {
+    const citationIndex = citationIndexes.get(source.id) ?? index + 1;
+    return {
+      id: source.id || `source-${index + 1}`,
+      citationIndex,
+      documentId: source.path || source.id || documentTitleFromSource(source),
+      documentTitle: documentTitleFromSource(source),
       sourceType: 'enterprise',
-      pageNumber: citation.page ?? undefined,
-      chunkId: source?.chunk_id,
-      score: citation.score ?? source?.score ?? undefined,
-      excerpt: citation.snippet || source?.text,
-      reason: `Retrieved through ${response.metadata.retrieval_mode} / Phase ${response.metadata.phase}.`,
+      pageNumber: source.page ?? undefined,
+      chunkId: source.chunk_id || undefined,
+      score: source.score ?? undefined,
+      excerpt: source.text || undefined,
+      reason: `Retrieved through ${metadata.retrieval_mode} / Phase ${metadata.phase}.`,
     };
   });
+}
+
+function looksLikeStructuredDump(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  const startsStructured = trimmed.startsWith('{') || trimmed.startsWith('[');
+  return startsStructured && /"?(answer|citations|sources|metadata)"?\s*[:=]/i.test(trimmed.slice(0, 1000));
+}
+
+function safeAnswer(response: ChatResponse): string {
+  const raw = response.answer;
+  if (typeof raw !== 'string') return 'No answer returned.';
+  const answer = raw.trim();
+  if (!answer) return 'No answer returned.';
+
+  if (looksLikeStructuredDump(answer)) {
+    try {
+      const parsed = JSON.parse(answer);
+      if (
+        parsed &&
+        typeof parsed === 'object' &&
+        'answer' in parsed &&
+        typeof (parsed as { answer?: unknown }).answer === 'string'
+      ) {
+        const nestedAnswer = (parsed as { answer: string }).answer.trim();
+        return nestedAnswer || 'No answer returned.';
+      }
+    } catch {
+      return 'The backend returned an unexpected structured response instead of answer text.';
+    }
+  }
+
+  return answer;
 }
 
 export function toAssistantMessage(
   response: ChatResponse,
   request: ChatRequestPayload,
 ): Omit<ChatMessageData, 'id' | 'role' | 'timestamp'> {
+  const normalizedResponse = normalizeChatResponse(response);
   return {
-    content: response.answer,
-    sources: toUiChatSources(response),
-    metadata: toAssistantMessageMetadata(response, request),
+    content: safeAnswer(normalizedResponse),
+    citations: toUiChatCitations(normalizedResponse),
+    sources: toUiChatSources(normalizedResponse),
+    metadata: toAssistantMessageMetadata(normalizedResponse, request),
     relatedQuestions: [],
   };
 }

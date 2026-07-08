@@ -50,6 +50,15 @@ export interface ChatSource {
   excerpt?: string;
 }
 
+export interface ChatCitation {
+  id: string;
+  citationIndex: number;
+  documentTitle: string;
+  pageNumber?: number;
+  snippet?: string;
+  score?: number;
+}
+
 export interface AssistantMessageMetadata {
   searchScope: SearchScope;
   responseLength: ResponseLength;
