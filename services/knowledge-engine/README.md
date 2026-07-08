@@ -118,6 +118,25 @@ On an isolated host, stage approved wheels first and replace the first command w
 The official hash-verified `cl100k_base` tiktoken vocabulary is packaged with
 the Python module, so token counting does not make a network request.
 
+## Integrated FastAPI Backend
+
+The integrated development API lives inside this service at `backend/app`.
+Run it from this directory so `backend.app.main` resolves to the service-local
+backend package:
+
+```powershell
+uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+For the repository-local virtual environment:
+
+```powershell
+..\..\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Backend environment examples live at `backend/.env.example`. The root-level
+`backend/` directory is only a migration note and is not an importable backend.
+
 The embedding model must already exist in the local Hugging Face cache, and the
 configured Ollama model must already exist in the local Ollama store. The Phase
 4 reranker is different by design: developer mode checks the local cache first

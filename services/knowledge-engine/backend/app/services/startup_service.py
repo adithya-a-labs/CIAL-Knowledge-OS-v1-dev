@@ -37,6 +37,19 @@ _SUPPORTED_DOCUMENT_SUFFIXES = {
     ".tiff",
 }
 
+_STAGE_MESSAGES = {
+    "load": "Loading documents with Phase4RAGPipeline.load().",
+    "loaded": "Documents loaded.",
+    "chunk": "Chunking documents with Phase4RAGPipeline.chunk().",
+    "chunked": "Documents chunked.",
+    "embed": "Embedding chunks with Phase4RAGPipeline.embed().",
+    "embedded": "Chunk embeddings created.",
+    "index": "Indexing chunks with Phase4RAGPipeline.index().",
+    "indexed": "Vector and BM25 indexes updated; loading Phase 4 reranker.",
+    "reranker": "Loading Phase 4 reranker.",
+    "ready": "Phase 4.5 pipeline initialization completed.",
+}
+
 
 class StartupService:
     def __init__(
@@ -116,7 +129,8 @@ class StartupService:
                 message="Indexing documents with Phase4RAGPipeline.",
             )
             counts = self.engine.prepare_pipeline(
-                force_rebuild_index=settings.force_rebuild_on_startup
+                force_rebuild_index=settings.force_rebuild_on_startup,
+                on_stage=self._on_pipeline_stage,
             )
             self.runtime_state.update(
                 documents_seen=counts["documents_seen"] or documents_seen,
@@ -168,6 +182,21 @@ class StartupService:
             for path in root.rglob("*")
             if path.is_file() and path.suffix.casefold() in _SUPPORTED_DOCUMENT_SUFFIXES
         )
+
+    def _on_pipeline_stage(self, stage: str, counts: dict[str, int]) -> None:
+        values: dict[str, object] = {
+            "status": "indexing",
+            "engine_ready": False,
+            "last_startup_check_at": utc_now_iso(),
+            "message": _STAGE_MESSAGES.get(stage, f"Phase 4.5 startup stage: {stage}."),
+        }
+        if counts.get("documents_seen"):
+            values["documents_seen"] = counts["documents_seen"]
+        if stage in {"indexed", "reranker", "ready"}:
+            values["documents_indexed"] = counts["documents_indexed"]
+            values["index_fresh"] = bool(counts["documents_indexed"])
+            values["last_index_run_at"] = utc_now_iso()
+        self.runtime_state.update(**values)
 
     @staticmethod
     def check_qdrant(config: Any) -> tuple[bool, str]:

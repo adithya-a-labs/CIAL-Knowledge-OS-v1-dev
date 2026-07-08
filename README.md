@@ -18,7 +18,8 @@ Backend API:
 ```powershell
 python -m pip install -e services/knowledge-engine
 python -m pip install fastapi uvicorn python-multipart
-uvicorn backend.app.main:app --reload
+cd services/knowledge-engine
+uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 Frontend:

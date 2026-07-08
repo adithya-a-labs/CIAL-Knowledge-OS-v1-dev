@@ -1,13 +1,14 @@
-"""Repository-relative path helpers for the development API."""
+"""Path helpers for the service-local FastAPI backend."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-BACKEND_ROOT = REPO_ROOT / "backend"
-KNOWLEDGE_ENGINE_ROOT = REPO_ROOT / "services" / "knowledge-engine"
+SERVICE_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = SERVICE_ROOT.parent.parent
+BACKEND_ROOT = SERVICE_ROOT / "backend"
+KNOWLEDGE_ENGINE_ROOT = SERVICE_ROOT
 KNOWLEDGE_ENGINE_SRC = KNOWLEDGE_ENGINE_ROOT / "src"
 DATA_ROOT = REPO_ROOT / "data"
 DATA_FILES_ROOT = DATA_ROOT / "files"

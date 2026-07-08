@@ -8,6 +8,20 @@ from backend.app.core.runtime_state import RuntimeState
 from .knowledge_engine_service import KnowledgeEngineService
 
 
+_STAGE_MESSAGES = {
+    "load": "Loading documents for index rebuild.",
+    "loaded": "Documents loaded for index rebuild.",
+    "chunk": "Chunking documents for index rebuild.",
+    "chunked": "Documents chunked for index rebuild.",
+    "embed": "Embedding chunks for index rebuild.",
+    "embedded": "Chunk embeddings created for index rebuild.",
+    "index": "Writing vector and BM25 indexes.",
+    "indexed": "Indexes updated; loading Phase 4 reranker.",
+    "reranker": "Loading Phase 4 reranker.",
+    "ready": "Index rebuild pipeline initialization completed.",
+}
+
+
 class IndexingService:
     def __init__(self, engine: KnowledgeEngineService, runtime_state: RuntimeState) -> None:
         self.engine = engine
@@ -24,7 +38,10 @@ class IndexingService:
             message="Index rebuild is running.",
         )
         try:
-            counts = self.engine.prepare_pipeline(force_rebuild_index=force)
+            counts = self.engine.prepare_pipeline(
+                force_rebuild_index=force,
+                on_stage=self._on_pipeline_stage,
+            )
             models_ready, model_message = self.engine.check_ollama_model()
         except Exception as exc:  # noqa: BLE001 - route returns runtime state.
             message = str(exc)
@@ -52,3 +69,17 @@ class IndexingService:
             message="Index rebuild completed." if ready else model_message,
         )
         return self.runtime_state.snapshot()
+
+    def _on_pipeline_stage(self, stage: str, counts: dict[str, int]) -> None:
+        values: dict[str, object] = {
+            "status": "indexing",
+            "engine_ready": False,
+            "message": _STAGE_MESSAGES.get(stage, f"Index rebuild stage: {stage}."),
+        }
+        if counts.get("documents_seen"):
+            values["documents_seen"] = counts["documents_seen"]
+        if stage in {"indexed", "reranker", "ready"}:
+            values["documents_indexed"] = counts["documents_indexed"]
+            values["index_fresh"] = bool(counts["documents_indexed"])
+            values["last_index_run_at"] = datetime.now(timezone.utc).isoformat()
+        self.runtime_state.update(**values)

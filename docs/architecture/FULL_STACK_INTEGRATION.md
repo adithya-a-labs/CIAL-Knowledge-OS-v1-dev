@@ -7,13 +7,17 @@ Status: development integration only. This is not Dockerization, production hand
 ```text
 React/Vite frontend
   -> frontend/src/api/client.ts
-  -> FastAPI backend/app
-  -> backend/app/services/*
+  -> services/knowledge-engine/backend/app
+  -> services/knowledge-engine/backend/app/services/*
   -> services/knowledge-engine/src/cial_knowledge_os Phase 4.5 engine
   -> local data/files, data/indexes, data/qdrant, outputs
 ```
 
 Routes stay thin and call services. Retrieval, reranking, evidence selection, context building, generation, citations, exports, OCR, and indexing remain in the migrated Phase 4.5 engine.
+
+The real FastAPI backend source is `services/knowledge-engine/backend/app`.
+The root-level `backend/` directory is not importable and contains only a
+migration note.
 
 ## Startup Readiness Workflow
 
@@ -42,11 +46,17 @@ Required folders are created if missing:
 - `outputs`
 - `models`
 
-`CIAL_AUTO_INDEX_ON_STARTUP=true` enables automatic startup indexing. `CIAL_FORCE_REBUILD_ON_STARTUP=true` passes `force_rebuild_index=True` into `Phase4Config`. Manual rebuilds use the same service path via `POST /api/index/rebuild`.
+`CIAL_AUTO_INDEX_ON_STARTUP=true` enables automatic startup indexing. `CIAL_FORCE_REBUILD_ON_STARTUP=true` passes `force_rebuild_index=True` into `Phase4Config`. Manual rebuilds use the same service path via `POST /api/index/rebuild`. Backend environment examples live at `services/knowledge-engine/backend/.env.example`.
+
+Startup readiness is updated at each wrapper stage: load, chunk, embed, index,
+and reranker load. `documents_indexed` is updated immediately after
+`pipeline.index()` completes, before reranker/model availability is finalized,
+so a later model failure no longer leaves the API reporting zero indexed
+documents without a useful stage message.
 
 ## Runtime State
 
-`backend/app/core/runtime_state.py` tracks:
+`services/knowledge-engine/backend/app/core/runtime_state.py` tracks:
 
 - `status`: `starting`, `ready`, `indexing`, `degraded`, `failed`, or `no_documents`
 - `engine_available`
@@ -86,7 +96,7 @@ The frontend API boundary is centralized in:
 
 ## Phase 4.5 Wrapper
 
-`backend/app/services/knowledge_engine_service.py` is the backend module that imports the engine. It adds `services/knowledge-engine/src` to `sys.path`, builds `Phase4Config` from backend environment settings, keeps the startup-initialized `Phase4RAGPipeline` alive, calls `pipeline.run(question)`, and converts the existing response contract into API schemas.
+`services/knowledge-engine/backend/app/services/knowledge_engine_service.py` is the backend module that imports the engine. It adds `services/knowledge-engine/src` to `sys.path`, builds `Phase4Config` from backend environment settings, keeps the startup-initialized `Phase4RAGPipeline` alive, calls `pipeline.run(question)`, and converts the existing response contract into API schemas.
 
 If Qdrant, Ollama, embeddings, reranker weights, Python packages, or an index are unavailable, the service returns a controlled API error instead of moving retrieval logic into route files. Existing Phase 4 citation and source metadata are preserved as much as the Phase 4 response exposes them.
 
@@ -119,13 +129,19 @@ Backend setup:
 ```powershell
 python -m pip install -e services/knowledge-engine
 python -m pip install fastapi uvicorn python-multipart
-uvicorn backend.app.main:app --reload
+cd services/knowledge-engine
+uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
+
+Because the directory name `knowledge-engine` contains a hyphen, the backend is
+not launched as a dotted module from the repository root. Use the service
+directory command above.
 
 For this workspace shell, use:
 
 ```powershell
-.\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload
+cd services/knowledge-engine
+..\..\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 Frontend setup:

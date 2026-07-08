@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 from threading import RLock
 import time
-from typing import Any
+from typing import Any, Callable
 
 from backend.app.core.config import settings
 from backend.app.core.paths import KNOWLEDGE_ENGINE_SRC, REPO_ROOT
@@ -69,6 +69,7 @@ class KnowledgeEngineService:
         *,
         force_rebuild_index: bool,
         response_length: str = "medium",
+        on_stage: Callable[[str, dict[str, int]], None] | None = None,
     ) -> dict[str, int]:
         """Run the deterministic Phase 4 startup sequence and keep it alive."""
 
@@ -81,11 +82,21 @@ class KnowledgeEngineService:
         )
         pipeline = self._phase4_pipeline_cls(config)
         try:
+            self._emit_stage(on_stage, "load", pipeline)
             pipeline.load()
+            self._emit_stage(on_stage, "loaded", pipeline)
+            self._emit_stage(on_stage, "chunk", pipeline)
             pipeline.chunk()
+            self._emit_stage(on_stage, "chunked", pipeline)
+            self._emit_stage(on_stage, "embed", pipeline)
             pipeline.embed()
+            self._emit_stage(on_stage, "embedded", pipeline)
+            self._emit_stage(on_stage, "index", pipeline)
             pipeline.index()
+            self._emit_stage(on_stage, "indexed", pipeline)
+            self._emit_stage(on_stage, "reranker", pipeline)
             self._load_reranker(pipeline)
+            self._emit_stage(on_stage, "ready", pipeline)
         except Exception:
             close = getattr(pipeline, "close", None)
             if callable(close):
@@ -252,6 +263,16 @@ class KnowledgeEngineService:
         load = getattr(reranker, "load", None)
         if callable(load) and bool(getattr(pipeline.config, "reranker_enabled", True)):
             load()
+
+    @classmethod
+    def _emit_stage(
+        cls,
+        on_stage: Callable[[str, dict[str, int]], None] | None,
+        stage: str,
+        pipeline: Any,
+    ) -> None:
+        if on_stage is not None:
+            on_stage(stage, cls._pipeline_counts(pipeline))
 
     @staticmethod
     def _pipeline_counts(pipeline: Any) -> dict[str, int]:
