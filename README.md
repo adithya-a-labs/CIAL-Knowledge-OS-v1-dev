@@ -9,6 +9,15 @@ Current structure:
 - `docs/architecture/` - migration manifests used as the audit source of truth.
 - `data/` - benchmark/manual QA assets and optional test corpus; runtime stores and enterprise corpus mounts must remain uncommitted.
 
+Metadata/control-plane storage uses PostgreSQL through SQLAlchemy and Alembic.
+Original source files remain in `data/files`, and vectors/chunk embeddings
+remain in Qdrant. See `docs/architecture/METADATA_DATABASE.md`.
+
+The backend Corpus layer synchronizes `data/files` into PostgreSQL metadata and
+exposes `GET /api/corpus/*` endpoints for Knowledge Center-style browsing. The
+frontend should consume the Corpus API rather than scanning the filesystem.
+See `docs/architecture/CORPUS_ARCHITECTURE.md`.
+
 See `MIGRATION_VERIFICATION_REPORT.md` for the latest migration audit status before backend/frontend integration.
 
 ## Local Development Commands
@@ -57,7 +66,11 @@ pnpm run dev
 Validation:
 
 ```powershell
+cd services/knowledge-engine
+..\..\.venv\Scripts\python.exe -m alembic upgrade head
+cd ..\..
 curl.exe http://localhost:8000/api/health
+curl.exe http://localhost:8000/api/corpus/tree
 curl.exe http://localhost:8000/api/documents
 cd frontend
 pnpm run typecheck

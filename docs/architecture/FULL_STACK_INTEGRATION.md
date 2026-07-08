@@ -10,10 +10,19 @@ React/Vite frontend
   -> services/knowledge-engine/backend/app
   -> services/knowledge-engine/backend/app/services/*
   -> services/knowledge-engine/src/cial_knowledge_os Phase 4.5 engine
-  -> local data/files, data/indexes, data/qdrant, outputs
+  -> local data/files, data/indexes, Qdrant vectors, PostgreSQL metadata, outputs
 ```
 
 Routes stay thin and call services. Retrieval, reranking, evidence selection, context building, generation, citations, exports, OCR, and indexing remain in the migrated Phase 4.5 engine.
+
+PostgreSQL is now present as the metadata/control-plane database only. It stores
+identity, folder/document metadata, permissions, chat history, audit events, and
+indexing state. It does not store embeddings, source files, or replace Qdrant.
+See `docs/architecture/METADATA_DATABASE.md`.
+
+The backend also owns the Corpus layer. The Knowledge Center and future
+document-picking UI should consume the Corpus API backed by PostgreSQL metadata
+instead of scanning `data/files`. See `docs/architecture/CORPUS_ARCHITECTURE.md`.
 
 The real FastAPI backend source is `services/knowledge-engine/backend/app`.
 The root-level `backend/` directory is not importable and contains only a
@@ -72,9 +81,16 @@ documents without a useful stage message.
 
 The backend process should stay up when Qdrant, Ollama, embeddings, reranker weights, or documents are missing. Those conditions are reflected in runtime state so the frontend can show a specific readiness message.
 
+PostgreSQL readiness is reported independently through `/api/health` as
+`database_ready`, `database_configured`, and `database_message`. Database
+unavailability does not block current chat or retrieval behavior.
+
 ## Backend Routes
 
-- `GET /api/health` reports runtime readiness, service identity, Phase 4.5, document counts, Qdrant state, model state, and message.
+- `GET /api/health` reports runtime readiness, service identity, Phase 4.5, document counts, Qdrant state, model state, PostgreSQL metadata database state, and message.
+- `GET /api/corpus/tree` returns the hierarchical Corpus Tree from PostgreSQL metadata.
+- `GET /api/corpus/folder?path=<relative>` returns folder contents from PostgreSQL metadata.
+- `GET /api/corpus/document/{id}` returns document metadata from PostgreSQL metadata.
 - `POST /api/chat` first checks `runtime_state.engine_ready`. If false, it returns HTTP 503 with structured detail such as `no_documents_found`, `indexing_in_progress`, `qdrant_unavailable`, `model_unavailable`, or `startup_failed`. If ready, it calls `KnowledgeEngineService.answer_question()` and adapts the Phase 4 response into answer, citations, source chunks, and metadata.
 - `GET /api/documents` lists files discovered under `data/files`.
 - `POST /api/documents/upload` saves uploaded files to `data/files`.
@@ -154,10 +170,17 @@ Manual backend setup:
 
 ```powershell
 python -m pip install -e services/knowledge-engine
-python -m pip install fastapi uvicorn python-multipart
+python -m pip install fastapi uvicorn python-multipart sqlalchemy alembic "psycopg[binary]"
 cd services/knowledge-engine
 ..\..\.venv\Scripts\activate
 uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Metadata database migration:
+
+```powershell
+cd services/knowledge-engine
+..\..\.venv\Scripts\python.exe -m alembic upgrade head
 ```
 
 Because the directory name `knowledge-engine` contains a hyphen, the backend is
