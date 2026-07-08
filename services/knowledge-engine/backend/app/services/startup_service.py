@@ -178,9 +178,11 @@ class StartupService:
                 message=f"Corpus metadata sync failed; continuing startup: {exc}",
             )
             return
+        log_payload = summary.to_dict()
+        log_payload["sync_message"] = log_payload.pop("message", "")
         logger.info(
             "corpus_startup_sync_completed",
-            extra={"event": "corpus_sync", **summary.to_dict()},
+            extra={"event": "corpus_sync", **log_payload},
         )
 
     def ensure_required_folders(self) -> None:

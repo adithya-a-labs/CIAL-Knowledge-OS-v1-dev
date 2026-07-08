@@ -11,6 +11,14 @@ from cial_knowledge_os.corpus.service import CorpusServiceUnavailable
 router = APIRouter()
 
 
+@router.post("/corpus/sync")
+def corpus_sync(request: Request) -> dict[str, object]:
+    try:
+        return request.app.state.corpus_service.sync().to_dict()
+    except CorpusServiceUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+
 @router.get("/corpus/tree")
 def corpus_tree(request: Request) -> dict[str, object]:
     try:
@@ -46,4 +54,3 @@ def corpus_document(document_id: str, request: Request) -> dict[str, object]:
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corpus document not found.")
     return payload
-
