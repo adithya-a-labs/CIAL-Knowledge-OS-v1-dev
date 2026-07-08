@@ -11,7 +11,30 @@ Current structure:
 
 See `MIGRATION_VERIFICATION_REPORT.md` for the latest migration audit status before backend/frontend integration.
 
-## Local Development
+## Local Development Commands
+
+From the repository root:
+
+```powershell
+scripts\start_qdrant.bat
+scripts\start_backend.bat
+scripts\start_frontend.bat
+```
+
+PowerShell variants are also available:
+
+```powershell
+.\scripts\start_backend.ps1
+.\scripts\start_frontend.ps1
+```
+
+`scripts\start_backend.bat 8010` or `.\scripts\start_backend.ps1 -Port 8010`
+starts the backend on a custom port.
+
+The Qdrant compose file maps host port `6335` to container port `6333`, so use
+`CIAL_QDRANT_URL=http://localhost:6335` when running that local compose stack.
+
+## Manual Fallback
 
 Backend API:
 
@@ -19,6 +42,7 @@ Backend API:
 python -m pip install -e services/knowledge-engine
 python -m pip install fastapi uvicorn python-multipart
 cd services/knowledge-engine
+..\..\.venv\Scripts\activate
 uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 

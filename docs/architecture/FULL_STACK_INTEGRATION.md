@@ -124,12 +124,39 @@ If Qdrant, Ollama, embeddings, reranker weights, Python packages, or an index ar
 
 ## Local Run Commands
 
-Backend setup:
+Preferred root-level commands:
+
+```powershell
+scripts\start_qdrant.bat
+scripts\start_backend.bat
+scripts\start_frontend.bat
+```
+
+PowerShell variants:
+
+```powershell
+.\scripts\start_backend.ps1
+.\scripts\start_frontend.ps1
+```
+
+The backend still lives inside `services/knowledge-engine/backend/app`. The
+root launchers only activate the root `.venv`, change into
+`services/knowledge-engine`, and run the service-local `backend.app.main`.
+
+`scripts\start_backend.bat 8010` or `.\scripts\start_backend.ps1 -Port 8010`
+starts the backend on a custom port.
+
+The Qdrant launcher uses `services/knowledge-engine/docker-compose.qdrant.yml`.
+That compose file maps host port `6335` to container port `6333`; configure
+`CIAL_QDRANT_URL=http://localhost:6335` when using it.
+
+Manual backend setup:
 
 ```powershell
 python -m pip install -e services/knowledge-engine
 python -m pip install fastapi uvicorn python-multipart
 cd services/knowledge-engine
+..\..\.venv\Scripts\activate
 uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
