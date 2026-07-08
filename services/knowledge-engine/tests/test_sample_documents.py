@@ -8,6 +8,7 @@ from cial_knowledge_os.config import KnowledgeOSConfig
 from cial_knowledge_os.loaders import (
     SAMPLE_AIRPORT_DOCUMENTS,
     create_sample_airport_documents,
+    load_pdf_paths,
     load_text_documents,
 )
 from cial_knowledge_os.rag_pipeline import BasicRAGPipeline
@@ -79,6 +80,34 @@ class SampleDocumentGenerationTests(unittest.TestCase):
                 set(SAMPLE_AIRPORT_DOCUMENTS),
             )
             self.assertTrue(all(path.is_file() for path in paths))
+
+    def test_empty_incremental_path_list_does_not_log_nonempty_corpus_as_empty(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            corpus_root = Path(directory)
+            (corpus_root / "manual.txt").write_text(
+                "Approved operational content.",
+                encoding="utf-8",
+            )
+
+            with self.assertNoLogs("cial_knowledge_os.loaders", level="INFO"):
+                documents = load_pdf_paths([], corpus_root=corpus_root)
+
+            self.assertEqual(documents, [])
+
+    def test_empty_corpus_still_logs_corpus_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertLogs(
+                "cial_knowledge_os.loaders",
+                level="INFO",
+            ) as captured:
+                documents = load_pdf_paths([], corpus_root=Path(directory))
+
+            self.assertEqual(documents, [])
+            self.assertTrue(
+                any("corpus_empty" in message for message in captured.output)
+            )
 
 
 if __name__ == "__main__":

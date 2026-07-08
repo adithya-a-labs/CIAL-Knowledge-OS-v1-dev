@@ -1,0 +1,151 @@
+version: 1
+prompts:
+  generation.grounded_qa:
+    file: generation/phase4/grounded_qa.md
+    version: phase4
+    category: generation
+    description: Phase 1-3 concise grounded QA prompt.
+    variables:
+      - no_evidence_response
+      - context
+      - question
+  generation.phase4_system:
+    file: generation/phase4/phase4_system.md
+    version: phase4
+    category: generation
+    description: Phase 4 detailed grounded decision-support prompt shell.
+    variables:
+      - self.config.answer_detail_level
+      - INSUFFICIENT_EVIDENCE_RESPONSE
+      - content_requirements
+      - weak_rule
+      - minimum_words
+      - maximum_words
+      - structure
+      - context
+      - question
+  generation.adaptive_sections:
+    file: generation/phase4/adaptive_sections.md
+    version: phase4
+    category: generation
+    description: Phase 4 adaptive answer structure.
+    variables:
+      - decision_notes_family
+  generation.structured_sections:
+    file: generation/phase4/structured_sections.md
+    version: phase4
+    category: generation
+    description: Phase 4 fixed structured answer format.
+    variables: []
+  generation.narrative_sections:
+    file: generation/phase4/narrative_sections.md
+    version: phase4
+    category: generation
+    description: Phase 4 unstructured narrative answer format.
+    variables: []
+  generation.adaptive_content_requirements:
+    file: generation/phase4/adaptive_content_requirements.md
+    version: phase4
+    category: generation
+    description: Phase 4 adaptive synthesis requirements.
+    variables: []
+  generation.structured_content_requirements:
+    file: generation/phase4/structured_content_requirements.md
+    version: phase4
+    category: generation
+    description: Phase 4 fixed structured synthesis requirements.
+    variables: []
+  generation.narrative_content_requirements:
+    file: generation/phase4/narrative_content_requirements.md
+    version: phase4
+    category: generation
+    description: Phase 4 narrative synthesis requirements.
+    variables: []
+  generation.weak_evidence:
+    file: generation/phase4/weak_evidence.md
+    version: phase4
+    category: generation
+    description: Phase 4 weak-evidence caveat instruction.
+    variables: []
+  generation.minimum_words:
+    file: generation/phase4/minimum_words.md
+    version: phase4
+    category: generation
+    description: Phase 4 minimum answer depth instruction.
+    strip_final_newline: true
+    variables:
+      - effective_minimum
+  generation.maximum_words:
+    file: generation/phase4/maximum_words.md
+    version: phase4
+    category: generation
+    description: Phase 4 maximum answer length instruction.
+    variables:
+      - self.config.max_answer_words
+  generation.decision_notes_family:
+    file: generation/phase4/decision_notes_family.md
+    version: phase4
+    category: generation
+    description: Adaptive section family entry for Decision Notes.
+    strip_final_newline: true
+    variables: []
+  generation.decision_notes_instruction:
+    file: generation/phase4/decision_notes_instruction.md
+    version: phase4
+    category: generation
+    description: Conditional Decision Notes usage instruction.
+    variables: []
+  generation.structured_decision_notes_instruction:
+    file: generation/phase4/structured_decision_notes_instruction.md
+    version: phase4
+    category: generation
+    description: Conditional fixed-structure Decision notes section instruction.
+    variables: []
+  evaluation.insufficient_evidence:
+    file: evaluation/insufficient_evidence.md
+    version: phase4
+    category: evaluation
+    description: Phase 2-4 deterministic insufficient-evidence response.
+    strip_final_newline: true
+    variables: []
+  evaluation.phase1_no_evidence:
+    file: evaluation/phase1_no_evidence.md
+    version: phase1
+    category: evaluation
+    description: Phase 1 deterministic no-evidence response.
+    strip_final_newline: true
+    variables: []
+  templates.answer_template:
+    file: templates/answer_template.md
+    version: phase4
+    category: templates
+    description: Deterministic answer plus References appendix template.
+    strip_final_newline: true
+    variables:
+      - cleaned_answer
+      - references
+  templates.context_template:
+    file: templates/context_template.md
+    version: phase4
+    category: templates
+    description: Phase 2-4 selected evidence context header.
+    variables:
+      - reference_id
+      - source_label
+      - page_text
+      - chunk_id
+      - score_label
+      - score_text
+  templates.retrieval_context_block:
+    file: templates/retrieval_context_block.md
+    version: phase1
+    category: templates
+    description: Phase 1 retrieval context block.
+    strip_final_newline: true
+    variables:
+      - rank
+      - source
+      - page_label
+      - chunk_id
+      - score
+      - text

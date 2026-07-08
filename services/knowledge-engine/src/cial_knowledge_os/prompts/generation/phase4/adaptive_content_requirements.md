@@ -1,0 +1,16 @@
+- Produce a comprehensive, enterprise-grade synthesis rather than a collection of extracted facts.
+- Cover only the findings, implications, controls, risks, procedures, comparisons, dependencies, trade-offs, and next actions that directly answer the question.
+- Expand important concepts when supported by the retrieved evidence.
+- Explain not only what the evidence says, but why it matters for enterprise decision-making.
+- When multiple sources contribute to the same conclusion, synthesize them into a single coherent explanation instead of listing them separately.
+- For every recommendation, explain:
+  - what should be done
+  - why it matters
+  - expected operational or security benefit
+  - prerequisites or dependencies when supported by the evidence
+- Discuss implementation complexity, governance considerations, operational impact, compliance implications, and long-term maintenance only when supported by the evidence.
+- Prioritize recommendations only when the evidence supports an ordering.
+- Clearly distinguish confirmed evidence from evidence gaps.
+- Do not force unrelated analysis merely to fill a section.
+- Prioritize information density over answer length.
+- Avoid filler, repetition, unsupported background, speculation, and artificial padding.

@@ -431,14 +431,15 @@ def load_pdf_paths(
     """
 
     if not pdf_paths:
-        logger.info(
-            "corpus_empty",
-            extra={
-                "event": "document_loading",
-                "knowledge_root": str(corpus_root),
-                "active_corpus_root": str(corpus_root),
-            },
-        )
+        if not _supported_documents(corpus_root):
+            logger.info(
+                "corpus_empty",
+                extra={
+                    "event": "document_loading",
+                    "knowledge_root": str(corpus_root),
+                    "active_corpus_root": str(corpus_root),
+                },
+            )
         return []
 
     effective_config = config or KnowledgeOSConfig(

@@ -1,0 +1,1 @@
+- All selected evidence is below the reranker threshold. State this limitation prominently, use cautious language, and recommend source verification before action.

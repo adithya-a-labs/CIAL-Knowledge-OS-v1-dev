@@ -27,6 +27,46 @@ class KnowledgeEngineUnavailable(RuntimeError):
     """Raised when local engine dependencies or runtime services are missing."""
 
 
+def _server_collection_requires_rebuild(config: Any) -> bool:
+    """Detect a manifest that points at a different or empty Qdrant backend."""
+
+    if (
+        config.qdrant_mode != "server"
+        or config.force_rebuild_index
+        or not config.incremental_indexing_enabled
+    ):
+        return False
+    try:
+        from qdrant_client import QdrantClient
+        from cial_knowledge_os.incremental_index import load_manifest
+    except Exception:  # noqa: BLE001 - the normal pipeline path will report this.
+        return False
+
+    previous = load_manifest(
+        config.document_manifest_path,
+        corpus_root=config.knowledge_root,
+        collection_name=config.qdrant_collection_name,
+    )
+    if not previous:
+        return False
+
+    client: QdrantClient | None = None
+    try:
+        client = QdrantClient(
+            url=config.qdrant_url,
+            api_key=config.qdrant_api_key,
+        )
+        if not client.collection_exists(config.qdrant_collection_name):
+            return True
+        collection = client.get_collection(config.qdrant_collection_name)
+        return int(getattr(collection, "points_count", 0) or 0) == 0
+    except Exception:  # noqa: BLE001 - preserve existing pipeline/preflight errors.
+        return False
+    finally:
+        if client is not None:
+            client.close()
+
+
 class KnowledgeEngineService:
     """Lazy wrapper for Phase4RAGPipeline.
 
@@ -80,6 +120,17 @@ class KnowledgeEngineService:
             response_length=response_length,
             force_rebuild_index=force_rebuild_index,
         )
+        if _server_collection_requires_rebuild(config):
+            logger.warning(
+                "qdrant_manifest_backend_mismatch_rebuild",
+                extra={
+                    "event": "indexing",
+                    "qdrant_url": config.qdrant_url,
+                    "collection_name": config.qdrant_collection_name,
+                    "manifest_path": str(config.document_manifest_path),
+                },
+            )
+            config.force_rebuild_index = True
         pipeline = self._phase4_pipeline_cls(config)
         try:
             self._emit_stage(on_stage, "load", pipeline)

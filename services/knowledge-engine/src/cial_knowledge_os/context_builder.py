@@ -18,15 +18,15 @@ from .metadata import (
     source_label,
     source_path,
 )
+from .prompts import DEFAULT_PROMPT_MANAGER
 from .retrieval_postprocessing import deduplicate_results, expand_neighbor_chunks
 from .token_budget import TokenBudgetManager, TokenBudgetUsage
 
 logger = logging.getLogger(__name__)
 
-INSUFFICIENT_EVIDENCE_RESPONSE = (
-    "The retrieved documents do not contain sufficient evidence to answer this "
-    "question. Based only on the indexed corpus, no reliable answer could be generated."
-)
+INSUFFICIENT_EVIDENCE_RESPONSE = DEFAULT_PROMPT_MANAGER.get(
+    "evaluation.insufficient_evidence"
+).text
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,12 +210,14 @@ def _header(result: Mapping[str, Any], reference_id: int) -> str:
         if result.get("rrf_score") is not None
         else "Similarity Score"
     )
-    return (
-        f"[{reference_id}]\n"
-        f"Document: {source_label(result)}\n"
-        f"Page: {page_text}\n"
-        f"Chunk ID: {result.get('chunk_id') or 'Not provided'}\n"
-        f"{score_label}: {score_text}\n"
+    return DEFAULT_PROMPT_MANAGER.render(
+        "templates.context_template",
+        reference_id=reference_id,
+        source_label=source_label(result),
+        page_text=page_text,
+        chunk_id=result.get("chunk_id") or "Not provided",
+        score_label=score_label,
+        score_text=score_text,
     )
 
 

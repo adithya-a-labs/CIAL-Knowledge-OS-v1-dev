@@ -7,6 +7,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Protocol
 
+from .prompts import DEFAULT_PROMPT_MANAGER
+
 
 class CitationLinkResolver(Protocol):
     """Optional link resolver accepted by :func:`build_citations`."""
@@ -18,12 +20,8 @@ _GENERIC_REFERENCE_LINE_PATTERN = re.compile(
     r"(?im)^\s*references?\s*:\s*(?:\[\d+\][,\s]*)+\s*$"
 )
 _NO_EVIDENCE_ANSWERS = {
-    "It is not available in the retrieved documents.",
-    (
-        "The retrieved documents do not contain sufficient evidence to answer "
-        "this question. Based only on the indexed corpus, no reliable answer "
-        "could be generated."
-    ),
+    DEFAULT_PROMPT_MANAGER.get("evaluation.phase1_no_evidence").text,
+    DEFAULT_PROMPT_MANAGER.get("evaluation.insufficient_evidence").text,
 }
 
 
@@ -147,4 +145,8 @@ def render_answer_with_citations(
     )
     if not references:
         return cleaned_answer
-    return f"{cleaned_answer}\n\nReferences:\n{references}"
+    return DEFAULT_PROMPT_MANAGER.render(
+        "templates.answer_template",
+        cleaned_answer=cleaned_answer,
+        references=references,
+    )

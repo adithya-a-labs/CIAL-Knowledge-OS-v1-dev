@@ -8,6 +8,7 @@ import time
 from collections import Counter
 from collections.abc import Mapping
 from statistics import fmean
+from types import SimpleNamespace
 from typing import Any
 
 from sentence_transformers import SentenceTransformer
@@ -21,6 +22,7 @@ from .execution import ExecutionManager
 from .llm import GenerationFailedError, LocalLLM
 from .phase3_pipeline import Phase3RAGPipeline
 from .phase4_trace import build_phase4_trace
+from .prompts import DEFAULT_PROMPT_MANAGER
 from .query_transformations import QueryTransformer
 from .reranker import CrossEncoderReranker, RerankResult, Reranker
 from .retrievers import Retriever
@@ -175,155 +177,75 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
                 self.config.max_answer_words,
             )
         minimum_words = (
-            f"Aim for at least {effective_minimum} words when the "
-            "evidence supports that depth. "
+            DEFAULT_PROMPT_MANAGER.render(
+                "generation.minimum_words",
+                effective_minimum=effective_minimum,
+            )
             if effective_minimum is not None
             else ""
         )
         maximum_words = (
-            f"Do not exceed {self.config.max_answer_words} words. "
-            "Prefer concise prioritization over dropping citations or adding "
-            "unsupported compression.\n"
+            DEFAULT_PROMPT_MANAGER.render(
+                "generation.maximum_words",
+                self=SimpleNamespace(config=self.config),
+            )
             if self.config.max_answer_words is not None
             else ""
         )
         if not self.config.prefer_structured_answers:
-            structure = "Use a coherent, decision-oriented narrative.\n"
-            content_requirements = """- Produce a comprehensive, decision-oriented synthesis rather than a simple summary of retrieved evidence.
-- Explain only implications, actions, risks, gaps, dependencies, procedures, and recommendations that directly answer the question and are supported by the selected evidence.
-- Expand important concepts when the retrieved evidence provides sufficient detail.
-- Explain why recommendations matter, not only what should be done.
-- Where multiple evidence sources support the same conclusion, synthesize them into one coherent explanation rather than listing them independently.
-- Discuss operational, security, governance, implementation, or compliance implications only when directly supported by the evidence.
-- Highlight dependencies, assumptions, and evidence gaps where appropriate.
-- Prioritize information density over answer length.
-- Avoid filler, repetition, unsupported background, speculation, and artificial padding.
-"""
+            structure = DEFAULT_PROMPT_MANAGER.get(
+                "generation.narrative_sections"
+            ).text
+            content_requirements = DEFAULT_PROMPT_MANAGER.get(
+                "generation.narrative_content_requirements"
+            ).text
         elif self.config.adaptive_answer_sections:
             decision_notes_family = (
-                "\n- Decision Notes"
+                DEFAULT_PROMPT_MANAGER.get(
+                    "generation.decision_notes_family"
+                ).text
                 if self.config.include_decision_notes
                 else ""
             )
-            structure = f"""Choose the answer structure that best fits the question. Do not use every section by default. Use only sections that improve clarity.
-
-Allowed section families (select only the relevant ones):
-- Direct Answer
-- Overview
-- Key Concepts
-- Key Findings
-- Evidence
-- Top Risks
-- Business Impact
-- Recommended Controls
-- Recommended Actions
-- Step-by-Step Procedure
-- Comparison
-- Key Differences
-- Recommendation
-- Priority Matrix
-- Implementation Checklist
-- Owners and Dependencies
-- Operational Implications
-- Evidence Gaps
-- Caveats
-- Next Actions
-- Immediate / Next / Later Actions{decision_notes_family}
-
-Question-shape guidance:
-- If the question asks "what is", "define", or "explain", prefer Overview + Key Concepts + Evidence.
-- If it asks about risks or biggest threats, prefer Top Risks + Business Impact + Recommended Controls.
-- If it asks "how should we" or "what should we do", prefer Recommended Actions + Implementation Checklist + Caveats.
-- If it asks to compare or distinguish differences, prefer Comparison + Key Differences + Recommendation.
-- If it asks for a process, procedure, or steps, prefer Step-by-Step Procedure + Owners and Dependencies + Evidence.
-- If it asks to prioritize, prefer Priority Matrix + Immediate / Next / Later Actions.
-- If support is incomplete, explain Evidence Gaps instead of forcing a full report.
-
-Use clear Markdown headings and bullets where they improve readability. Do not create tables or diagrams.
-"""
+            structure = DEFAULT_PROMPT_MANAGER.render(
+                "generation.adaptive_sections",
+                decision_notes_family=decision_notes_family,
+            )
             if self.config.include_decision_notes:
-                structure += (
-                    "Use Decision Notes only when they materially clarify a "
-                    "decision, follow-up validation, or unresolved evidence gap.\n"
-                )
-            content_requirements = """- Produce a comprehensive, enterprise-grade synthesis rather than a collection of extracted facts.
-- Cover only the findings, implications, controls, risks, procedures, comparisons, dependencies, trade-offs, and next actions that directly answer the question.
-- Expand important concepts when supported by the retrieved evidence.
-- Explain not only what the evidence says, but why it matters for enterprise decision-making.
-- When multiple sources contribute to the same conclusion, synthesize them into a single coherent explanation instead of listing them separately.
-- For every recommendation, explain:
-  - what should be done
-  - why it matters
-  - expected operational or security benefit
-  - prerequisites or dependencies when supported by the evidence
-- Discuss implementation complexity, governance considerations, operational impact, compliance implications, and long-term maintenance only when supported by the evidence.
-- Prioritize recommendations only when the evidence supports an ordering.
-- Clearly distinguish confirmed evidence from evidence gaps.
-- Do not force unrelated analysis merely to fill a section.
-- Prioritize information density over answer length.
-- Avoid filler, repetition, unsupported background, speculation, and artificial padding.
-"""
+                structure += DEFAULT_PROMPT_MANAGER.get(
+                    "generation.decision_notes_instruction"
+                ).text
+            content_requirements = DEFAULT_PROMPT_MANAGER.get(
+                "generation.adaptive_content_requirements"
+            ).text
         else:
-            structure = """Use clear Markdown headings and, where supported, organize the answer as:
-- Executive answer
-- Evidence-backed findings
-- Operational implications
-- Recommended controls or actions
-- Risks, gaps, and caveats
-"""
+            structure = DEFAULT_PROMPT_MANAGER.get(
+                "generation.structured_sections"
+            ).text
             if self.config.include_decision_notes:
-                structure += (
-                    "- Include a short Decision notes section that distinguishes "
-                    "immediate actions, follow-up validation, and unresolved "
-                    "evidence gaps.\n"
-                )
-            content_requirements = """- Produce a comprehensive, enterprise-grade synthesis rather than a simple summary of the retrieved evidence.
-- Explain operational implications and supported recommended controls or actions.
-- Explain why each recommendation matters and the expected operational or security benefit when supported by the evidence.
-- Identify supported risks, evidence gaps, dependencies, implementation considerations, and caveats.
-- Expand important concepts when the selected evidence provides sufficient detail.
-- Where multiple evidence sources support the same conclusion, synthesize them into a single coherent explanation instead of listing them independently.
-- Prioritize recommendations only when the evidence supports an ordering.
-- Clearly distinguish confirmed evidence from unresolved evidence gaps.
-- Prioritize information density over answer length.
-- Avoid filler, repetition, unsupported background, speculation, and artificial padding.
-"""
+                structure += DEFAULT_PROMPT_MANAGER.get(
+                    "generation.structured_decision_notes_instruction"
+                ).text
+            content_requirements = DEFAULT_PROMPT_MANAGER.get(
+                "generation.structured_content_requirements"
+            ).text
         weak_rule = (
-            "- All selected evidence is below the reranker threshold. State this limitation prominently, use cautious language, and recommend source verification before action.\n"
+            DEFAULT_PROMPT_MANAGER.get("generation.weak_evidence").text
             if weak_evidence
             else ""
         )
-        return f"""You are a strict grounded-answering system producing a {self.config.answer_detail_level} decision-support answer.
-
-Answer the QUESTION using only the provided SELECTED EVIDENCE.
-
-Grounding rules:
-1. Use only facts directly supported by SELECTED EVIDENCE.
-2. Do not use outside knowledge, invent controls, or infer unsupported organization-specific details.
-3. Cite every key factual claim and recommendation inline using the exact reference IDs shown in the evidence, such as [1].
-4. Do not invent, alter, or renumber reference IDs.
-5. If evidence supports only part of the question, answer that part and identify the remaining gap.
-6. Reply exactly "{INSUFFICIENT_EVIDENCE_RESPONSE}" only when SELECTED EVIDENCE is empty or contains no usable information.
-
-Answer requirements:
-- Produce a {self.config.answer_detail_level} synthesis from the selected evidence.
-- Produce a comprehensive, enterprise-grade synthesis that balances depth with clarity.
-- Think like an experienced enterprise consultant preparing advice for a technical decision-maker.
-- Do not merely summarize retrieved passages; interpret, connect, and synthesize them into a coherent explanation.
-- Expand important concepts only when supported by the retrieved evidence.
-- Explain relationships between findings instead of presenting isolated facts.
-- Prioritize information density over answer length.
-- Every recommendation must remain fully grounded in the selected evidence.
-{content_requirements}{weak_rule}{minimum_words}{maximum_words}
-{structure}
-SELECTED EVIDENCE
-{context}
-
-QUESTION
-{question}
-
-ANSWER
-"""
+        return DEFAULT_PROMPT_MANAGER.render(
+            "generation.phase4_system",
+            self=SimpleNamespace(config=self.config),
+            INSUFFICIENT_EVIDENCE_RESPONSE=INSUFFICIENT_EVIDENCE_RESPONSE,
+            content_requirements=content_requirements,
+            weak_rule=weak_rule,
+            minimum_words=minimum_words,
+            maximum_words=maximum_words,
+            structure=structure,
+            context=context,
+            question=question,
+        )
 
     def _generate_grounded_answer(self, question: str, context: str) -> str:
         """Generate a detailed Phase 4 synthesis without expanding context.

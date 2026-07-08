@@ -1,0 +1,1 @@
+- Include a short Decision notes section that distinguishes immediate actions, follow-up validation, and unresolved evidence gaps.

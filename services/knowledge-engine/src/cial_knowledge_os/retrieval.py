@@ -10,6 +10,7 @@ from sentence_transformers import SentenceTransformer
 
 from .config import KnowledgeOSConfig
 from .embeddings import embed_texts
+from .prompts import DEFAULT_PROMPT_MANAGER
 
 
 def search_similar_chunks(
@@ -67,9 +68,14 @@ def format_retrieved_context(
         source = Path(str(result.get("source") or "unknown")).name
         page = result.get("page_number")
         page_label = f"p. {page}" if page is not None else "page n/a"
-        header = (
-            f"[{rank}] {source} | {page_label} | chunk "
-            f"{result.get('chunk_id', 'n/a')} | score {result.get('score', 0.0):.3f}\n"
+        header = DEFAULT_PROMPT_MANAGER.render(
+            "templates.retrieval_context_block",
+            rank=rank,
+            source=source,
+            page_label=page_label,
+            chunk_id=result.get("chunk_id", "n/a"),
+            score=f"{result.get('score', 0.0):.3f}",
+            text="",
         )
         remaining = max_chars - used - len(header)
         if remaining <= 0:

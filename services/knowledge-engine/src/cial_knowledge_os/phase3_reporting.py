@@ -695,9 +695,10 @@ def write_standalone_html(
                 )
                 + "</article>"
             )
+        citation_fallback = '<li class="citation-card">No citations</li>'
         citation_sections.append(
             f'<article><h3>Q{index}: {html.escape(str(row.get("question") or ""))}</h3>'
-            f'<ul class="citation-list">{"".join(citation_items) or "<li class=\"citation-card\">No citations</li>"}</ul></article>'
+            f'<ul class="citation-list">{"".join(citation_items) or citation_fallback}</ul></article>'
         )
         retrieved = response.get("context_stages")
         retrieved = (

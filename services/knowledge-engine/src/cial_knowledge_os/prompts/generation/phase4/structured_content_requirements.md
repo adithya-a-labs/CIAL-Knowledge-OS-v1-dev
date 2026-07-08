@@ -1,0 +1,10 @@
+- Produce a comprehensive, enterprise-grade synthesis rather than a simple summary of the retrieved evidence.
+- Explain operational implications and supported recommended controls or actions.
+- Explain why each recommendation matters and the expected operational or security benefit when supported by the evidence.
+- Identify supported risks, evidence gaps, dependencies, implementation considerations, and caveats.
+- Expand important concepts when the selected evidence provides sufficient detail.
+- Where multiple evidence sources support the same conclusion, synthesize them into a single coherent explanation instead of listing them independently.
+- Prioritize recommendations only when the evidence supports an ordering.
+- Clearly distinguish confirmed evidence from unresolved evidence gaps.
+- Prioritize information density over answer length.
+- Avoid filler, repetition, unsupported background, speculation, and artificial padding.

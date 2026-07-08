@@ -1,0 +1,9 @@
+- Produce a comprehensive, decision-oriented synthesis rather than a simple summary of retrieved evidence.
+- Explain only implications, actions, risks, gaps, dependencies, procedures, and recommendations that directly answer the question and are supported by the selected evidence.
+- Expand important concepts when the retrieved evidence provides sufficient detail.
+- Explain why recommendations matter, not only what should be done.
+- Where multiple evidence sources support the same conclusion, synthesize them into one coherent explanation rather than listing them independently.
+- Discuss operational, security, governance, implementation, or compliance implications only when directly supported by the evidence.
+- Highlight dependencies, assumptions, and evidence gaps where appropriate.
+- Prioritize information density over answer length.
+- Avoid filler, repetition, unsupported background, speculation, and artificial padding.

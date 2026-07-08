@@ -6,7 +6,50 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
-from .paths import DATA_FILES_ROOT, OUTPUTS_ROOT, REPO_ROOT, resolve_repo_path
+from .paths import (
+    BACKEND_ROOT,
+    DATA_FILES_ROOT,
+    OUTPUTS_ROOT,
+    REPO_ROOT,
+    SERVICE_ROOT,
+    resolve_repo_path,
+)
+
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key.startswith("export "):
+            key = key.removeprefix("export ").strip()
+        if not key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        values[key] = value
+    return values
+
+
+def _load_env_files() -> None:
+    """Load repo/service/backend .env files without overriding the shell."""
+
+    original_environment = set(os.environ)
+    loaded: dict[str, str] = {}
+    for path in (REPO_ROOT / ".env", SERVICE_ROOT / ".env", BACKEND_ROOT / ".env"):
+        loaded.update(_parse_env_file(path))
+    for key, value in loaded.items():
+        if key not in original_environment:
+            os.environ[key] = value
+
+
+_load_env_files()
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -55,7 +98,7 @@ class Settings:
         "http://localhost:3000",
     )
     qdrant_mode: str = _env_str("CIAL_QDRANT_MODE", "QDRANT_MODE", default="server")
-    qdrant_url: str = _env_str("CIAL_QDRANT_URL", "QDRANT_URL", default="http://localhost:6333")
+    qdrant_url: str = _env_str("CIAL_QDRANT_URL", "QDRANT_URL", default="http://localhost:6335")
     qdrant_api_key: str | None = _env_str("CIAL_QDRANT_API_KEY", "QDRANT_API_KEY", default="") or None
     qdrant_batch_size: int = _env_int("CIAL_QDRANT_BATCH_SIZE", _env_int("QDRANT_BATCH_SIZE", 32))
     qdrant_upsert_wait: bool = _env_bool("CIAL_QDRANT_UPSERT_WAIT", _env_bool("QDRANT_UPSERT_WAIT", True))
