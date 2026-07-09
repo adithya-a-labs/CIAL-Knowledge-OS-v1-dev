@@ -128,10 +128,10 @@ class BasicRAGPipeline:
         pdf_elapsed = time.perf_counter() - pdf_started_at
         if pdf_documents:
             self.metrics["pdf_loading_time"] = pdf_elapsed
-        self.documents = [*text_documents, *pdf_documents]
+        documents = [*text_documents, *pdf_documents]
         ocr_documents = [
             document
-            for document in self.documents
+            for document in documents
             if document.metadata.get("requires_ocr")
         ]
         scanned_ocr_files = int(self.file_format_readiness.get("ocr_files") or 0)
@@ -176,6 +176,8 @@ class BasicRAGPipeline:
             entry = entries.get(relative_path)
             if entry is not None:
                 document.metadata["document_id"] = entry.document_id
+        self.documents = documents
+        self._hydrate_document_access_metadata(self.documents)
         self.indexing_summary = {
             "new_files": len(self.indexing_plan.new),
             "changed_files": len(self.indexing_plan.changed),
@@ -201,6 +203,56 @@ class BasicRAGPipeline:
         ):
             raise RuntimeError("No local documents were available for the RAG pipeline.")
         return self.documents
+
+    @staticmethod
+    def _hydrate_document_access_metadata(documents: list[Document]) -> None:
+        relative_paths = sorted(
+            {
+                str(document.metadata.get("relative_path") or "").strip()
+                for document in documents
+                if document.metadata.get("relative_path")
+            }
+        )
+        if not relative_paths:
+            return
+        try:
+            from sqlalchemy import select
+
+            from backend.app.db.session import SessionLocal
+            from backend.app.models.knowledge import Document as MetadataDocument
+        except Exception:
+            return
+        if SessionLocal is None:
+            return
+
+        with SessionLocal() as session:
+            rows = session.scalars(
+                select(MetadataDocument).where(
+                    MetadataDocument.relative_path.in_(relative_paths)
+                )
+            ).all()
+        by_path = {row.relative_path: row for row in rows}
+        for document in documents:
+            relative_path = str(document.metadata.get("relative_path") or "").strip()
+            row = by_path.get(relative_path)
+            if row is None:
+                continue
+            document.metadata.update(
+                {
+                    "document_id": str(row.id),
+                    "document_version_id": str(row.current_version_id) if row.current_version_id else None,
+                    "organization_id": str(row.organization_id),
+                    "department_id": str(row.department_id),
+                    "folder_id": str(row.folder_id) if row.folder_id else None,
+                    "storage_scope": row.storage_scope,
+                    "owner_user_id": str(row.owner_user_id) if row.owner_user_id else None,
+                    "visibility": row.visibility,
+                    "lifecycle_status": row.lifecycle_status,
+                    "file_type": row.file_type,
+                    "mime_type": row.mime_type,
+                    "page_count": row.page_count,
+                }
+            )
 
     def chunk(self) -> list[Document]:
         if not self.documents and self.indexing_plan is None:
