@@ -28,6 +28,7 @@ class CorpusSynchronizer:
         started = perf_counter()
         store = CorpusMetadataStore(session)
         snapshot = store.snapshot()
+        organization_id, default_department_id = store.ensure_enterprise_document_context()
         counters = _Counters(
             folders_scanned=tree.folders_scanned,
             files_scanned=tree.files_scanned,
@@ -43,7 +44,16 @@ class CorpusSynchronizer:
 
         try:
             folders_by_path = self._sync_folders(tree, snapshot, session, counters)
-            jobs_created = self._sync_documents(tree, snapshot, folders_by_path, store, session, counters)
+            jobs_created = self._sync_documents(
+                tree,
+                snapshot,
+                folders_by_path,
+                store,
+                session,
+                counters,
+                organization_id=organization_id,
+                default_department_id=default_department_id,
+            )
             counters.indexing_jobs_created = jobs_created
             ingestion_run.status = "completed"
             ingestion_run.completed_at = datetime.now(timezone.utc)
@@ -160,6 +170,9 @@ class CorpusSynchronizer:
         store: CorpusMetadataStore,
         session: Session,
         counters: "_Counters",
+        *,
+        organization_id,
+        default_department_id,
     ) -> int:
         jobs_created = 0
         scanned_paths = set(tree.files_by_path)
@@ -178,7 +191,11 @@ class CorpusSynchronizer:
             if existing is None:
                 existing = self._match_moved_document(file, unmatched_existing, matched_existing_ids)
                 if existing is None:
-                    existing = self._new_document(file)
+                    existing = self._new_document(
+                        file,
+                        organization_id=organization_id,
+                        department_id=default_department_id,
+                    )
                     session.add(existing)
                     counters.files_added += 1
                     action = "added"
@@ -210,42 +227,68 @@ class CorpusSynchronizer:
                     counters.files_unchanged += 1
 
             existing.folder_id = folders_by_path[file.folder_relative_path].id
+            if existing.organization_id is None:
+                existing.organization_id = organization_id
+            if existing.department_id is None:
+                existing.department_id = default_department_id
+            if not existing.storage_scope:
+                existing.storage_scope = "enterprise"
+            if not existing.visibility:
+                existing.visibility = "enterprise"
+            if not existing.source_type:
+                existing.source_type = "corpus_sync"
+            if existing.deleted_at is not None:
+                existing.deleted_at = None
+                existing.deleted_by_user_id = None
+                existing.delete_reason = None
             if action is not None:
                 if queue_indexing:
                     existing.indexed = False
                     existing.indexing_status = PENDING_STATUS
-                    self._add_document_version(existing, file, store, session)
+                    existing.lifecycle_status = "pending"
+                    version = self._add_document_version(existing, file, store, session)
                     store.add_indexing_job(
                         action=action,
                         document=existing,
+                        document_version=version,
                         message=f"Corpus document {action}: {existing.relative_path}",
                     )
                     jobs_created += 1
             elif existing.indexing_status != DELETED_STATUS and existing.indexing_status != PENDING_STATUS:
                 existing.indexing_status = INDEXED_STATUS if existing.indexed else existing.indexing_status
+                if existing.indexed and existing.lifecycle_status != "archived":
+                    existing.lifecycle_status = "indexed"
 
         for path, document in unmatched_existing.items():
             if document.id in matched_existing_ids:
                 continue
             document.indexed = False
             document.indexing_status = DELETED_STATUS
+            document.lifecycle_status = "deleted"
+            document.deleted_at = datetime.now(timezone.utc)
             counters.files_removed += 1
 
         return jobs_created
 
     @staticmethod
-    def _new_document(file: CorpusFile) -> Document:
+    def _new_document(file: CorpusFile, *, organization_id, department_id) -> Document:
         document = Document(
+            organization_id=organization_id,
+            department_id=department_id,
+            storage_scope="enterprise",
             name=file.name,
             relative_path=file.relative_path,
             file_type=file.extension.removeprefix(".") or "unknown",
             extension=file.extension,
             mime_type=file.mime_type,
+            visibility="enterprise",
             size_bytes=file.size_bytes,
             content_hash=file.content_hash,
             modified_at=file.modified_at,
             indexed=False,
             indexing_status=PENDING_STATUS,
+            lifecycle_status=PENDING_STATUS,
+            source_type="corpus_sync",
         )
         return document
 
@@ -279,17 +322,22 @@ class CorpusSynchronizer:
         file: CorpusFile,
         store: CorpusMetadataStore,
         session: Session,
-    ) -> None:
+    ) -> DocumentVersion:
         session.flush()
-        session.add(
-            DocumentVersion(
-                document_id=document.id,
-                version_number=store.next_document_version(document.id),
-                content_hash=file.content_hash,
-                size_bytes=file.size_bytes,
-                modified_at=file.modified_at,
-            )
+        version = DocumentVersion(
+            document_id=document.id,
+            version_number=store.next_document_version(document.id),
+            storage_key=file.relative_path,
+            content_hash=file.content_hash,
+            size_bytes=file.size_bytes,
+            mime_type=file.mime_type,
+            modified_at=file.modified_at,
+            status="pending",
         )
+        session.add(version)
+        session.flush()
+        document.current_version_id = version.id
+        return version
 
     @staticmethod
     def _tree_folder_signatures(tree: CorpusTree) -> dict[str, tuple[str, ...]]:
