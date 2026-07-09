@@ -102,6 +102,7 @@ export default function DocumentViewerPanel({
     <div className="flex h-full min-h-0 flex-col bg-white" data-testid="document-viewer-panel">
       <DocumentToolbar
         title={title}
+        documentId={activeDocument}
         citationIndex={source.citationIndex}
         pageNumber={pageNumber}
         pageCount={effectivePageCount}
