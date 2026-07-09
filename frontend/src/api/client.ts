@@ -84,6 +84,14 @@ export function getDocumentFileUrl(documentId: string) {
   return apiUrl(`/api/corpus/document/${encodeURIComponent(documentId)}/file`);
 }
 
+export function getDocumentViewUrl(documentId: string) {
+  return apiUrl(`/api/corpus/document/${encodeURIComponent(documentId)}/view`);
+}
+
+export function getDocumentDownloadUrl(documentId: string) {
+  return apiUrl(`/api/corpus/document/${encodeURIComponent(documentId)}/download`);
+}
+
 export function getDocumentThumbnailUrl(documentId: string, page = 1) {
   return apiUrl(`/api/corpus/document/${encodeURIComponent(documentId)}/thumbnail?page=${encodeURIComponent(String(page))}`);
 }
