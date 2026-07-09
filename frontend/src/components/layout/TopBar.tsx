@@ -1,4 +1,4 @@
-import { Menu, Search } from 'lucide-react';
+import { Menu } from 'lucide-react';
 
 interface TopBarProps {
   onMenuClick: () => void;
@@ -21,16 +21,6 @@ export default function TopBar({ onMenuClick }: TopBarProps) {
       </button>
 
       <div className="min-w-0 flex-1" />
-
-      <label className="hidden min-w-0 max-w-xs flex-1 items-center gap-2 rounded-xl border border-[#e3e9e1] bg-white px-3 py-2 text-slate-500 shadow-sm md:flex">
-        <Search size={16} />
-        <input
-          type="search"
-          placeholder="Search this workspace"
-          className="min-w-0 flex-1 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
-          aria-label="Search this workspace"
-        />
-      </label>
     </header>
   );
 }
