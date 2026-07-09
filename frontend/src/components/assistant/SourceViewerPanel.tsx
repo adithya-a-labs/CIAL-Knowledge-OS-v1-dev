@@ -31,7 +31,7 @@ export default function SourceViewerPanel({
 
   if (isDesktopViewport) {
     return (
-      <aside className="ce-panel h-full min-h-0 w-[22rem] shrink-0 overflow-hidden 2xl:w-[26rem]" data-testid="source-viewer-panel">
+      <aside className="ce-panel h-full min-h-0 w-[min(52vw,72rem)] shrink-0 overflow-hidden" data-testid="source-viewer-panel">
         <DocumentViewerPanel source={source} sources={sources} onClose={onClose} onSelectSource={onSelectSource} />
       </aside>
     );
