@@ -49,9 +49,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--response-length",
-        choices=("short", "medium", "long"),
-        default="long",
-        help="Backend chat response_length profile to inspect.",
+        choices=("short", "medium", "long", "quick", "standard", "detailed", "operational", "elite"),
+        default=None,
+        help="Backend chat response_length/profile value to inspect.",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=("quick", "standard", "detailed", "operational", "elite"),
+        default="operational",
+        help="Explicit chat profile to inspect.",
+    )
+    parser.add_argument(
+        "--max-answer-words",
+        type=int,
+        default=None,
+        help="Optional request-level max_answer_words override.",
     )
     return parser
 
@@ -66,12 +78,18 @@ def main() -> int:
     if not service.engine_available:
         raise SystemExit(service._engine_error_message())
 
-    config = service.build_config(response_length=args.response_length)
+    response_length = args.response_length or args.profile
+    config = service.build_config(
+        response_length=response_length,
+        profile=args.profile,
+        max_answer_words=args.max_answer_words,
+    )
     prompt_names = _active_prompt_names(config)
     registry = DEFAULT_PROMPT_MANAGER.registry()
 
     rows: list[tuple[str, Any]] = [
-        ("response_length_profile", args.response_length),
+        ("response_length_profile", response_length),
+        ("explicit_profile", args.profile),
         ("answer_mode", getattr(config, "answer_detail_level", "")),
         ("max_answer_words", getattr(config, "max_answer_words", None)),
         ("min_answer_words", getattr(config, "min_answer_words", None)),
