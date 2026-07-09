@@ -29,7 +29,7 @@ interface SessionUpdate {
   selectedContextItems?: SelectedContextItem[];
   uploadedFiles?: UploadedFileContext[];
   searchScope?: SearchScope;
-  responseLength?: ResponseLength;
+  activeProfile?: ResponseLength;
   feedbackByMessageId?: Record<string, FeedbackType>;
 }
 
@@ -45,26 +45,29 @@ interface AssistantSessionsValue {
 const AssistantSessionsContext = createContext<AssistantSessionsValue | null>(null);
 
 function buildSession({
+  id,
   title = 'New conversation',
   messages = [],
   selectedContextItems = [],
   uploadedFiles = [],
   searchScope = 'hybrid',
-  responseLength = 'detailed',
+  activeProfile = 'detailed',
   feedbackByMessageId = {},
+  createdAt,
+  updatedAt,
 }: Partial<AssistantSession> = {}): AssistantSession {
   const now = new Date().toISOString();
   return {
-    id: `session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    id: id ?? `session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     title,
     messages,
     selectedContextItems,
     uploadedFiles,
     searchScope,
-    responseLength,
+    activeProfile,
     feedbackByMessageId,
-    createdAt: now,
-    updatedAt: now,
+    createdAt: createdAt ?? now,
+    updatedAt: updatedAt ?? now,
   };
 }
 
@@ -91,8 +94,14 @@ function loadSessions(): AssistantSession[] {
   try {
     const raw = window.localStorage.getItem(ASSISTANT_SESSIONS_STORAGE_KEY);
     if (!raw) return initialSessions();
-    const parsed = JSON.parse(raw) as AssistantSession[];
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : initialSessions();
+    const parsed = JSON.parse(raw) as Array<AssistantSession & { responseLength?: ResponseLength }>;
+    if (!Array.isArray(parsed) || parsed.length === 0) return initialSessions();
+    return parsed.map((session) =>
+      buildSession({
+        ...session,
+        activeProfile: session.activeProfile ?? session.responseLength ?? 'detailed',
+      }),
+    );
   } catch {
     return initialSessions();
   }
