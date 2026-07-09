@@ -6,6 +6,7 @@ import ConversationHistory from '@/components/assistant/ConversationHistory';
 
 export default function AIAssistantPage() {
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
+  const [historySidebarOpen, setHistorySidebarOpen] = useState(true);
 
   return (
     <AssistantSessionsProvider>
@@ -21,27 +22,40 @@ export default function AIAssistantPage() {
             </p>
           </div>
 
-          <div className="xl:hidden">
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setHistoryDrawerOpen(true)}
-              className="ce-action min-h-10 rounded-full px-4"
-              data-testid="button-open-history-drawer"
+              onClick={() => setHistorySidebarOpen(!historySidebarOpen)}
+              className="hidden ce-action min-h-10 rounded-full px-4 xl:flex"
+              data-testid="button-toggle-history-sidebar"
             >
               <History size={15} />
-              History
+              {historySidebarOpen ? 'Hide History' : 'Show History'}
             </button>
+
+            <div className="xl:hidden">
+              <button
+                onClick={() => setHistoryDrawerOpen(true)}
+                className="ce-action min-h-10 rounded-full px-4"
+                data-testid="button-open-history-drawer"
+              >
+                <History size={15} />
+                History
+              </button>
+            </div>
           </div>
         </div>
 
         <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
-          <ChatPanel />
+          {historySidebarOpen && (
+            <div
+              className="hidden h-full min-h-0 w-72 shrink-0 overflow-hidden rounded-[1.5rem] bg-white shadow-[0_20px_50px_-40px_rgba(15,23,42,0.45)] ring-1 ring-black/5 xl:flex 2xl:w-80"
+              data-testid="conversation-history-sidebar"
+            >
+              <ConversationHistory variant="sidebar" />
+            </div>
+          )}
 
-          <div
-            className="hidden h-full min-h-0 w-72 shrink-0 overflow-hidden rounded-[1.5rem] bg-white shadow-[0_20px_50px_-40px_rgba(15,23,42,0.45)] ring-1 ring-black/5 xl:flex 2xl:w-80"
-            data-testid="conversation-history-sidebar"
-          >
-            <ConversationHistory variant="sidebar" />
-          </div>
+          <ChatPanel />
         </div>
 
         {historyDrawerOpen && (
