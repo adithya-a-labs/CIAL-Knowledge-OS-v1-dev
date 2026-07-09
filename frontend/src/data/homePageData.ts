@@ -29,13 +29,12 @@ export interface HomeNavItem {
 export const homeNavItems: HomeNavItem[] = [
   { label: 'Home', path: '/', icon: Home },
   { label: 'AI Assistant', path: '/assistant', icon: Bot },
-  { label: 'Knowledge Base', path: '/knowledge-center', icon: BookOpen },
+  { label: 'Knowledge Center', path: '/knowledge-center', icon: BookOpen },
   { label: 'Departments', path: '/departments', icon: Building2 },
   { label: 'Collections', path: '/workspace/collections', icon: FolderOpen },
   { label: 'My Workspace', path: '/workspace', icon: UserRound },
   { label: 'Uploads', path: '/workspace/documents', icon: UploadCloud },
   { label: 'Bookmarks', path: '/workspace/bookmarks', icon: Bookmark },
-  { label: 'Conversations', path: '/assistant', icon: MessageSquare },
 ];
 
 export const suggestedPrompts = [
