@@ -10,6 +10,7 @@ interface ChatControlBarProps {
   onSearchScopeChange: (value: SearchScope) => void;
   onResponseLengthChange: (value: ResponseLength) => void;
   onManageContext: () => void;
+  onClearContext?: () => void;
 }
 
 export default function ChatControlBar({
@@ -20,31 +21,43 @@ export default function ChatControlBar({
   onSearchScopeChange,
   onResponseLengthChange,
   onManageContext,
+  onClearContext,
 }: ChatControlBarProps) {
+  const totalContextCount = selectedContextCount + uploadedFileCount;
+
   return (
-    <div className="ce-toolbar flex flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
-      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
-        <div data-testid="select-search-scope">
-          <SearchModePopover value={searchScope} onChange={onSearchScopeChange} />
-        </div>
-
-        <div data-testid="select-response-length">
-          <ResponseLengthPopover value={responseLength} onChange={onResponseLengthChange} />
-        </div>
-      </div>
-
+    <div className="flex flex-wrap items-center gap-2" data-testid="assistant-composer-controls">
       <button
         type="button"
         onClick={onManageContext}
-        className="ce-action ce-action-primary min-h-9 px-3"
+        className="ce-action min-h-9 rounded-full px-3 text-primary"
         data-testid="button-manage-context"
       >
         <BookOpenCheck size={15} />
-        Manage Context
-        <span className="rounded-md bg-white/95 px-1.5 py-0.5 text-[10px] text-primary">
-          {selectedContextCount + uploadedFileCount}
+        Context
+        <span className="rounded-full bg-[hsl(95_24%_94%)] px-1.5 py-0.5 text-[10px] text-primary">
+          {totalContextCount}
         </span>
       </button>
+
+      <div data-testid="select-search-scope">
+        <SearchModePopover value={searchScope} onChange={onSearchScopeChange} />
+      </div>
+
+      <div data-testid="select-response-length">
+        <ResponseLengthPopover value={responseLength} onChange={onResponseLengthChange} />
+      </div>
+
+      {totalContextCount > 0 && onClearContext ? (
+        <button
+          type="button"
+          onClick={onClearContext}
+          className="ce-action min-h-9 rounded-full px-3"
+          data-testid="button-clear-context"
+        >
+          Clear
+        </button>
+      ) : null}
     </div>
   );
 }
