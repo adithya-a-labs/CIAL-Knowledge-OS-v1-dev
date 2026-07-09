@@ -19,7 +19,7 @@ export const QUICK_ACTIONS: { label: string; icon: string; path: string; colorCl
   { label: 'New Query', icon: 'Plus', path: '/assistant', colorClass: 'bg-[#f0f7ed] text-[#4a7c3f]' },
   { label: 'Upload Document', icon: 'FileText', path: '/documents', colorClass: 'bg-[#fef3e8] text-[#e8820c]' },
   { label: 'My Bookmarks', icon: 'BookmarkCheck', path: '/documents', colorClass: 'bg-[#e8f0fe] text-[#3b5bdb]' },
-  { label: 'Department Wiki', icon: 'Globe', path: '/departments', colorClass: 'bg-[#f3e8ff] text-[#7c3aed]' },
+  // TODO: Reintroduce department-owned admin actions in a future Admin Console.
 ];
 
 export const DOC_TYPE_COLORS: Record<string, string> = {
