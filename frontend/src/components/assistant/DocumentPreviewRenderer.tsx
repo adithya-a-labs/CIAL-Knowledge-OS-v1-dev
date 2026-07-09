@@ -1,4 +1,3 @@
-import { Suspense, lazy } from 'react';
 import { apiUrl } from '@/api/client';
 import type { DocumentPreview } from '@/api/types';
 import FallbackViewer from './renderers/FallbackViewer';
@@ -7,8 +6,6 @@ import ImageViewer from './renderers/ImageViewer';
 import PptxViewer from './renderers/PptxViewer';
 import SpreadsheetViewer from './renderers/SpreadsheetViewer';
 import TextViewer from './renderers/TextViewer';
-
-const PdfViewer = lazy(() => import('./renderers/PdfViewer'));
 
 function extensionOf(preview: DocumentPreview | null, fallbackTitle: string) {
   return (preview?.extension || fallbackTitle.split('.').pop() || '').replace(/^\./, '').toLowerCase();
@@ -23,6 +20,7 @@ export default function DocumentPreviewRenderer({
   requestedPage,
   onPageCountChange,
   onActivePageChange,
+  useNativePdf = false,
 }: {
   preview: DocumentPreview | null;
   title: string;
@@ -32,6 +30,7 @@ export default function DocumentPreviewRenderer({
   requestedPage: number;
   onPageCountChange: (value: number) => void;
   onActivePageChange: (value: number) => void;
+  useNativePdf?: boolean;
 }) {
   const extension = extensionOf(preview, title);
   const text = preview?.preview_text ?? '';
@@ -46,21 +45,35 @@ export default function DocumentPreviewRenderer({
     );
   }
 
-  if (preview.render_kind === 'pdf' && viewerUrl) {
+  if (preview.render_kind === 'pdf' && viewerUrl && useNativePdf) {
     return (
-      <Suspense fallback={<div className="rounded-2xl border border-border bg-white p-4 text-sm text-muted-foreground">Loading document viewer...</div>}>
-        <PdfViewer
-          fileUrl={viewerUrl}
+      <div className="flex h-full min-h-[28rem] flex-col overflow-hidden rounded-[1.5rem] border border-border bg-[hsl(210_20%_98%)]">
+        <iframe
+          src={`${viewerUrl}#page=${requestedPage || activePage || 1}&zoom=${Math.round(zoomLevel * 100)}`}
           title={title}
-          activePage={activePage}
-          requestedPage={requestedPage}
-          searchQuery={searchQuery}
-          highlightText={preview.highlight_text || ''}
-          zoomLevel={zoomLevel}
-          onPageCountChange={onPageCountChange}
-          onVisiblePageChange={onActivePageChange}
+          className="min-h-0 flex-1 bg-white"
+          onLoad={() => {
+            if (preview.page_count) onPageCountChange(preview.page_count);
+            onActivePageChange(requestedPage || activePage || 1);
+          }}
         />
-      </Suspense>
+        <div className="border-t border-border bg-white px-4 py-2 text-xs text-muted-foreground">
+          If the browser cannot display this PDF inline, use Open or Download from the document toolbar.
+        </div>
+      </div>
+    );
+  }
+
+  if (preview.render_kind === 'pdf') {
+    return (
+      <div className="flex h-full min-h-[24rem] items-center justify-center rounded-[1.5rem] border border-border bg-[hsl(210_20%_98%)] p-6 text-center">
+        <div className="max-w-md">
+          <p className="text-sm font-semibold text-foreground">PDF preview available</p>
+          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+            Open the source in the full Document Workspace or use the toolbar actions to inspect the original PDF. The cited excerpt and metadata remain available below.
+          </p>
+        </div>
+      </div>
     );
   }
 
