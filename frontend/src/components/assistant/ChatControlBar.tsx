@@ -4,22 +4,22 @@ import type { ResponseLength, SearchScope } from '@/types/assistant';
 
 interface ChatControlBarProps {
   searchScope: SearchScope;
-  responseLength: ResponseLength;
+  activeProfile: ResponseLength;
   selectedContextCount: number;
   uploadedFileCount: number;
   onSearchScopeChange: (value: SearchScope) => void;
-  onResponseLengthChange: (value: ResponseLength) => void;
+  onActiveProfileChange: (value: ResponseLength) => void;
   onManageContext: () => void;
   onClearContext?: () => void;
 }
 
 export default function ChatControlBar({
   searchScope,
-  responseLength,
+  activeProfile,
   selectedContextCount,
   uploadedFileCount,
   onSearchScopeChange,
-  onResponseLengthChange,
+  onActiveProfileChange,
   onManageContext,
   onClearContext,
 }: ChatControlBarProps) {
@@ -45,7 +45,7 @@ export default function ChatControlBar({
       </div>
 
       <div data-testid="select-response-length">
-        <ResponseLengthPopover value={responseLength} onChange={onResponseLengthChange} />
+        <ResponseLengthPopover value={activeProfile} onChange={onActiveProfileChange} />
       </div>
 
       {totalContextCount > 0 && onClearContext ? (
