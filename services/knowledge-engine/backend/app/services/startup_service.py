@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import logging
 from pathlib import Path
 from typing import Any
 
 from backend.app.core.config import settings
 from backend.app.core.runtime_state import RuntimeState, utc_now_iso
+from backend.app.db.session import SessionLocal
 from backend.app.services.knowledge_engine_service import KnowledgeEngineService
+from cial_knowledge_os.corpus.metadata import CorpusMetadataStore
+from cial_knowledge_os.corpus.models import CorpusSyncSummary
 from cial_knowledge_os.corpus.service import CorpusService
 
 logger = logging.getLogger(__name__)
@@ -77,7 +81,7 @@ class StartupService:
         )
         try:
             self.ensure_required_folders()
-            self.sync_corpus_metadata()
+            sync_summary = self.sync_corpus_metadata()
             documents_seen = self.detect_documents()
             self.runtime_state.update(documents_seen=documents_seen)
 
@@ -127,11 +131,40 @@ class StartupService:
                 )
                 return
 
-            self.runtime_state.update(
-                status="indexing",
-                engine_ready=False,
-                message="Indexing documents with Phase4RAGPipeline.",
-            )
+            # --- Incremental skip logic ---
+            skip_indexing = self._should_skip_indexing(sync_summary)
+
+            if skip_indexing:
+                logger.info(
+                    "corpus_startup_indexing_skipped",
+                    extra={
+                        "event": "startup",
+                        "reason": "no_changes",
+                        "documents_seen": documents_seen,
+                    },
+                )
+                # Still need to initialize the pipeline for chat readiness
+                self.runtime_state.update(
+                    status="indexing",
+                    engine_ready=False,
+                    message="Loading pipeline (no indexing work needed).",
+                )
+            else:
+                pending_count = self._pending_job_count()
+                logger.info(
+                    "corpus_startup_indexing_started",
+                    extra={
+                        "event": "startup",
+                        "pending_jobs": pending_count,
+                        "force_rebuild": settings.force_rebuild_on_startup,
+                    },
+                )
+                self.runtime_state.update(
+                    status="indexing",
+                    engine_ready=False,
+                    message="Indexing documents with Phase4RAGPipeline.",
+                )
+
             counts = self.engine.prepare_pipeline(
                 force_rebuild_index=settings.force_rebuild_on_startup,
                 on_stage=self._on_pipeline_stage,
@@ -142,6 +175,9 @@ class StartupService:
                 index_fresh=True,
                 last_index_run_at=utc_now_iso(),
             )
+
+            # Mark all pending startup jobs as succeeded
+            self._complete_pending_startup_jobs()
 
             if not ollama_ready:
                 self.runtime_state.update(
@@ -167,9 +203,10 @@ class StartupService:
                 message=f"Phase 4.5 startup failed: {exc}",
             )
 
-    def sync_corpus_metadata(self) -> None:
+    def sync_corpus_metadata(self) -> CorpusSyncSummary | None:
+        """Run corpus sync and return the summary for skip-logic decisions."""
         if not settings.corpus_sync_on_startup or self.corpus_service is None:
-            return
+            return None
         try:
             summary = self.corpus_service.sync()
         except Exception as exc:  # noqa: BLE001 - metadata sync must not crash chat startup.
@@ -177,13 +214,86 @@ class StartupService:
             self.runtime_state.update(
                 message=f"Corpus metadata sync failed; continuing startup: {exc}",
             )
-            return
+            return None
         log_payload = summary.to_dict()
         log_payload["sync_message"] = log_payload.pop("message", "")
         logger.info(
             "corpus_startup_sync_completed",
             extra={"event": "corpus_sync", **log_payload},
         )
+        return summary
+
+    def _should_skip_indexing(self, sync_summary: CorpusSyncSummary | None) -> bool:
+        """Decide whether to skip the indexing pipeline on startup.
+
+        Skip when:
+        - Corpus sync found zero differences.
+        - No pending indexing jobs exist in the database.
+        - Not a force-rebuild.
+        """
+        if settings.force_rebuild_on_startup:
+            return False
+        if sync_summary is not None and sync_summary.differences_found:
+            return False
+        if self._has_pending_jobs():
+            return False
+        return True
+
+    def _has_pending_jobs(self) -> bool:
+        """Check whether any pending indexing jobs exist in the DB."""
+        if SessionLocal is None:
+            return False
+        try:
+            with SessionLocal() as session:
+                store = CorpusMetadataStore(session)
+                return store.has_pending_jobs()
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _pending_job_count(self) -> int:
+        """Return the number of pending indexing jobs."""
+        if SessionLocal is None:
+            return 0
+        try:
+            with SessionLocal() as session:
+                store = CorpusMetadataStore(session)
+                return len(store.pending_jobs())
+        except Exception:  # noqa: BLE001
+            return 0
+
+    def _complete_pending_startup_jobs(self) -> None:
+        """Mark all pending startup-created indexing jobs as succeeded."""
+        if SessionLocal is None:
+            return
+        try:
+            with SessionLocal() as session:
+                store = CorpusMetadataStore(session)
+                jobs = store.pending_jobs()
+                for job in jobs:
+                    store.mark_job_running(job.id)
+                    store.mark_job_succeeded(
+                        job.id,
+                        message="Completed during startup pipeline indexing.",
+                    )
+                    # Update associated document
+                    if job.document_id is not None:
+                        from backend.app.models.knowledge import Document
+                        document = session.get(Document, job.document_id)
+                        if document is not None:
+                            document.indexed = True
+                            document.indexing_status = "indexed"
+                            document.indexed_at = datetime.now(timezone.utc)
+                session.commit()
+                if jobs:
+                    logger.info(
+                        "corpus_startup_jobs_completed",
+                        extra={
+                            "event": "startup",
+                            "jobs_completed": len(jobs),
+                        },
+                    )
+        except Exception:  # noqa: BLE001 - non-critical
+            logger.exception("corpus_startup_jobs_completion_failed")
 
     def ensure_required_folders(self) -> None:
         for path in (
