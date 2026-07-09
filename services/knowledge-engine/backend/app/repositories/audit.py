@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from backend.app.models.operations import AuditEvent
@@ -22,7 +22,12 @@ class AuditRepository:
         return list(
             self.session.scalars(
                 select(AuditEvent)
-                .where(AuditEvent.user_id == user_id)
+                .where(
+                    or_(
+                        AuditEvent.actor_user_id == user_id,
+                        AuditEvent.user_id == user_id,
+                    )
+                )
                 .order_by(AuditEvent.created_at.desc())
             )
         )
@@ -35,4 +40,3 @@ class AuditRepository:
                 .order_by(AuditEvent.created_at.desc())
             )
         )
-
