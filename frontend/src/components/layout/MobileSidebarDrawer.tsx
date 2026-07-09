@@ -1,9 +1,11 @@
+import * as React from 'react';
 import { useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
-import { Bell, HelpCircle, MessageSquarePlus, Settings2, X } from 'lucide-react';
+import { Bell, HelpCircle, MessageSquarePlus, Settings2, X, Search } from 'lucide-react';
 import { THEME } from '@/config/themeConfig';
 import { CURRENT_USER } from '@/config/userConfig';
 import { homeNavItems } from '@/data/homePageData';
+import { useCommandPalette } from '@/components/common/CommandPalette';
 
 interface MobileSidebarDrawerProps {
   open: boolean;
@@ -16,6 +18,7 @@ const NEW_CONVERSATION_EVENT = 'cial-new-conversation';
 
 export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDrawerProps) {
   const [location] = useLocation();
+  const { setOpen } = useCommandPalette();
 
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : '';
@@ -70,18 +73,35 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
           {primaryNavItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.label, item.path);
+            const isHome = item.label === 'Home';
 
             return (
-              <Link
-                key={item.label}
-                href={item.path}
-                className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
-                  active ? 'bg-[#edf6e9] text-[#244f1d]' : 'text-slate-700 hover:bg-[#f6f8f5] hover:text-slate-950'
-                }`}
-              >
-                <Icon size={18} className={active ? 'text-[#2f6d25]' : 'text-slate-500'} />
-                <span>{item.label}</span>
-              </Link>
+              <React.Fragment key={item.label}>
+                <Link
+                  href={item.path}
+                  className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
+                    active ? 'bg-[#edf6e9] text-[#244f1d]' : 'text-slate-700 hover:bg-[#f6f8f5] hover:text-slate-950'
+                  }`}
+                >
+                  <Icon size={18} className={active ? 'text-[#2f6d25]' : 'text-slate-500'} />
+                  <span>{item.label}</span>
+                </Link>
+
+                {isHome && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      setOpen(true);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5] hover:text-slate-950 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  >
+                    <Search size={18} className="text-slate-500" />
+                    <span>Search</span>
+                    <span className="ml-auto text-[10px] text-slate-400 font-mono">Ctrl+K</span>
+                  </button>
+                )}
+              </React.Fragment>
             );
           })}
         </nav>
