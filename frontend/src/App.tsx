@@ -3,10 +3,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import AppShell from "@/components/layout/AppShell";
+import { CommandPaletteProvider, CommandPalette } from "@/components/common/CommandPalette";
 import DashboardPage from "@/pages/DashboardPage";
 import AIAssistantPage from "@/pages/AIAssistantPage";
-import KnowledgeCenterPage from "@/pages/KnowledgeCenterPage";
 import DocumentWorkspacePage from "@/pages/DocumentWorkspacePage";
+import KnowledgeCenterPage from "@/pages/KnowledgeCenterPage";
+import WorkspacePage from "@/pages/WorkspacePage";
 import DocumentsPage from "@/pages/DocumentsPage";
 import FAQsPage from "@/pages/FAQsPage";
 import ExpertDirectoryPage from "@/pages/ExpertDirectoryPage";
@@ -16,7 +18,6 @@ import KnowledgeGapsPage from "@/pages/KnowledgeGapsPage";
 import DepartmentsPage from "@/pages/DepartmentsPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import AdminSettingsPage from "@/pages/AdminSettingsPage";
-import WorkspacePage from "@/pages/WorkspacePage";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
@@ -56,7 +57,10 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
+          <CommandPaletteProvider>
+            <Router />
+            <CommandPalette />
+          </CommandPaletteProvider>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>
