@@ -26,16 +26,16 @@ export default function ChatControlBar({
   const totalContextCount = selectedContextCount + uploadedFileCount;
 
   return (
-    <div className="flex flex-wrap items-center gap-2" data-testid="assistant-composer-controls">
+    <div className="flex flex-wrap items-center gap-1.5" data-testid="assistant-composer-controls">
       <button
         type="button"
         onClick={onManageContext}
-        className="ce-action min-h-9 rounded-full px-3 text-primary"
+        className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[#dce4d8] bg-[#f7faf5] px-2 text-[11px] font-medium text-primary transition hover:bg-[#eef5e8]"
         data-testid="button-manage-context"
       >
-        <BookOpenCheck size={15} />
+        <BookOpenCheck size={13} />
         Context
-        <span className="rounded-full bg-[hsl(95_24%_94%)] px-1.5 py-0.5 text-[10px] text-primary">
+        <span className="rounded-sm bg-white px-1 py-0 text-[10px] text-primary shadow-[inset_0_0_0_1px_rgba(47,109,37,0.08)]">
           {totalContextCount}
         </span>
       </button>
@@ -52,7 +52,7 @@ export default function ChatControlBar({
         <button
           type="button"
           onClick={onClearContext}
-          className="ce-action min-h-9 rounded-full px-3"
+          className="inline-flex h-7 items-center rounded-md border border-transparent px-2 text-[11px] font-medium text-muted-foreground transition hover:border-border hover:bg-[#f6f8f5] hover:text-foreground"
           data-testid="button-clear-context"
         >
           Clear

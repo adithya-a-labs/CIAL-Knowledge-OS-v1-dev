@@ -212,24 +212,24 @@ function SettingsPopover<T extends string>({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="ce-control flex min-h-9 min-w-0 items-center gap-2 rounded-full bg-white px-3 text-left hover:bg-[hsl(210_20%_98%)]"
+          className="flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-[#dce4d8] bg-white px-2 text-left transition hover:bg-[#f8faf7]"
           aria-label={`Open ${title} selector`}
           aria-haspopup="dialog"
         >
-          <TriggerIcon size={17} className="shrink-0 text-primary" />
-          <span className="hidden text-[11px] font-semibold uppercase text-muted-foreground sm:inline">
+          <TriggerIcon size={14} className="shrink-0 text-primary" />
+          <span className="hidden text-[10px] font-semibold uppercase text-muted-foreground lg:inline">
             {eyebrow}
           </span>
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
+          <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
             {selectedOption.title}
           </span>
-          <ChevronDown size={15} className="shrink-0 text-muted-foreground" />
+          <ChevronDown size={13} className="shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        sideOffset={12}
-        className="w-[min(calc(100vw-2rem),34rem)] rounded-2xl border-border bg-white p-0 shadow-lg"
+        sideOffset={10}
+        className="w-[min(calc(100vw-2rem),34rem)] rounded-xl border-border bg-white p-0 shadow-lg"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           const selectedIndex = options.findIndex((option) => option.value === value);
