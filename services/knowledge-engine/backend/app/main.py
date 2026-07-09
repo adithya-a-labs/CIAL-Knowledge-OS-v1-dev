@@ -24,6 +24,7 @@ from backend.app.services.document_service import DocumentService
 from backend.app.services.evaluation_service import EvaluationService
 from backend.app.services.export_service import ExportService
 from backend.app.services.indexing_service import IndexingService
+from backend.app.services.indexing_worker import IndexingWorker
 from backend.app.services.knowledge_engine_service import KnowledgeEngineService
 from backend.app.services.startup_service import StartupService
 from cial_knowledge_os.corpus.service import CorpusService
@@ -47,6 +48,10 @@ async def lifespan(app: FastAPI):
             logger.exception("corpus_watcher_start_failed")
             app.state.corpus_watcher_error = str(exc)
             watcher = None
+
+    # Start background indexing worker
+    app.state.indexing_worker.start()
+
     startup_thread = Thread(
         target=app.state.startup_service.run_startup,
         name="phase45-startup",
@@ -59,6 +64,7 @@ async def lifespan(app: FastAPI):
     finally:
         if watcher is not None:
             watcher.stop()
+        app.state.indexing_worker.stop()
         app.state.knowledge_engine.close()
 
 
@@ -86,10 +92,16 @@ def create_app() -> FastAPI:
         runtime_state=runtime_state,
         corpus_service=corpus_service,
     )
+    indexing_worker = IndexingWorker(
+        engine=engine,
+        runtime_state=runtime_state,
+        corpus_sync=corpus_service.sync if SessionLocal is not None else None,
+    )
     app.state.runtime_state = runtime_state
     app.state.knowledge_engine = engine
     app.state.corpus_service = corpus_service
     app.state.startup_service = startup_service
+    app.state.indexing_worker = indexing_worker
     app.state.document_service = DocumentService(root=settings.data_files_path)
     app.state.indexing_service = IndexingService(engine, runtime_state)
     app.state.evaluation_service = EvaluationService()
