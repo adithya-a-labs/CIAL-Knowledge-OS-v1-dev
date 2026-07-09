@@ -45,7 +45,7 @@ export interface UploadedFileContext {
 export interface ChatRequestPayload {
   query: string;
   searchScope: SearchScope;
-  responseLength: ResponseLength;
+  activeProfile: ResponseLength;
   selectedDocumentIds: string[];
   selectedFolderIds: string[];
   uploadedFileIds: string[];
@@ -60,10 +60,15 @@ export interface ChatSource {
   sourceType: ContextSourceType;
   department?: string;
   pageNumber?: number;
+  pageCount?: number;
   chunkId?: string;
   score?: number;
   reason?: string;
   excerpt?: string;
+  highlightText?: string;
+  previewText?: string;
+  fileType?: string;
+  fileUrl?: string;
 }
 
 export interface ChatCitation {
@@ -77,7 +82,7 @@ export interface ChatCitation {
 
 export interface AssistantMessageMetadata {
   searchScope: SearchScope;
-  responseLength: ResponseLength;
+  activeProfile: ResponseLength;
   documentsSearched: number;
   chunksRetrieved: number;
   sourcesUsed: number;
@@ -92,7 +97,7 @@ export interface AssistantSession {
   selectedContextItems: SelectedContextItem[];
   uploadedFiles: UploadedFileContext[];
   searchScope: SearchScope;
-  responseLength: ResponseLength;
+  activeProfile: ResponseLength;
   feedbackByMessageId: Record<string, FeedbackType>;
   createdAt: string;
   updatedAt: string;
