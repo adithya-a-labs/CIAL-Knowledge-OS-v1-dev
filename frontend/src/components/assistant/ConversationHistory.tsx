@@ -44,14 +44,14 @@ export default function ConversationHistory({ variant = 'sidebar', onClose }: Co
 
   return (
     <div
-      className={variant === 'sidebar' ? 'flex h-full flex-col' : 'flex flex-col'}
+      className={variant === 'sidebar' ? 'flex h-full flex-col bg-[#fbfcfa]' : 'flex flex-col'}
       data-testid="conversation-history"
     >
-      <div className="flex items-center justify-between border-b border-border p-4">
-        <h3 className="text-sm font-semibold text-foreground">Conversation History</h3>
+      <div className="flex items-center justify-between border-b border-[#e3e9e1] px-4 py-3">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Conversation History</h3>
         <div className="flex items-center gap-2">
           <button
-            className="flex items-center gap-1 rounded-md text-xs text-muted-foreground transition-colors hover:text-[#b42318] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-white hover:text-[#b42318] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
             data-testid="button-clear-history"
             onClick={clearHistory}
           >
@@ -70,7 +70,7 @@ export default function ConversationHistory({ variant = 'sidebar', onClose }: Co
         </div>
       </div>
 
-      <div className={`${variant === 'sidebar' ? 'flex-1 overflow-y-auto' : ''} scrollbar-soft p-3`}>
+      <div className={`${variant === 'sidebar' ? 'flex-1 overflow-y-auto' : ''} scrollbar-soft p-2`}>
         {groups.map((group) => (
           <section key={group.label} className="mb-4 last:mb-0">
             <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
@@ -83,17 +83,17 @@ export default function ConversationHistory({ variant = 'sidebar', onClose }: Co
                 .map((session) => (
                   <button
                     key={session.id}
-                    className={`group w-full rounded-2xl px-3 py-3 text-left transition-colors ${
+                    className={`group w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
                       session.id === activeSession.id
-                        ? 'bg-[hsl(95_24%_94%)] ring-1 ring-[hsl(95_28%_78%)]'
-                        : 'border border-transparent hover:bg-muted'
+                        ? 'bg-white shadow-[inset_0_0_0_1px_rgba(47,109,37,0.12)]'
+                        : 'border border-transparent hover:bg-white'
                     }`}
                     data-testid={`history-item-${session.id}`}
                     onClick={() => {
                       setActiveSession(session.id);
                       onClose?.();
                     }}
-                  >
+                    >
                     <p className="safe-text flex items-start gap-2 text-xs font-semibold text-foreground transition-colors group-hover:text-primary">
                       <MessageSquareText size={13} className="mt-0.5 shrink-0 text-primary" />
                       <span className="min-w-0 truncate">{session.title}</span>
