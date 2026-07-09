@@ -4,12 +4,9 @@ import {
   Bookmark,
   Clock3,
   FileText,
-  FolderOpen,
-  Layers3,
   MessageSquare,
   NotebookPen,
   Pin,
-  Plus,
   Search,
   Sparkles,
 } from 'lucide-react';
@@ -17,22 +14,12 @@ import PrivacyBadge from '@/components/workspace/PrivacyBadge';
 import WorkspaceUploadButton from '@/components/workspace/WorkspaceUploadButton';
 import {
   CURRENT_WORKSPACE_USER_ID,
-  MY_COLLECTIONS,
   MY_CONVERSATIONS,
   MY_DOCUMENTS,
   RECENT_ACTIVITY,
   WORKSPACE_STORAGE,
 } from '@/data/workspace/workspaceData';
 import { getVisibleDocuments } from '@/data/workspace/workspacePermissions';
-
-const enterpriseCollections = [
-  { name: 'Runway Maintenance', description: 'Manuals, inspection checklists, calibration notes', docs: 42, owner: 'Engineering' },
-  { name: 'Emergency SOPs', description: 'Fire, medical, evacuation, escalation procedures', docs: 35, owner: 'Safety' },
-  { name: 'Security Policies', description: 'Access control, incident response, compliance', docs: 28, owner: 'Security' },
-  { name: 'Training', description: 'Role-based learning packets and reference guides', docs: 51, owner: 'Learning' },
-  { name: 'Finance', description: 'Procurement, vendor, audit and finance references', docs: 19, owner: 'Finance' },
-  { name: 'Operations', description: 'Terminal operations, baggage, passenger flow SOPs', docs: 64, owner: 'Operations' },
-];
 
 const savedItems = {
   documents: ['Fire alarm escalation SOP', 'Runway Lighting System - Maintenance Manual', 'Baggage Handling Safety SOP'],
@@ -74,38 +61,6 @@ function DocumentList({ documents }: { documents: typeof MY_DOCUMENTS }) {
           <span className="ce-badge hidden sm:inline-flex">{doc.size}</span>
         </div>
       ))}
-    </div>
-  );
-}
-
-function CollectionsView() {
-  return (
-    <div className="mx-auto flex w-full max-w-[86rem] flex-col gap-6" data-testid="collections-page">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase text-slate-500">Collections</p>
-          <h1 className="mt-2 text-3xl font-semibold text-slate-950">Enterprise knowledge bundles</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Curated playlists of documents, notes, summaries, and related AI conversations.</p>
-        </div>
-        <button className="ce-action ce-action-primary h-10 px-3"><Plus size={15} />New collection</button>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {enterpriseCollections.map((collection) => (
-          <article key={collection.name} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-primary"><Layers3 size={19} /></span>
-              <span className="ce-badge">{collection.owner}</span>
-            </div>
-            <h2 className="mt-4 text-base font-semibold text-slate-950">{collection.name}</h2>
-            <p className="mt-2 min-h-10 text-sm leading-5 text-slate-600">{collection.description}</p>
-            <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-500">
-              <span>{collection.docs} documents</span>
-              <Link href="/assistant" className="font-semibold text-primary">Use in AI</Link>
-            </div>
-          </article>
-        ))}
-      </div>
     </div>
   );
 }
@@ -152,7 +107,6 @@ export default function WorkspacePage() {
   const visibleDocs = getVisibleDocuments(currentUser, MY_DOCUMENTS);
   const visibleConvos = MY_CONVERSATIONS.filter((conversation) => conversation.ownerId === currentUser.id);
 
-  if (location === '/collections' || location === '/workspace/collections') return <CollectionsView />;
   if (location === '/saved-knowledge' || location === '/workspace/bookmarks') return <SavedKnowledgeView />;
 
   return (
@@ -164,7 +118,7 @@ export default function WorkspacePage() {
             <PrivacyBadge size="sm" />
           </div>
           <h1 className="mt-2 text-3xl font-semibold text-slate-950">Personal knowledge workspace</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Private documents, notes, collections, pins, uploads, and AI work in one place.</p>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Private documents, notes, pins, saved knowledge, uploads, and AI work in one place.</p>
         </div>
         <WorkspaceUploadButton onClick={() => {}} />
       </div>
@@ -187,13 +141,12 @@ export default function WorkspacePage() {
               </div>
             </WorkspaceSection>
 
-            <WorkspaceSection title="My Collections">
+            <WorkspaceSection title="Pinned Knowledge">
               <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-3">
-                {MY_COLLECTIONS.slice(0, 4).map((collection) => (
-                  <Link key={collection.id} href="/collections" className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-slate-50">
-                    <FolderOpen size={16} className="text-primary" />
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">{collection.name}</span>
-                    <span className="ce-badge">{collection.itemCount}</span>
+                {['Runway Lighting', 'Electrical Systems', 'Maintenance Notes', 'Vendor Manuals'].map((item) => (
+                  <Link key={item} href="/saved-knowledge" className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-slate-50">
+                    <Bookmark size={16} className="text-primary" />
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900">{item}</span>
                   </Link>
                 ))}
               </div>
