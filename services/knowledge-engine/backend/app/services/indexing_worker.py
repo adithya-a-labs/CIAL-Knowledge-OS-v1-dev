@@ -12,7 +12,7 @@ from typing import Any, Callable
 
 from backend.app.core.runtime_state import RuntimeState
 from backend.app.db.session import SessionLocal
-from backend.app.models.knowledge import Document
+from backend.app.models.knowledge import Document, DocumentVersion
 from backend.app.models.operations import IndexingJob
 from cial_knowledge_os.corpus.metadata import CorpusMetadataStore
 
@@ -182,7 +182,12 @@ class IndexingWorker:
                     if document is not None:
                         document.indexed = True
                         document.indexing_status = "indexed"
+                        document.lifecycle_status = "indexed"
                         document.indexed_at = datetime.now(timezone.utc)
+                if job.document_version_id is not None:
+                    version = session.get(DocumentVersion, job.document_version_id)
+                    if version is not None:
+                        version.status = "indexed"
                 session.commit()
 
             # Update runtime state
@@ -211,6 +216,16 @@ class IndexingWorker:
                 with SessionLocal() as session:
                     store = CorpusMetadataStore(session)
                     store.mark_job_failed(job_id, error=error_message)
+                    job = session.get(IndexingJob, job_id)
+                    if job is not None and job.document_id is not None:
+                        document = session.get(Document, job.document_id)
+                        if document is not None:
+                            document.indexing_status = "failed"
+                            document.lifecycle_status = "failed"
+                    if job is not None and job.document_version_id is not None:
+                        version = session.get(DocumentVersion, job.document_version_id)
+                        if version is not None:
+                            version.status = "failed"
                     session.commit()
             except Exception:
                 logger.exception("indexing_job_fail_update_error")
