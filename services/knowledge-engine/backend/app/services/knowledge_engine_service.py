@@ -15,7 +15,7 @@ import uuid
 from backend.app.core.config import settings
 from backend.app.core.paths import KNOWLEDGE_ENGINE_SRC, REPO_ROOT
 from backend.app.db.session import SessionLocal
-from backend.app.models.knowledge import Document, Folder
+from backend.app.models.knowledge import Document, DocumentChunk, Folder
 from backend.app.schemas.chat import (
     ChatCitation,
     ChatMetadata,
@@ -800,13 +800,14 @@ class KnowledgeEngineService:
     def _citations(self, response: Mapping[str, Any]) -> list[ChatCitation]:
         citation_payload = response.get("citations") or []
         sources = self._sources(response)
-        snippets_by_id = {source.id: source.text[:400] for source in sources}
+        source_by_id = {source.id: source for source in sources}
         citations: list[ChatCitation] = []
         for index, citation in enumerate(citation_payload, start=1):
             if not isinstance(citation, Mapping):
                 continue
             reference_id = int(citation.get("reference_id") or index)
             source_id = f"S{reference_id}"
+            source = source_by_id.get(source_id)
             citations.append(
                 ChatCitation(
                     id=source_id,
@@ -815,8 +816,16 @@ class KnowledgeEngineService:
                         or citation.get("source")
                         or "Unknown document"
                     ),
+                    document_id=source.document_id if source else None,
+                    relative_path=source.relative_path if source else None,
                     page=self._optional_int(citation.get("page_number")),
-                    snippet=snippets_by_id.get(source_id, ""),
+                    page_count=source.page_count if source else None,
+                    chunk_id=source.chunk_id if source else None,
+                    snippet=(source.text[:400] if source else ""),
+                    highlight_text=source.highlight_text if source else None,
+                    preview_text=source.preview_text if source else None,
+                    file_type=source.file_type if source else None,
+                    file_url=source.file_url if source else None,
                     score=self._optional_float(citation.get("score")),
                 )
             )
@@ -829,34 +838,46 @@ class KnowledgeEngineService:
             chunks = list(stages.get("compressed") or stages.get("retrieved") or [])
         if not chunks:
             chunks = list(response.get("retrieved") or [])
+        document_context = self._document_context(chunks)
         sources: list[ChatSource] = []
         for index, chunk in enumerate(chunks, start=1):
             if not isinstance(chunk, Mapping):
                 continue
             metadata = chunk.get("metadata") if isinstance(chunk.get("metadata"), Mapping) else {}
-            path = str(metadata.get("source") or chunk.get("source") or "")
-            document_name = (
-                str(metadata.get("file_name"))
-                if metadata.get("file_name")
-                else Path(path).name if path else "Unknown document"
+            context = self._context_for_chunk(chunk, metadata, document_context)
+            relative_path = context.get("relative_path") or self._normalize_relative_path(
+                metadata.get("relative_path") or chunk.get("relative_path")
             )
+            path = relative_path or str(metadata.get("source") or chunk.get("source") or "")
+            document_name = (
+                str(context.get("name") or metadata.get("file_name"))
+                if context.get("name") or metadata.get("file_name")
+                else Path(relative_path or path).name if (relative_path or path) else "Unknown document"
+            )
+            preview_text = str(chunk.get("page_content") or chunk.get("text") or chunk.get("content") or "")
+            file_id = context.get("document_id")
             sources.append(
                 ChatSource(
                     id=f"S{index}",
                     document_name=document_name,
                     path=path,
-                    document_id=(
-                        str(metadata.get("document_id"))
-                        if metadata.get("document_id")
-                        else None
+                    document_id=str(file_id) if file_id else None,
+                    relative_path=relative_path or None,
+                    page=self._optional_int(
+                        chunk.get("page_number")
+                        or metadata.get("page_number")
+                        or context.get("page")
                     ),
-                    page=self._optional_int(chunk.get("page_number") or metadata.get("page_number")),
+                    page_count=self._optional_int(context.get("page_count")),
                     chunk_id=str(chunk.get("chunk_id") or metadata.get("chunk_id") or ""),
-                    text=str(
-                        chunk.get("page_content")
-                        or chunk.get("text")
-                        or chunk.get("content")
-                        or ""
+                    text=preview_text,
+                    highlight_text=str(context.get("highlight_text") or preview_text[:1000] or ""),
+                    preview_text=preview_text[:4000] or None,
+                    file_type=str(context.get("file_type") or metadata.get("file_type") or ""),
+                    file_url=(
+                        f"/api/corpus/document/{file_id}/view"
+                        if file_id
+                        else None
                     ),
                     score=self._optional_float(
                         chunk.get("reranker_score")
@@ -866,6 +887,127 @@ class KnowledgeEngineService:
                 )
             )
         return sources
+
+    def _document_context(self, chunks: list[Any]) -> dict[str, dict[str, Any]]:
+        relative_paths: set[str] = set()
+        document_ids: set[uuid.UUID] = set()
+        chunk_ids_by_document: dict[uuid.UUID, set[str]] = {}
+
+        for chunk in chunks:
+            if not isinstance(chunk, Mapping):
+                continue
+            metadata = chunk.get("metadata") if isinstance(chunk.get("metadata"), Mapping) else {}
+            relative_path = self._normalize_relative_path(
+                metadata.get("relative_path") or chunk.get("relative_path")
+            )
+            if relative_path:
+                relative_paths.add(relative_path)
+            try:
+                document_id = uuid.UUID(str(metadata.get("document_id") or ""))
+            except (TypeError, ValueError):
+                document_id = None
+            if document_id is not None:
+                document_ids.add(document_id)
+                chunk_id = str(chunk.get("chunk_id") or metadata.get("chunk_id") or "").strip()
+                if chunk_id:
+                    chunk_ids_by_document.setdefault(document_id, set()).add(chunk_id)
+
+        if SessionLocal is None or (not relative_paths and not document_ids):
+            return {}
+
+        by_document_id: dict[uuid.UUID, dict[str, Any]] = {}
+        with SessionLocal() as session:
+            for document_id in document_ids:
+                document = session.get(Document, document_id)
+                if document is None:
+                    continue
+                by_document_id[document_id] = self._serialize_document_context(document)
+
+            if relative_paths:
+                documents = session.scalars(
+                    select(Document).where(Document.relative_path.in_(sorted(relative_paths)))
+                ).all()
+                for document in documents:
+                    by_document_id[document.id] = self._serialize_document_context(document)
+
+            for document_id, chunk_ids in chunk_ids_by_document.items():
+                if document_id not in by_document_id or not chunk_ids:
+                    continue
+                chunk_rows = session.scalars(
+                    select(DocumentChunk).where(
+                        DocumentChunk.document_id == document_id,
+                        DocumentChunk.chunk_id.in_(sorted(chunk_ids)),
+                    )
+                ).all()
+                chunk_map = {
+                    row.chunk_id: {
+                        "page": row.page,
+                        "text_preview": row.text_preview,
+                    }
+                    for row in chunk_rows
+                }
+                by_document_id[document_id]["chunks"] = chunk_map
+
+        by_relative_path: dict[str, dict[str, Any]] = {}
+        for context in by_document_id.values():
+            relative_path = self._normalize_relative_path(context.get("relative_path"))
+            if relative_path:
+                by_relative_path[relative_path] = context
+            document_id = context.get("document_id")
+            if document_id:
+                by_relative_path[str(document_id)] = context
+        return by_relative_path
+
+    @staticmethod
+    def _serialize_document_context(document: Document) -> dict[str, Any]:
+        return {
+            "document_id": str(document.id),
+            "name": document.name,
+            "relative_path": document.relative_path,
+            "page_count": document.page_count,
+            "file_type": document.file_type,
+            "chunks": {},
+        }
+
+    def _context_for_chunk(
+        self,
+        chunk: Mapping[str, Any],
+        metadata: Mapping[str, Any],
+        document_context: Mapping[str, dict[str, Any]],
+    ) -> dict[str, Any]:
+        relative_path = self._normalize_relative_path(
+            metadata.get("relative_path") or chunk.get("relative_path")
+        )
+        raw_document_id = metadata.get("document_id")
+        context = {}
+        if raw_document_id:
+            context = document_context.get(str(raw_document_id), {})
+        if not context and relative_path:
+            context = document_context.get(relative_path, {})
+        context = dict(context)
+        chunk_id = str(chunk.get("chunk_id") or metadata.get("chunk_id") or "").strip()
+        chunk_context = context.get("chunks", {}).get(chunk_id, {}) if context else {}
+        text_preview = str(chunk_context.get("text_preview") or "").strip()
+        if chunk_context.get("page") is not None:
+            context["page"] = chunk_context.get("page")
+        if text_preview:
+            context["highlight_text"] = text_preview
+        elif chunk.get("text") or chunk.get("page_content") or chunk.get("content"):
+            context["highlight_text"] = str(
+                chunk.get("text")
+                or chunk.get("page_content")
+                or chunk.get("content")
+                or ""
+            )[:1000]
+        if not context.get("page_count") and self._optional_int(metadata.get("page_count")) is not None:
+            context["page_count"] = self._optional_int(metadata.get("page_count"))
+        if not context.get("file_type") and metadata.get("file_type"):
+            context["file_type"] = str(metadata.get("file_type"))
+        if not context.get("relative_path") and relative_path:
+            context["relative_path"] = relative_path
+        if not context.get("document_id") and raw_document_id:
+            context["document_id"] = str(raw_document_id)
+        return context
 
     @staticmethod
     def _optional_int(value: Any) -> int | None:
