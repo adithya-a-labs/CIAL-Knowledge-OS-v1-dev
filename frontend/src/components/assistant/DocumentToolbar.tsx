@@ -1,9 +1,11 @@
-import { ChevronLeft, ChevronRight, Download, ExternalLink, FileText, RotateCcw, Search, ZoomIn, ZoomOut } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, ExternalLink, FileText, Maximize2, RotateCcw, Search, ZoomIn, ZoomOut } from 'lucide-react';
 import type { ChangeEvent } from 'react';
+import { Link } from 'wouter';
 import type { ChatSource } from '@/types/assistant';
 
 interface DocumentToolbarProps {
   title: string;
+  documentId?: string | null;
   citationIndex?: number;
   pageNumber?: number | null;
   pageCount?: number | null;
@@ -30,6 +32,7 @@ interface DocumentToolbarProps {
 
 export default function DocumentToolbar({
   title,
+  documentId,
   citationIndex,
   pageNumber,
   pageCount,
@@ -111,6 +114,16 @@ export default function DocumentToolbar({
           {pageCount ? <span className="text-xs text-muted-foreground">/ {pageCount}</span> : null}
         </div>
 
+        {documentId ? (
+          <Link
+            href={`/knowledge/document/${documentId}?page=${pageNumber ?? 1}`}
+            className="ce-icon-button h-10 w-10 rounded-full flex items-center justify-center text-primary"
+            title="Open full document"
+            aria-label="Open full document"
+          >
+            <Maximize2 size={15} />
+          </Link>
+        ) : null}
         {openUrl ? (
           <a href={openUrl} target="_blank" rel="noreferrer" className="ce-icon-button h-10 w-10 rounded-full" aria-label="Open document">
             <ExternalLink size={15} />
