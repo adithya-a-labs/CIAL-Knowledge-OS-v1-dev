@@ -32,8 +32,16 @@ class ChatRequest(BaseModel):
 class ChatCitation(BaseModel):
     id: str
     document_name: str
+    document_id: str | None = None
+    relative_path: str | None = None
     page: int | None = None
+    page_count: int | None = None
+    chunk_id: str | None = None
     snippet: str = ""
+    highlight_text: str | None = None
+    preview_text: str | None = None
+    file_type: str | None = None
+    file_url: str | None = None
     score: float | None = None
 
 
@@ -42,9 +50,15 @@ class ChatSource(BaseModel):
     document_name: str
     path: str = ""
     document_id: str | None = None
+    relative_path: str | None = None
     page: int | None = None
+    page_count: int | None = None
     chunk_id: str = ""
     text: str = ""
+    highlight_text: str | None = None
+    preview_text: str | None = None
+    file_type: str | None = None
+    file_url: str | None = None
     score: float | None = None
 
 
