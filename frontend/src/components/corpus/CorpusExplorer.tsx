@@ -192,13 +192,13 @@ function FileCard({
 
   if (viewMode === 'grid') {
     return (
-      <article className={cn('rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300', selected && 'border-primary ring-2 ring-primary/15')}>
+      <article className={cn('rounded-[1.35rem] border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300 hover:shadow-md', selected && 'border-primary ring-2 ring-primary/15')}>
         <div className="flex items-start gap-3">
           {selectable ? (
             <input type="checkbox" checked={selected} onChange={onToggle} className="mt-1 h-4 w-4 rounded border-slate-300 text-primary" aria-label={`Select ${file.name}`} />
           ) : null}
           <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
-            <div className="mb-3 aspect-[3/2] overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+            <div className="mb-3 aspect-[4/3] overflow-hidden rounded-[1rem] border border-slate-200 bg-slate-50">
               <img src={thumbnailUrl} alt="" loading="lazy" className="h-full w-full object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
             </div>
             <div className="flex items-start gap-2">
@@ -206,13 +206,16 @@ function FileCard({
               <h3 className="line-clamp-2 min-h-10 text-sm font-semibold text-slate-950">{file.name}</h3>
             </div>
             <p className="mt-2 truncate text-xs text-slate-500">{file.relative_path}</p>
+            <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">
+              {file.page_count ? `${file.page_count} pages available for inline preview.` : 'Open to inspect the live document preview and metadata.'}
+            </p>
           </button>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500">
-          <span>{typeLabel}</span>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+          <span className="rounded-full bg-[hsl(210_20%_98%)] px-2 py-1 font-semibold text-slate-700">{typeLabel}</span>
           <span>{formatBytes(file.size_bytes)}</span>
           <span>{formatDate(file.modified_at)}</span>
-          <span className="font-semibold text-primary" title={statusTooltip(file.indexing_status)}>{file.indexing_status}</span>
+          <span className="rounded-full bg-[hsl(95_24%_94%)] px-2 py-1 font-semibold text-primary" title={statusTooltip(file.indexing_status)}>{file.indexing_status}</span>
         </div>
       </article>
     );
@@ -365,13 +368,13 @@ export default function CorpusExplorer({
             ) : viewMode === 'grid' ? (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                 {filteredFiles.map((file) => (
-                  <FileCard key={file.id} file={file} selected={selectedIds.has(file.id)} viewMode="grid" selectable={selectable} onToggle={() => toggleSelection(corpusDocumentToContext(file))} onOpen={() => setSelectedSource({ id: file.id, citationIndex: 1, documentId: file.id, relativePath: file.relative_path, documentTitle: file.name, sourceType: 'enterprise', excerpt: file.relative_path })} />
+                  <FileCard key={file.id} file={file} selected={selectedIds.has(file.id)} viewMode="grid" selectable={selectable} onToggle={() => toggleSelection(corpusDocumentToContext(file))} onOpen={() => setSelectedSource({ id: file.id, citationIndex: 1, documentId: file.id, relativePath: file.relative_path, documentTitle: file.name, sourceType: 'enterprise', excerpt: file.relative_path, pageCount: file.page_count ?? undefined, fileType: file.file_type })} />
                 ))}
               </div>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-slate-200">
                 {filteredFiles.map((file) => (
-                  <FileCard key={file.id} file={file} selected={selectedIds.has(file.id)} viewMode="list" selectable={selectable} onToggle={() => toggleSelection(corpusDocumentToContext(file))} onOpen={() => setSelectedSource({ id: file.id, citationIndex: 1, documentId: file.id, relativePath: file.relative_path, documentTitle: file.name, sourceType: 'enterprise', excerpt: file.relative_path })} />
+                  <FileCard key={file.id} file={file} selected={selectedIds.has(file.id)} viewMode="list" selectable={selectable} onToggle={() => toggleSelection(corpusDocumentToContext(file))} onOpen={() => setSelectedSource({ id: file.id, citationIndex: 1, documentId: file.id, relativePath: file.relative_path, documentTitle: file.name, sourceType: 'enterprise', excerpt: file.relative_path, pageCount: file.page_count ?? undefined, fileType: file.file_type })} />
                 ))}
               </div>
             )}
