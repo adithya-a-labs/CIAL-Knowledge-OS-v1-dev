@@ -26,21 +26,41 @@ export default function DocumentPreviewRenderer({
 }) {
   const extension = extensionOf(preview, title);
   const text = preview?.preview_text ?? '';
-  const fileUrl = preview?.file_url ? apiUrl(preview.file_url) : preview?.open_url ? apiUrl(preview.open_url) : null;
+  const viewUrl = preview?.file_url ? apiUrl(preview.file_url) : preview?.open_url ? apiUrl(preview.open_url) : null;
   const isText = ['txt', 'md', 'markdown', 'html', 'htm', 'json', 'xml', 'yaml', 'yml'].includes(extension);
   const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tif', 'tiff'].includes(extension);
 
-  if ((isText || preview?.render_kind === 'code') && text) {
+  if (!preview) {
     return (
-      <pre className="scrollbar-soft max-h-[32rem] overflow-auto rounded-xl border border-border bg-[hsl(210_20%_98%)] p-3 text-xs leading-5 text-slate-800">
+      <div className="rounded-2xl border border-dashed border-border bg-[hsl(210_20%_98%)] p-5 text-center text-sm text-muted-foreground">
+        Select a citation to load an inline preview.
+      </div>
+    );
+  }
+
+  if (preview.supported_preview === false) {
+    return (
+      <div className="rounded-2xl border border-border bg-[hsl(210_20%_98%)] p-5 text-center">
+        <FileArchive className="mx-auto text-primary" size={34} />
+        <p className="mt-3 text-sm font-semibold text-foreground">Preview not supported</p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          This file type does not support inline rendering yet. Metadata and the cited excerpt are still available below.
+        </p>
+      </div>
+    );
+  }
+
+  if ((isText || preview.render_kind === 'code') && text) {
+    return (
+      <pre className="scrollbar-soft max-h-[32rem] overflow-auto rounded-2xl border border-border bg-[hsl(210_20%_98%)] p-4 text-xs leading-6 text-slate-800">
         {formatPreviewText(text, extension)}
       </pre>
     );
   }
 
-  if (preview?.render_kind === 'table' && preview.table_rows?.length) {
+  if (preview.render_kind === 'table' && preview.table_rows?.length) {
     return (
-      <div className="scrollbar-soft max-h-[28rem] overflow-auto rounded-xl border border-border bg-white">
+      <div className="scrollbar-soft max-h-[28rem] overflow-auto rounded-2xl border border-border bg-white">
         <table className="min-w-full text-left text-xs">
           <tbody>
             {preview.table_rows.map((row, rowIndex) => (
@@ -56,45 +76,43 @@ export default function DocumentPreviewRenderer({
     );
   }
 
-  if (extension === 'pdf' && fileUrl) {
+  if (extension === 'pdf' && viewUrl) {
     return (
-      <div className="h-[32rem] overflow-hidden rounded-xl border border-border bg-[hsl(210_20%_98%)]">
-        <object data={`${fileUrl}#page=${preview?.page ?? 1}`} type="application/pdf" className="h-full w-full">
-          <div className="flex h-full flex-col items-center justify-center p-5 text-center">
-            <FileText className="mx-auto text-red-600" size={36} />
-            <p className="mt-3 text-sm font-semibold text-foreground">PDF document</p>
-            <a href={fileUrl} target="_blank" rel="noreferrer" className="mt-2 text-xs font-semibold text-primary">Open file</a>
-          </div>
-        </object>
+      <div className="h-[32rem] overflow-hidden rounded-2xl border border-border bg-[hsl(210_20%_98%)]">
+        <iframe
+          src={`${viewUrl}#page=${preview.page ?? 1}`}
+          title={title}
+          className="h-full w-full"
+        />
       </div>
     );
   }
 
   if (extension === 'pdf') {
     return (
-      <div className="rounded-xl border border-border bg-[hsl(210_20%_98%)] p-5 text-center">
+      <div className="rounded-2xl border border-border bg-[hsl(210_20%_98%)] p-5 text-center">
         <FileText className="mx-auto text-red-600" size={36} />
-        <p className="mt-3 text-sm font-semibold text-foreground">PDF document</p>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">The source excerpt and metadata are available below.</p>
+        <p className="mt-3 text-sm font-semibold text-foreground">PDF preview unavailable</p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">The cited excerpt and metadata are available below.</p>
       </div>
     );
   }
 
-  if (isImage && fileUrl) {
+  if (isImage && viewUrl) {
     return (
-      <a href={fileUrl} target="_blank" rel="noreferrer" className="group block overflow-hidden rounded-xl border border-border bg-[hsl(210_20%_98%)]">
+      <a href={viewUrl} target="_blank" rel="noreferrer" className="group block overflow-hidden rounded-2xl border border-border bg-[hsl(210_20%_98%)]">
         <span className="flex items-center justify-end gap-1 border-b border-border px-3 py-2 text-xs font-semibold text-muted-foreground"><ZoomIn size={14} />Open full size</span>
-        <img src={fileUrl} alt={title} className="max-h-[32rem] w-full object-contain p-3" />
+        <img src={viewUrl} alt={title} className="max-h-[32rem] w-full object-contain p-3" />
       </a>
     );
   }
 
   if (isImage) {
     return (
-      <div className="rounded-xl border border-border bg-[hsl(210_20%_98%)] p-5 text-center">
-        <FileImage className="mx-auto text-[#6b5ecf]" size={36} />
-        <p className="mt-3 text-sm font-semibold text-foreground">Image document</p>
-        <p className="mt-1 text-xs text-muted-foreground">The image metadata and citation excerpt are available below.</p>
+      <div className="rounded-2xl border border-border bg-[hsl(210_20%_98%)] p-5 text-center">
+        <FileImage className="mx-auto text-[#346c96]" size={36} />
+        <p className="mt-3 text-sm font-semibold text-foreground">Image preview unavailable</p>
+        <p className="mt-1 text-xs text-muted-foreground">The image metadata and cited excerpt are still available below.</p>
       </div>
     );
   }
@@ -108,11 +126,11 @@ export default function DocumentPreviewRenderer({
         : FileArchive;
 
   return (
-    <div className="rounded-xl border border-border bg-[hsl(210_20%_98%)] p-5 text-center">
+    <div className="rounded-2xl border border-border bg-[hsl(210_20%_98%)] p-5 text-center">
       <Icon className="mx-auto text-primary" size={36} />
       <p className="mt-3 text-sm font-semibold text-foreground">{extension ? extension.toUpperCase() : 'Document'} file</p>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">A source card, file metadata, and any citation excerpt are available below.</p>
-      {fileUrl ? <a href={fileUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-xs font-semibold text-primary">Open file</a> : null}
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">Inline preview is limited for this format. Metadata and any cited excerpt are shown below.</p>
+      {viewUrl ? <a href={viewUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-xs font-semibold text-primary">Open preview</a> : null}
     </div>
   );
 }
