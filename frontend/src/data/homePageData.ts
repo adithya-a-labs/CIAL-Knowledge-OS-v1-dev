@@ -14,7 +14,6 @@ import {
   Bookmark,
   UserRound,
   BookMarked,
-  Files,
 } from 'lucide-react';
 import type React from 'react';
 
@@ -47,7 +46,6 @@ export const quickActions = [
   { title: 'Ask AI', subtitle: 'Get instant answers', path: '/assistant', icon: MessageSquare, tone: 'green' },
   { title: 'Browse Knowledge', subtitle: 'Explore documents', path: '/knowledge-center', icon: FolderOpen, tone: 'blue' },
   { title: 'Upload File', subtitle: 'Add documents', path: '/workspace/documents', icon: UploadCloud, tone: 'violet' },
-  { title: 'Compare Docs', subtitle: 'Compare versions', path: '/documents', icon: Files, tone: 'amber' },
   { title: 'Create Summary', subtitle: 'Summarize anything', path: '/assistant', icon: Sparkles, tone: 'rose' },
 ];
 
