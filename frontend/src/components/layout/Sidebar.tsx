@@ -1,7 +1,11 @@
 import { Link, useLocation } from 'wouter';
-import { ChevronLeft, HelpCircle, MessageSquare, Settings, Sparkles, Sun } from 'lucide-react';
+import { Bell, ChevronDown, ChevronLeft, HelpCircle, MessageSquare, Settings, Sparkles, Sun } from 'lucide-react';
 import { THEME } from '@/config/themeConfig';
+import { CURRENT_USER } from '@/config/userConfig';
 import { homeNavItems } from '@/data/homePageData';
+
+const ASSISTANT_CONTEXT_STORAGE_KEY = 'cial-assistant-selected-context';
+const NEW_CONVERSATION_EVENT = 'cial-new-conversation';
 
 export default function Sidebar() {
   const [location] = useLocation();
@@ -14,6 +18,11 @@ export default function Sidebar() {
     }
     if (path === '/workspace') return location === '/workspace';
     return location.startsWith(path);
+  };
+
+  const startNewConversation = () => {
+    window.localStorage.removeItem(ASSISTANT_CONTEXT_STORAGE_KEY);
+    window.dispatchEvent(new Event(NEW_CONVERSATION_EVENT));
   };
 
   return (
@@ -66,26 +75,51 @@ export default function Sidebar() {
           <p className="text-xs leading-5 text-slate-500">Your AI knowledge assistant that knows everything.</p>
           <Link
             href="/assistant"
+            onClick={startNewConversation}
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#edf6e9] px-3 py-2.5 text-sm font-semibold text-[#24551f] transition hover:bg-[#dcefd6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            aria-label="Start a new conversation"
           >
             <MessageSquare size={16} />
             New Conversation
           </Link>
         </div>
 
-        <div className="flex items-center justify-between px-1 text-slate-500">
-          <button className="ce-icon-button" aria-label="Theme">
-            <Sun size={17} />
+        <div className="rounded-2xl border border-[#e3e9e1] bg-white p-3 shadow-[0_14px_34px_-28px_rgba(15,23,42,0.45)]">
+          <button
+            className="flex w-full min-w-0 items-center gap-3 rounded-xl p-2 text-left transition-colors hover:bg-[#f6f8f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            data-testid="button-user-profile"
+            aria-label="Open user menu"
+            title="User menu"
+          >
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#25611f] text-sm font-bold text-white shadow-sm">
+              {CURRENT_USER.initials}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold leading-tight text-slate-950" data-testid="text-username">{CURRENT_USER.name}</div>
+              <div className="truncate text-xs leading-tight text-slate-500" data-testid="text-department">{CURRENT_USER.department}</div>
+            </div>
+            <ChevronDown size={14} className="text-muted-foreground" />
           </button>
-          <button className="ce-icon-button" aria-label="Help">
-            <HelpCircle size={17} />
-          </button>
-          <button className="ce-icon-button" aria-label="Settings">
-            <Settings size={17} />
-          </button>
-          <button className="ce-icon-button" aria-label="Collapse sidebar">
-            <ChevronLeft size={17} />
-          </button>
+          <div className="mt-2 flex items-center justify-between px-1 text-slate-500">
+            <button className="ce-icon-button relative" aria-label="Notifications" title="Notifications" data-testid="button-notifications">
+              <Bell size={17} />
+              {(CURRENT_USER.notificationsCount ?? 0) > 0 && (
+                <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-[#b76a09] text-[9px] font-bold text-white" data-testid="notification-badge">{CURRENT_USER.notificationsCount}</span>
+              )}
+            </button>
+            <button className="ce-icon-button" aria-label="Theme" title="Theme">
+              <Sun size={17} />
+            </button>
+            <button className="ce-icon-button" aria-label="Help" title="Help" data-testid="button-help">
+              <HelpCircle size={17} />
+            </button>
+            <button className="ce-icon-button" aria-label="Settings" title="Settings">
+              <Settings size={17} />
+            </button>
+            <button className="ce-icon-button" aria-label="Collapse sidebar" title="Collapse sidebar">
+              <ChevronLeft size={17} />
+            </button>
+          </div>
         </div>
       </div>
     </aside>

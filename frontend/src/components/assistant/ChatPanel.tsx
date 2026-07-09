@@ -27,6 +27,7 @@ import type {
 
 const supportedFileTypes = '.pdf,.docx,.pptx,.xlsx,.csv,.txt,image/*';
 const ASSISTANT_CONTEXT_STORAGE_KEY = 'cial-assistant-selected-context';
+export const NEW_CONVERSATION_EVENT = 'cial-new-conversation';
 
 function readinessLabel(healthStatus: HealthResponse | undefined) {
   if (!healthStatus) return 'Backend starting';
@@ -102,6 +103,22 @@ export default function ChatPanel() {
   useEffect(() => {
     window.localStorage.setItem(ASSISTANT_CONTEXT_STORAGE_KEY, JSON.stringify(selectedContextItems));
   }, [selectedContextItems]);
+
+  useEffect(() => {
+    const resetConversation = () => {
+      setMessages(INITIAL_ASSISTANT_MESSAGES as ChatMessageData[]);
+      setInput('');
+      setErrorMessage(null);
+      setSelectedContextItems([]);
+      setUploadedFiles([]);
+      setSelectedSource(null);
+      setSourceViewerOpen(false);
+      setFeedbackByMessageId({});
+      window.localStorage.removeItem(ASSISTANT_CONTEXT_STORAGE_KEY);
+    };
+    window.addEventListener(NEW_CONVERSATION_EVENT, resetConversation);
+    return () => window.removeEventListener(NEW_CONVERSATION_EVENT, resetConversation);
+  }, []);
 
   const allVisibleSources = useMemo(() => {
     const sourceMap = new Map<string, ChatSource>();
