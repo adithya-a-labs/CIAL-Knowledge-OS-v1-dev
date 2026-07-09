@@ -11,6 +11,14 @@ function extensionOf(preview: DocumentPreview | null, fallbackTitle: string) {
   return (preview?.extension || fallbackTitle.split('.').pop() || '').replace(/^\./, '').toLowerCase();
 }
 
+function formatOf(value?: string | null) {
+  return (value || '').replace(/^\./, '').toLowerCase();
+}
+
+function isImageFormat(value: string) {
+  return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tif', 'tiff'].includes(value);
+}
+
 export default function DocumentPreviewRenderer({
   preview,
   title,
@@ -35,7 +43,12 @@ export default function DocumentPreviewRenderer({
   const extension = extensionOf(preview, title);
   const text = preview?.preview_text ?? '';
   const viewerUrl = preview?.viewer_url ? apiUrl(preview.viewer_url) : preview?.file_url ? apiUrl(preview.file_url) : null;
-  const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tif', 'tiff'].includes(extension);
+  const viewerFormat = formatOf(preview?.viewer_format || extension);
+  const isImage = isImageFormat(extension);
+  const rawBrowserImageSupported = isImage && !['tif', 'tiff'].includes(extension);
+  const viewerIsPdf = Boolean(preview?.viewer_ready && viewerFormat === 'pdf' && viewerUrl);
+  const viewerIsImage = Boolean(preview?.viewer_ready && isImageFormat(viewerFormat) && viewerUrl);
+  const imageUrl = viewerIsImage ? viewerUrl : rawBrowserImageSupported ? viewerUrl : null;
 
   if (!preview) {
     return (
@@ -45,7 +58,7 @@ export default function DocumentPreviewRenderer({
     );
   }
 
-  if (preview.render_kind === 'pdf' && viewerUrl && useNativePdf) {
+  if (viewerIsPdf && viewerUrl && useNativePdf) {
     return (
       <div className="flex h-full min-h-[28rem] flex-col overflow-hidden rounded-[1.5rem] border border-border bg-[hsl(210_20%_98%)]">
         <iframe
@@ -64,7 +77,7 @@ export default function DocumentPreviewRenderer({
     );
   }
 
-  if (preview.render_kind === 'pdf') {
+  if (viewerIsPdf) {
     return (
       <div className="flex h-full min-h-[24rem] items-center justify-center rounded-[1.5rem] border border-border bg-[hsl(210_20%_98%)] p-6 text-center">
         <div className="max-w-md">
@@ -77,8 +90,8 @@ export default function DocumentPreviewRenderer({
     );
   }
 
-  if (isImage && viewerUrl) {
-    return <ImageViewer src={viewerUrl} title={title} zoomLevel={zoomLevel} />;
+  if ((preview.render_kind === 'image' || viewerIsImage) && imageUrl) {
+    return <ImageViewer src={imageUrl} title={title} zoomLevel={zoomLevel} />;
   }
 
   if (preview.render_kind === 'spreadsheet' || preview.render_kind === 'table') {
