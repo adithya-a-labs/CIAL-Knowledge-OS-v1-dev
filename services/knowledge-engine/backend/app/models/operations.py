@@ -29,12 +29,28 @@ class IngestionRun(UUIDPrimaryKeyMixin, Base):
 
 class IndexingJob(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "indexing_jobs"
-    __table_args__ = (Index("ix_indexing_jobs_status", "status"),)
+    __table_args__ = (
+        Index("ix_indexing_jobs_status", "status"),
+        Index("ix_indexing_jobs_document_id", "document_id"),
+        Index(
+            "uq_indexing_jobs_active_document_version",
+            "document_id",
+            "content_hash",
+            unique=True,
+            postgresql_where="status IN ('pending', 'running')",
+        ),
+    )
 
+    document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="SET NULL"),
+    )
+    content_hash: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     force_rebuild: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_detail: Mapped[str | None] = mapped_column(Text)
     message: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
 
