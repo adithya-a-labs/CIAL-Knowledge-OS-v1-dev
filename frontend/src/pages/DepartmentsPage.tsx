@@ -47,7 +47,7 @@ export default function DepartmentsPage() {
           <p className="text-xs font-semibold uppercase text-slate-500">Departments</p>
           <h1 className="mt-2 text-3xl font-semibold text-slate-950">Organizational knowledge spaces</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-            Browse department-owned documents, collections, activity, and AI context scopes.
+            Browse department-owned documents, folders, activity, and AI context scopes.
           </p>
         </div>
         <label className="flex h-11 min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-500 shadow-sm lg:w-80">
@@ -83,7 +83,6 @@ export default function DepartmentsPage() {
                     </div>
                     <div className="flex flex-wrap gap-2 lg:justify-end">
                       <Link href="/knowledge-center" className="ce-action h-9 px-3">Documents</Link>
-                      <Link href="/collections" className="ce-action h-9 px-3">Collections</Link>
                       <Link href="/assistant" className="ce-action ce-action-primary h-9 px-3"><Sparkles size={14} />Ask in scope</Link>
                     </div>
                   </article>
@@ -107,12 +106,12 @@ export default function DepartmentsPage() {
             </section>
 
             <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="text-sm font-semibold text-slate-950">Department collections</h2>
+              <h2 className="text-sm font-semibold text-slate-950">Department folders</h2>
               <div className="mt-3 divide-y divide-slate-100">
-                {['Emergency SOPs', 'Runway Maintenance', 'Operations', 'Security Policies'].map((collection) => (
-                  <Link key={collection} href="/collections" className="flex items-center gap-3 py-3 text-sm hover:text-primary">
+                {['Emergency SOPs', 'Runway Maintenance', 'Operations', 'Security Policies'].map((folder) => (
+                  <Link key={folder} href="/knowledge-center" className="flex items-center gap-3 py-3 text-sm hover:text-primary">
                     <Building2 size={16} className="text-primary" />
-                    <span className="min-w-0 flex-1 truncate">{collection}</span>
+                    <span className="min-w-0 flex-1 truncate">{folder}</span>
                     <ArrowRight size={14} className="text-slate-300" />
                   </Link>
                 ))}
