@@ -121,6 +121,7 @@ class Settings:
     max_answer_words: int = _env_int("CIAL_MAX_ANSWER_WORDS", 1200)
     generation_retries: int = _env_int("CIAL_GENERATION_RETRIES", 2)
     retry_cooldown_seconds: float = _env_float("CIAL_RETRY_COOLDOWN_SECONDS", 20.0)
+    chat_debug: bool = _env_bool("CIAL_CHAT_DEBUG", False)
     database_url: str = _env_str("DATABASE_URL", default="")
     corpus_sync_on_startup: bool = _env_bool("CIAL_CORPUS_SYNC_ON_STARTUP", True)
     corpus_watch: bool = _env_bool("CIAL_CORPUS_WATCH", False)
