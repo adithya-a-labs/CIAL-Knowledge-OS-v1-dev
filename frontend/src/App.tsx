@@ -30,7 +30,6 @@ function Router() {
         <Route path="/knowledge/document/:documentId" component={DocumentWorkspacePage} />
         <Route path="/knowledge-center" component={KnowledgeCenterPage} />
         <Route path="/knowledge-center/:tab" component={KnowledgeCenterPage} />
-        <Route path="/collections" component={WorkspacePage} />
         <Route path="/saved-knowledge" component={WorkspacePage} />
         <Route path="/documents" component={DocumentsPage} />
         <Route path="/knowledge" component={KnowledgeCenterPage} />
