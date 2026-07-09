@@ -1,3 +1,5 @@
+import type { SelectedContextItem } from '@/api/types';
+
 export type SearchScope = 'enterprise' | 'workspace' | 'hybrid' | 'current_upload';
 
 export type ResponseLength = 'quick' | 'standard' | 'detailed' | 'operational';
@@ -10,6 +12,17 @@ export type FeedbackType =
   | 'incorrect'
   | 'missing_sources'
   | 'hallucination';
+
+export interface AssistantChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  citations?: ChatCitation[];
+  sources?: ChatSource[];
+  metadata?: AssistantMessageMetadata;
+  relatedQuestions?: string[];
+}
 
 export interface ContextDocument {
   id: string;
@@ -25,7 +38,8 @@ export interface UploadedFileContext {
   size: number;
   type: string;
   sourceType: 'upload';
-  uploadStatus: 'mock_uploaded' | 'uploaded' | 'upload_failed';
+  uploadStatus: 'uploading' | 'uploaded' | 'upload_failed';
+  backendDocumentId?: string;
 }
 
 export interface ChatRequestPayload {
@@ -69,4 +83,17 @@ export interface AssistantMessageMetadata {
   sourcesUsed: number;
   confidence: number;
   generationTimeSeconds: number;
+}
+
+export interface AssistantSession {
+  id: string;
+  title: string;
+  messages: AssistantChatMessage[];
+  selectedContextItems: SelectedContextItem[];
+  uploadedFiles: UploadedFileContext[];
+  searchScope: SearchScope;
+  responseLength: ResponseLength;
+  feedbackByMessageId: Record<string, FeedbackType>;
+  createdAt: string;
+  updatedAt: string;
 }
