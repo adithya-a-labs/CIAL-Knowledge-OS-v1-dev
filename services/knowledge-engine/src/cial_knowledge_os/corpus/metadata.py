@@ -4,17 +4,24 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
+import logging
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from backend.app.models.knowledge import Document, Folder
 from backend.app.models.operations import IndexingJob, IngestionRun
 
 
+logger = logging.getLogger(__name__)
+
 DELETED_STATUS = "deleted"
+
+_ACTIVE_JOB_STATUSES = ("pending", "running")
+_VALID_JOB_STATUSES = ("pending", "running", "succeeded", "failed", "skipped")
 
 
 @dataclass(frozen=True)
@@ -48,7 +55,24 @@ class CorpusMetadataStore:
         return int(current or 0) + 1
 
     def add_indexing_job(self, *, action: str, document: Document, message: str) -> IndexingJob:
+        """Create a pending indexing job, or return an existing active one."""
+        existing = self._find_active_job(document.id, document.content_hash)
+        if existing is not None:
+            logger.info(
+                "indexing_job_duplicate_skipped",
+                extra={
+                    "event": "indexing",
+                    "document_id": str(document.id),
+                    "content_hash": document.content_hash,
+                    "existing_job_id": str(existing.id),
+                    "existing_status": existing.status,
+                },
+            )
+            return existing
+
         job = IndexingJob(
+            document_id=document.id,
+            content_hash=document.content_hash,
             status="pending",
             force_rebuild=False,
             message=message,
@@ -62,6 +86,99 @@ class CorpusMetadataStore:
         )
         self.session.add(job)
         return job
+
+    def _find_active_job(
+        self, document_id: uuid.UUID | None, content_hash: str | None,
+    ) -> IndexingJob | None:
+        """Return an existing pending/running job for this document+hash."""
+        if document_id is None:
+            return None
+        conditions = [
+            IndexingJob.document_id == document_id,
+            IndexingJob.status.in_(_ACTIVE_JOB_STATUSES),
+        ]
+        if content_hash is not None:
+            conditions.append(IndexingJob.content_hash == content_hash)
+        return self.session.scalar(select(IndexingJob).where(and_(*conditions)))
+
+    # ------------------------------------------------------------------
+    # Job state transitions
+    # ------------------------------------------------------------------
+
+    def mark_job_running(self, job_id: uuid.UUID) -> bool:
+        return self._transition_job(job_id, from_status="pending", to_status="running")
+
+    def mark_job_succeeded(self, job_id: uuid.UUID, *, message: str = "") -> bool:
+        return self._transition_job(
+            job_id, from_status="running", to_status="succeeded", message=message,
+        )
+
+    def mark_job_failed(self, job_id: uuid.UUID, *, error: str) -> bool:
+        return self._transition_job(
+            job_id, from_status="running", to_status="failed",
+            message=f"Indexing failed: {error}", error_detail=error,
+        )
+
+    def mark_job_skipped(self, job_id: uuid.UUID, *, reason: str) -> bool:
+        return self._transition_job(
+            job_id, from_status="pending", to_status="skipped", message=reason,
+        )
+
+    def _transition_job(
+        self,
+        job_id: uuid.UUID,
+        *,
+        from_status: str,
+        to_status: str,
+        message: str = "",
+        error_detail: str | None = None,
+    ) -> bool:
+        job = self.session.get(IndexingJob, job_id)
+        if job is None:
+            logger.warning("indexing_job_not_found", extra={"job_id": str(job_id)})
+            return False
+        if job.status != from_status:
+            logger.warning(
+                "indexing_job_transition_rejected",
+                extra={
+                    "job_id": str(job_id),
+                    "current_status": job.status,
+                    "expected_status": from_status,
+                    "target_status": to_status,
+                },
+            )
+            return False
+        job.status = to_status
+        if message:
+            job.message = message
+        if error_detail is not None:
+            job.error_detail = error_detail
+        if to_status in ("succeeded", "failed", "skipped"):
+            job.completed_at = datetime.now(timezone.utc)
+        return True
+
+    # ------------------------------------------------------------------
+    # Queries
+    # ------------------------------------------------------------------
+
+    def has_pending_jobs(self) -> bool:
+        """Return True if any pending indexing jobs exist."""
+        count = self.session.scalar(
+            select(func.count()).select_from(IndexingJob).where(
+                IndexingJob.status == "pending"
+            )
+        )
+        return (count or 0) > 0
+
+    def pending_jobs(self) -> list[IndexingJob]:
+        """Return all pending indexing jobs ordered by creation time."""
+        return list(
+            self.session.scalars(
+                select(IndexingJob)
+                .where(IndexingJob.status == "pending")
+                .order_by(IndexingJob.started_at)
+            )
+        )
 
     @staticmethod
     def folder_signatures(documents: list[Document]) -> dict[str, tuple[str, ...]]:
