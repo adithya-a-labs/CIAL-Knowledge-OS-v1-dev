@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
 import {
   CheckSquare,
   ChevronRight,
@@ -18,10 +19,8 @@ import {
 import { getCorpusFolder, getCorpusTree, getDocumentThumbnailUrl } from '@/api/client';
 import { corpusDocumentToContext, corpusFolderToContext, normalizeCorpusFolderResponse } from '@/api/adapters';
 import type { CorpusDocument, CorpusFolder, CorpusFolderResponse, CorpusTreeNode, SelectedContextItem } from '@/api/types';
-import SourceViewerPanel from '@/components/assistant/SourceViewerPanel';
 import { driveFiles, driveFolders } from '@/data/knowledgeDriveData';
 import { cn } from '@/lib/utils';
-import type { ChatSource } from '@/types/assistant';
 
 type ExplorerMode = 'browse' | 'select';
 type ViewMode = 'grid' | 'list';
@@ -242,12 +241,12 @@ export default function CorpusExplorer({
   onUseInAssistant,
   className,
 }: CorpusExplorerProps) {
+  const [, navigate] = useLocation();
   const [activePath, setActivePath] = useState('');
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set(['']));
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [sortMode, setSortMode] = useState<SortMode>('latest');
-  const [selectedSource, setSelectedSource] = useState<ChatSource | null>(null);
 
   const treeQuery = useQuery({ queryKey: ['corpus-tree', mode], queryFn: getCorpusTree, retry: false, staleTime: 30_000 });
   const folderQuery = useQuery({ queryKey: ['corpus-folder', activePath, mode], queryFn: () => getCorpusFolder(activePath), retry: false, staleTime: 30_000 });
@@ -291,8 +290,6 @@ export default function CorpusExplorer({
     visible.forEach((item) => merged.set(item.id, item));
     onSelectionChange(Array.from(merged.values()));
   };
-
-  const sourceList = selectedSource ? [selectedSource] : [];
 
   return (
     <div className={cn('flex h-full min-h-0 flex-col overflow-hidden', className)} data-testid={`corpus-explorer-${mode}`}>
@@ -368,20 +365,18 @@ export default function CorpusExplorer({
             ) : viewMode === 'grid' ? (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                 {filteredFiles.map((file) => (
-                  <FileCard key={file.id} file={file} selected={selectedIds.has(file.id)} viewMode="grid" selectable={selectable} onToggle={() => toggleSelection(corpusDocumentToContext(file))} onOpen={() => setSelectedSource({ id: file.id, citationIndex: 1, documentId: file.id, relativePath: file.relative_path, documentTitle: file.name, sourceType: 'enterprise', excerpt: file.relative_path, pageCount: file.page_count ?? undefined, fileType: file.file_type })} />
+                  <FileCard key={file.id} file={file} selected={selectedIds.has(file.id)} viewMode="grid" selectable={selectable} onToggle={() => toggleSelection(corpusDocumentToContext(file))} onOpen={() => navigate(`/knowledge/document/${encodeURIComponent(file.id)}`)} />
                 ))}
               </div>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-slate-200">
                 {filteredFiles.map((file) => (
-                  <FileCard key={file.id} file={file} selected={selectedIds.has(file.id)} viewMode="list" selectable={selectable} onToggle={() => toggleSelection(corpusDocumentToContext(file))} onOpen={() => setSelectedSource({ id: file.id, citationIndex: 1, documentId: file.id, relativePath: file.relative_path, documentTitle: file.name, sourceType: 'enterprise', excerpt: file.relative_path, pageCount: file.page_count ?? undefined, fileType: file.file_type })} />
+                  <FileCard key={file.id} file={file} selected={selectedIds.has(file.id)} viewMode="list" selectable={selectable} onToggle={() => toggleSelection(corpusDocumentToContext(file))} onOpen={() => navigate(`/knowledge/document/${encodeURIComponent(file.id)}`)} />
                 ))}
               </div>
             )}
           </div>
         </main>
-
-        <SourceViewerPanel open={Boolean(selectedSource)} source={selectedSource} sources={sourceList} onClose={() => setSelectedSource(null)} onSelectSource={setSelectedSource} />
       </div>
 
       {mode === 'select' ? (
