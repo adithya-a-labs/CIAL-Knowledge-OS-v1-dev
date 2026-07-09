@@ -1,8 +1,11 @@
+import * as React from 'react';
 import { Link, useLocation } from 'wouter';
-import { Bell, ChevronDown, HelpCircle, MessageSquarePlus, Settings2 } from 'lucide-react';
+import { Bell, ChevronDown, HelpCircle, MessageSquarePlus, Settings2, Search } from 'lucide-react';
 import { THEME } from '@/config/themeConfig';
 import { CURRENT_USER } from '@/config/userConfig';
 import { homeNavItems } from '@/data/homePageData';
+import { useCommandPalette } from '@/components/common/CommandPalette';
+import { Kbd } from '@/components/ui/kbd';
 
 const ASSISTANT_CONTEXT_STORAGE_KEY = 'cial-assistant-selected-context';
 const ASSISTANT_NEW_SESSION_PENDING_STORAGE_KEY = 'cial-new-conversation-pending';
@@ -10,6 +13,7 @@ const NEW_CONVERSATION_EVENT = 'cial-new-conversation';
 
 export default function Sidebar() {
   const [location] = useLocation();
+  const { setOpen } = useCommandPalette();
 
   const isActive = (label: string, path: string) => {
     if (label === 'Conversations') return false;
@@ -52,21 +56,36 @@ export default function Sidebar() {
         {primaryNavItems.map((item) => {
           const Icon = item.icon;
           const active = isActive(item.label, item.path);
+          const isHome = item.label === 'Home';
 
           return (
-            <Link
-              key={item.label}
-              href={item.path}
-              className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
-                active
-                  ? 'bg-[#edf6e9] text-[#244f1d] shadow-[inset_0_0_0_1px_rgba(47,109,37,0.06)]'
-                  : 'text-slate-700 hover:bg-[#f6f8f5] hover:text-slate-950'
-              }`}
-              data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
-            >
-              <Icon size={18} className={active ? 'text-[#2f6d25]' : 'text-slate-500'} />
-              <span className="truncate">{item.label}</span>
-            </Link>
+            <React.Fragment key={item.label}>
+              <Link
+                href={item.path}
+                className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
+                  active
+                    ? 'bg-[#edf6e9] text-[#244f1d] shadow-[inset_0_0_0_1px_rgba(47,109,37,0.06)]'
+                    : 'text-slate-700 hover:bg-[#f6f8f5] hover:text-slate-950'
+                }`}
+                data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+              >
+                <Icon size={18} className={active ? 'text-[#2f6d25]' : 'text-slate-500'} />
+                <span className="truncate">{item.label}</span>
+              </Link>
+
+              {isHome && (
+                <button
+                  type="button"
+                  onClick={() => setOpen(true)}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5] hover:text-slate-950 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  data-testid="nav-search"
+                >
+                  <Search size={18} className="text-slate-500" />
+                  <span className="truncate">Search</span>
+                  <Kbd className="ml-auto text-[10px] text-slate-400 bg-slate-100 border border-slate-200">Ctrl+K</Kbd>
+                </button>
+              )}
+            </React.Fragment>
           );
         })}
       </nav>
