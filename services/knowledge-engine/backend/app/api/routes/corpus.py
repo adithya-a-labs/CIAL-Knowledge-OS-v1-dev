@@ -60,7 +60,19 @@ def _get_corpus_document_or_404(document_id: str, request: Request) -> dict[str,
 @router.get("/corpus/document/{document_id}/file")
 def corpus_document_file(document_id: str, request: Request):
     document = _get_corpus_document_or_404(document_id, request)
-    return file_response(resolve_document(document))
+    return file_response(resolve_document(document), disposition="inline")
+
+
+@router.get("/corpus/document/{document_id}/view")
+def corpus_document_view(document_id: str, request: Request):
+    document = _get_corpus_document_or_404(document_id, request)
+    return file_response(resolve_document(document), disposition="inline")
+
+
+@router.get("/corpus/document/{document_id}/download")
+def corpus_document_download(document_id: str, request: Request):
+    document = _get_corpus_document_or_404(document_id, request)
+    return file_response(resolve_document(document), disposition="attachment")
 
 
 @router.get("/corpus/document/{document_id}/thumbnail")
