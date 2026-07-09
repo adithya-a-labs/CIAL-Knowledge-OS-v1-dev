@@ -27,11 +27,12 @@ export function toApiResponseLength(value: UiResponseLength): ResponseLength {
 export function toChatRequest(payload: ChatRequestPayload) {
   return {
     question: payload.query,
-    selected_document_ids: [...payload.selectedDocumentIds, ...payload.uploadedFileIds],
+    selected_document_ids: [...payload.selectedDocumentIds],
     selected_folder_ids: [...payload.selectedFolderIds],
     response_length: toApiResponseLength(payload.responseLength),
     profile: payload.responseLength,
     include_sources: true,
+    include_debug: import.meta.env.DEV,
   };
 }
 
@@ -123,7 +124,11 @@ export function toUiChatSources(response: ChatResponse): UiChatSource[] {
     return {
       id: source.id || `source-${index + 1}`,
       citationIndex,
-      documentId: source.path || source.id || documentTitleFromSource(source),
+      documentId:
+        source.document_id ||
+        source.path ||
+        source.id ||
+        documentTitleFromSource(source),
       relativePath: source.path || undefined,
       documentTitle: documentTitleFromSource(source),
       sourceType: 'enterprise',
