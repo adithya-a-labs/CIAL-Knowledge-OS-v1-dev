@@ -120,7 +120,7 @@ if ((await sendButton.count()) && !(await sendButton.isDisabled().catch(() => tr
   result.chatRequestStatus = 'not_sent_send_disabled';
 }
 result.screenshots.chatAnswer = await screenshot('chat-answer.png');
-result.responseModePayload = Boolean(capturedChatBody && capturedChatBody.includes('"response_length":"short"') && capturedChatBody.includes('"profile":"quick"'));
+result.responseModePayload = Boolean(capturedChatBody && capturedChatBody.includes('"response_length":"quick"') && capturedChatBody.includes('"profile":"quick"'));
 const chatCall = apiCalls.filter((call) => call.url.includes('/api/chat')).at(-1);
 result.chatRequestStatus = chatCall?.status ?? result.chatRequestStatus;
 
