@@ -6,39 +6,33 @@ import ConversationHistory from '@/components/assistant/ConversationHistory';
 
 export default function AIAssistantPage() {
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
-  const [historySidebarOpen, setHistorySidebarOpen] = useState(true);
+  const [historySidebarOpen, setHistorySidebarOpen] = useState(() => window.innerWidth >= 1440);
 
   return (
     <AssistantSessionsProvider>
       <div className="fluid-section flex h-full min-h-0 flex-col overflow-hidden" data-testid="ai-assistant-page">
-        <div className="mb-4 flex shrink-0 items-start justify-between gap-3">
-          <div className="max-w-3xl">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">AI Assistant</p>
-            <h1 className="mt-2 text-[clamp(1.65rem,2vw,2.2rem)] font-semibold tracking-[-0.03em] text-slate-950">
-              Grounded answers with source-aware context.
-            </h1>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Ask questions, keep scope tight, and inspect every cited source without leaving the workspace.
-            </p>
+        <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">AI Assistant</p>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               onClick={() => setHistorySidebarOpen(!historySidebarOpen)}
-              className="hidden ce-action min-h-10 rounded-full px-4 xl:flex"
+              className="hidden ce-action min-h-9 rounded-full px-3.5 xl:flex text-xs font-medium text-slate-700 hover:bg-slate-100 transition"
               data-testid="button-toggle-history-sidebar"
             >
-              <History size={15} />
+              <History size={14} className="mr-1.5" />
               {historySidebarOpen ? 'Hide History' : 'Show History'}
             </button>
 
             <div className="xl:hidden">
               <button
                 onClick={() => setHistoryDrawerOpen(true)}
-                className="ce-action min-h-10 rounded-full px-4"
+                className="ce-action min-h-9 rounded-full px-3.5 text-xs font-medium text-slate-700 hover:bg-slate-100 transition"
                 data-testid="button-open-history-drawer"
               >
-                <History size={15} />
+                <History size={14} className="mr-1.5" />
                 History
               </button>
             </div>
