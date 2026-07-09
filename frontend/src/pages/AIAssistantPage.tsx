@@ -1,82 +1,71 @@
-import { useState } from 'react';
-import { ChevronLeft, ChevronRight, History, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ChevronLeft, History, X } from 'lucide-react';
 import { AssistantSessionsProvider } from '@/components/assistant/AssistantSessionContext';
 import ChatPanel from '@/components/assistant/ChatPanel';
 import ConversationHistory from '@/components/assistant/ConversationHistory';
+import {
+  ASSISTANT_HISTORY_SIDEBAR_OPEN_EVENT,
+  readAssistantHistorySidebarOpen,
+  writeAssistantHistorySidebarOpen,
+} from '@/lib/assistantHistorySidebar';
 
 export default function AIAssistantPage() {
   const [historyDrawerOpen, setHistoryDrawerOpen] = useState(false);
-  const [historySidebarOpen, setHistorySidebarOpen] = useState(() => window.innerWidth >= 1440);
+  const [historySidebarOpen, setHistorySidebarOpen] = useState(readAssistantHistorySidebarOpen);
+
+  useEffect(() => {
+    writeAssistantHistorySidebarOpen(historySidebarOpen);
+  }, [historySidebarOpen]);
+
+  useEffect(() => {
+    const handleOpenRequest = () => setHistorySidebarOpen(true);
+
+    window.addEventListener(ASSISTANT_HISTORY_SIDEBAR_OPEN_EVENT, handleOpenRequest);
+    return () => window.removeEventListener(ASSISTANT_HISTORY_SIDEBAR_OPEN_EVENT, handleOpenRequest);
+  }, []);
 
   return (
     <AssistantSessionsProvider>
-      <div className="fluid-section flex h-full min-h-0 flex-col overflow-hidden" data-testid="ai-assistant-page">
-        <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">AI Assistant</p>
+      <div className="fluid-section flex h-full min-h-0 flex-col overflow-hidden bg-white" data-testid="ai-assistant-page">
+        <div className="flex min-h-12 shrink-0 items-center justify-between border-b border-[#e3e9e1] px-3 sm:px-4 xl:px-5">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">AI Assistant</p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="xl:hidden">
             <button
-              onClick={() => setHistorySidebarOpen(!historySidebarOpen)}
-              className="hidden ce-action min-h-9 rounded-full px-3.5 xl:flex text-xs font-medium text-slate-700 hover:bg-slate-100 transition"
-              data-testid="button-toggle-history-sidebar"
+              onClick={() => setHistoryDrawerOpen(true)}
+              className="inline-flex min-h-8 items-center gap-2 rounded-lg px-2.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+              data-testid="button-open-history-drawer"
             >
-              <History size={14} className="mr-1.5" />
-              {historySidebarOpen ? 'Hide History' : 'Show History'}
+              <History size={14} />
+              History
             </button>
-
-            <div className="xl:hidden">
-              <button
-                onClick={() => setHistoryDrawerOpen(true)}
-                className="ce-action min-h-9 rounded-full px-3.5 text-xs font-medium text-slate-700 hover:bg-slate-100 transition"
-                data-testid="button-open-history-drawer"
-              >
-                <History size={14} className="mr-1.5" />
-                History
-              </button>
-            </div>
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
-          {/* Collapsible History Sidebar / Narrow Rail */}
-          <div
-            className={`hidden h-full min-h-0 flex-col overflow-hidden rounded-[1.5rem] bg-white shadow-[0_20px_50px_-40px_rgba(15,23,42,0.45)] ring-1 ring-black/5 transition-all duration-300 ease-in-out xl:flex ${
-              historySidebarOpen ? 'w-72 2xl:w-80' : 'w-12'
-            }`}
-            data-testid="conversation-history-sidebar"
-          >
-            {historySidebarOpen ? (
-              <div className="flex h-full flex-col min-w-0 animate-in fade-in duration-200">
-                <div className="flex items-center justify-between border-b border-slate-100 p-3 shrink-0">
-                  <span className="text-xs font-semibold text-slate-700 truncate">History</span>
-                  <button
-                    onClick={() => setHistorySidebarOpen(false)}
-                    className="p-1 rounded-md hover:bg-slate-100 text-slate-500 hover:text-slate-950 transition"
-                    title="Collapse history"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                </div>
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          {historySidebarOpen && (
+            <div
+              className="relative hidden h-full min-h-0 w-72 shrink-0 flex-col overflow-visible border-r border-[#e3e9e1] bg-[#fbfcfa] xl:flex 2xl:w-80"
+              data-testid="conversation-history-sidebar"
+            >
+              <button
+                onClick={() => setHistorySidebarOpen(false)}
+                className="absolute right-0 top-1/2 z-10 hidden h-8 w-8 translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-[#d8dfd5] bg-white text-slate-500 shadow-sm transition hover:border-slate-300 hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring xl:flex"
+                title="Collapse history"
+                aria-label="Collapse conversation history"
+                data-testid="button-collapse-history-sidebar"
+              >
+                <ChevronLeft size={15} />
+              </button>
+              <div className="flex h-full min-h-0 flex-col min-w-0 animate-in fade-in duration-200">
                 <div className="flex-1 min-h-0 overflow-hidden">
                   <ConversationHistory variant="sidebar" />
                 </div>
               </div>
-            ) : (
-              <div className="flex h-full flex-col items-center py-4 gap-4 animate-in fade-in duration-200">
-                <button
-                  onClick={() => setHistorySidebarOpen(true)}
-                  className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500 hover:text-slate-950 transition"
-                  title="Expand history"
-                  data-testid="button-expand-history-sidebar"
-                >
-                  <ChevronRight size={16} />
-                </button>
-                <div className="w-px flex-1 bg-slate-100" />
-              </div>
-            )}
-          </div>
+            </div>
+          )}
 
           <ChatPanel />
         </div>
