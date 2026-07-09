@@ -192,10 +192,37 @@ function looksLikeStructuredDump(value: string): boolean {
   return startsStructured && /"?(answer|citations|sources|metadata)"?\s*[:=]/i.test(trimmed.slice(0, 1000));
 }
 
+function stripRawReferencesSection(value: string): string {
+  const normalized = value.replace(/\r\n/g, '\n');
+  const lines = normalized.split('\n');
+  const headingIndex = lines.findIndex((line, index) =>
+    index >= Math.max(lines.length - 12, 0) && /^\s*references\s*:?\s*$/i.test(line.trim()),
+  );
+
+  if (headingIndex === -1) return value;
+
+  const trailingLines = lines.slice(headingIndex + 1).filter((line) => line.trim().length > 0);
+  if (trailingLines.length === 0) {
+    return lines.slice(0, headingIndex).join('\n').trimEnd();
+  }
+
+  const looksInternal = trailingLines.every((line) =>
+    /^\s*\[\d+\]\s+/.test(line)
+    || /file:\/\//i.test(line)
+    || /\bchunk(?:_id| id)?\b/i.test(line)
+    || /\bscore\b/i.test(line)
+    || /\brelative[_ ]path\b/i.test(line)
+    || /\bpna[\w-]*\b/i.test(line),
+  );
+
+  if (!looksInternal) return value;
+  return lines.slice(0, headingIndex).join('\n').trimEnd();
+}
+
 function safeAnswer(response: ChatResponse): string {
   const raw = response.answer;
   if (typeof raw !== 'string') return 'No answer returned.';
-  const answer = raw.trim();
+  const answer = stripRawReferencesSection(raw).trim();
   if (!answer) return 'No answer returned.';
 
   if (looksLikeStructuredDump(answer)) {
