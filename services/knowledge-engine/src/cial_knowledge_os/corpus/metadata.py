@@ -12,6 +12,7 @@ import uuid
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
+from backend.app.models.identity import Department, Organization
 from backend.app.models.knowledge import Document, Folder
 from backend.app.models.operations import IndexingJob, IngestionRun
 
@@ -22,6 +23,8 @@ DELETED_STATUS = "deleted"
 
 _ACTIVE_JOB_STATUSES = ("pending", "running")
 _VALID_JOB_STATUSES = ("pending", "running", "succeeded", "failed", "skipped")
+_DEFAULT_SHARED_DEPARTMENT_CODE = "shared-knowledge"
+_DEFAULT_SHARED_DEPARTMENT_NAME = "Shared Knowledge"
 
 
 @dataclass(frozen=True)
@@ -54,9 +57,41 @@ class CorpusMetadataStore:
         )
         return int(current or 0) + 1
 
-    def add_indexing_job(self, *, action: str, document: Document, message: str) -> IndexingJob:
+    def ensure_enterprise_document_context(self) -> tuple[uuid.UUID, uuid.UUID]:
+        organization = self.session.scalar(select(Organization).order_by(Organization.created_at, Organization.name))
+        if organization is None:
+            raise RuntimeError("An organization must exist before synchronizing corpus metadata.")
+        department = self.session.scalar(
+            select(Department).where(
+                Department.organization_id == organization.id,
+                Department.code == _DEFAULT_SHARED_DEPARTMENT_CODE,
+            )
+        )
+        if department is None:
+            department = Department(
+                organization_id=organization.id,
+                name=_DEFAULT_SHARED_DEPARTMENT_NAME,
+                code=_DEFAULT_SHARED_DEPARTMENT_CODE,
+                description="Default department for enterprise corpus documents without an explicit owner department.",
+            )
+            self.session.add(department)
+            self.session.flush()
+        return organization.id, department.id
+
+    def add_indexing_job(
+        self,
+        *,
+        action: str,
+        document: Document,
+        document_version: DocumentVersion | None,
+        message: str,
+    ) -> IndexingJob:
         """Create a pending indexing job, or return an existing active one."""
-        existing = self._find_active_job(document.id, document.content_hash)
+        existing = self._find_active_job(
+            document_version.id if document_version is not None else None,
+            document.id,
+            document.content_hash,
+        )
         if existing is not None:
             logger.info(
                 "indexing_job_duplicate_skipped",
@@ -72,6 +107,7 @@ class CorpusMetadataStore:
 
         job = IndexingJob(
             document_id=document.id,
+            document_version_id=document_version.id if document_version is not None else None,
             content_hash=document.content_hash,
             status="pending",
             force_rebuild=False,
@@ -80,25 +116,36 @@ class CorpusMetadataStore:
                 "source": "corpus_sync",
                 "action": action,
                 "document_id": str(document.id),
+                "document_version_id": str(document_version.id) if document_version is not None else None,
                 "relative_path": document.relative_path,
                 "content_hash": document.content_hash,
+                "storage_scope": document.storage_scope,
+                "owner_user_id": str(document.owner_user_id) if document.owner_user_id else None,
+                "department_id": str(document.department_id),
+                "folder_id": str(document.folder_id) if document.folder_id else None,
+                "visibility": document.visibility,
+                "lifecycle_status": document.lifecycle_status,
             },
         )
         self.session.add(job)
         return job
 
     def _find_active_job(
-        self, document_id: uuid.UUID | None, content_hash: str | None,
+        self,
+        document_version_id: uuid.UUID | None,
+        document_id: uuid.UUID | None,
+        content_hash: str | None,
     ) -> IndexingJob | None:
         """Return an existing pending/running job for this document+hash."""
-        if document_id is None:
+        if document_version_id is None and document_id is None:
             return None
-        conditions = [
-            IndexingJob.document_id == document_id,
-            IndexingJob.status.in_(_ACTIVE_JOB_STATUSES),
-        ]
-        if content_hash is not None:
-            conditions.append(IndexingJob.content_hash == content_hash)
+        conditions = [IndexingJob.status.in_(_ACTIVE_JOB_STATUSES)]
+        if document_version_id is not None:
+            conditions.append(IndexingJob.document_version_id == document_version_id)
+        elif document_id is not None:
+            conditions.append(IndexingJob.document_id == document_id)
+            if content_hash is not None:
+                conditions.append(IndexingJob.content_hash == content_hash)
         return self.session.scalar(select(IndexingJob).where(and_(*conditions)))
 
     # ------------------------------------------------------------------
@@ -149,10 +196,24 @@ class CorpusMetadataStore:
             )
             return False
         job.status = to_status
+        if to_status == "running":
+            job.attempts = int(job.attempts or 0) + 1
+            job.started_at = datetime.now(timezone.utc)
         if message:
             job.message = message
         if error_detail is not None:
             job.error_detail = error_detail
+        if job.document_version_id is not None:
+            version = self.session.get(DocumentVersion, job.document_version_id)
+            if version is not None:
+                if to_status == "running":
+                    version.status = "indexing"
+                elif to_status == "succeeded":
+                    version.status = "indexed"
+                elif to_status == "failed":
+                    version.status = "failed"
+                elif to_status == "skipped":
+                    version.status = "archived"
         if to_status in ("succeeded", "failed", "skipped"):
             job.completed_at = datetime.now(timezone.utc)
         return True
@@ -216,20 +277,28 @@ def folder_to_dict(folder: Folder) -> dict[str, Any]:
 def document_to_dict(document: Document) -> dict[str, Any]:
     return {
         "id": str(document.id),
+        "organization_id": str(document.organization_id),
+        "department_id": str(document.department_id),
         "folder_id": str(document.folder_id) if document.folder_id else None,
+        "storage_scope": document.storage_scope,
+        "owner_user_id": str(document.owner_user_id) if document.owner_user_id else None,
         "name": document.name,
         "relative_path": document.relative_path,
         "extension": document.extension,
         "mime_type": document.mime_type,
         "file_type": document.file_type,
+        "visibility": document.visibility,
         "size_bytes": document.size_bytes,
         "content_hash": document.content_hash,
         "modified_at": document.modified_at.isoformat() if document.modified_at else None,
         "indexed": document.indexed,
         "indexing_status": document.indexing_status,
+        "lifecycle_status": document.lifecycle_status,
         "indexed_at": document.indexed_at.isoformat() if document.indexed_at else None,
         "page_count": document.page_count,
+        "source_type": document.source_type,
+        "current_version_id": str(document.current_version_id) if document.current_version_id else None,
+        "deleted_at": document.deleted_at.isoformat() if document.deleted_at else None,
         "created_at": document.created_at.isoformat(),
         "updated_at": document.updated_at.isoformat(),
     }
-
