@@ -73,7 +73,7 @@ class ChatMetadata(BaseModel):
     answer_detail_level: str = "detailed"
     prompt_name: str = "generation.phase4_system"
     adaptive_sections: bool = True
-    citation_mode: str = "inline_reference_ids_plus_references_appendix"
+    citation_mode: str = "inline_reference_ids_only"
     temperature: float = 0
     evidence_token_budget: int | None = None
     max_context_tokens: int | None = None
