@@ -94,8 +94,11 @@ class Settings:
     models_root: str = str(resolve_repo_path(_env_str("CIAL_MODELS_DIR", default="models")))
     cors_origins: tuple[str, ...] = (
         "http://localhost:5173",
+        "http://127.0.0.1:5173",
         "http://localhost:5174",
+        "http://127.0.0.1:5174",
         "http://localhost:3000",
+        "http://127.0.0.1:3000",
     )
     qdrant_mode: str = _env_str("CIAL_QDRANT_MODE", "QDRANT_MODE", default="server")
     qdrant_url: str = _env_str("CIAL_QDRANT_URL", "QDRANT_URL", default="http://localhost:6335")
