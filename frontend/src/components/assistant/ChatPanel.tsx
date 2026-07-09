@@ -74,7 +74,7 @@ export default function ChatPanel() {
   const uploadedFiles = activeSession.uploadedFiles as UploadedFileContext[];
   const feedbackByMessageId = activeSession.feedbackByMessageId;
   const searchScope = activeSession.searchScope;
-  const responseLength = activeSession.responseLength;
+  const activeProfile = activeSession.activeProfile;
 
   const healthQuery = useQuery({
     queryKey: ['backend-health'],
@@ -159,6 +159,11 @@ export default function ChatPanel() {
   }, [isLoading]);
 
   const openSource = (source: ChatSource) => {
+    if (toUuidDocumentId(source.documentId)) {
+      setSelectedSource(source);
+      setSourceViewerOpen(true);
+      return;
+    }
     const matchedDocument =
       corpusLookup.documentsById.get(source.documentId) ??
       corpusLookup.documents.find((document) => document.relative_path === source.relativePath || document.relative_path === source.documentId) ??
@@ -170,6 +175,8 @@ export default function ChatPanel() {
             documentId: matchedDocument.id,
             relativePath: matchedDocument.relative_path,
             documentTitle: matchedDocument.name,
+            fileType: matchedDocument.file_type,
+            pageCount: matchedDocument.page_count ?? undefined,
           }
         : source,
     );
@@ -206,7 +213,7 @@ export default function ChatPanel() {
     const requestPayload: ChatRequestPayload = {
       query: input.trim(),
       searchScope,
-      responseLength,
+      activeProfile,
       selectedDocumentIds: [...explicitDocumentIds, ...uploadedDocumentIds],
       selectedFolderIds: explicitFolderIds,
       uploadedFileIds: uploadedDocumentIds,
@@ -416,11 +423,11 @@ export default function ChatPanel() {
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <ChatControlBar
                 searchScope={searchScope}
-                responseLength={responseLength}
+                activeProfile={activeProfile}
                 selectedContextCount={selectedContextItems.length}
                 uploadedFileCount={uploadedFiles.length}
                 onSearchScopeChange={(value) => updateActiveSession({ searchScope: value })}
-                onResponseLengthChange={(value) => updateActiveSession({ responseLength: value })}
+                onActiveProfileChange={(value) => updateActiveSession({ activeProfile: value })}
                 onManageContext={() => setContextManagerOpen(true)}
                 onClearContext={clearActiveContext}
               />
