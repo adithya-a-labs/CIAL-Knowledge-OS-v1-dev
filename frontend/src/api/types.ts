@@ -62,15 +62,25 @@ export interface ChatResponse {
 export type ApiDocumentType =
   | 'pdf'
   | 'docx'
+  | 'doc'
   | 'xlsx'
+  | 'xls'
   | 'csv'
   | 'pptx'
+  | 'ppt'
   | 'txt'
   | 'md'
   | 'html'
   | 'json'
   | 'xml'
   | 'yaml'
+  | 'png'
+  | 'jpg'
+  | 'jpeg'
+  | 'tiff'
+  | 'bmp'
+  | 'webp'
+  | 'gif'
   | 'image'
   | 'unknown';
 
@@ -233,7 +243,14 @@ export interface DocumentPreview extends CorpusDocument {
   chunk_id: string | null;
   open_url: string | null;
   download_url: string | null;
+  file_url?: string | null;
+  thumbnail_url?: string | null;
   read_error: string | null;
+  render_kind?: 'pdf' | 'image' | 'text' | 'code' | 'table' | 'office_card' | 'card' | string;
+  extraction_method?: string;
+  table_rows?: string[][];
+  supported_preview?: boolean;
+  sheet_count?: number;
 }
 
 export interface SelectedContextItem {

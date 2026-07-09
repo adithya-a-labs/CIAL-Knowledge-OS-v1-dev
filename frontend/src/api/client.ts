@@ -20,6 +20,10 @@ import { ApiError } from './types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '');
 
+export function apiUrl(path: string) {
+  return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -74,6 +78,14 @@ export function getCorpusFolder(path = '') {
 
 export function getCorpusDocument(id: string) {
   return request<CorpusDocument>(`/api/corpus/document/${encodeURIComponent(id)}`);
+}
+
+export function getDocumentFileUrl(documentId: string) {
+  return apiUrl(`/api/corpus/document/${encodeURIComponent(documentId)}/file`);
+}
+
+export function getDocumentThumbnailUrl(documentId: string, page = 1) {
+  return apiUrl(`/api/corpus/document/${encodeURIComponent(documentId)}/thumbnail?page=${encodeURIComponent(String(page))}`);
 }
 
 export function getDocumentPreview(documentId: string, chunkId?: string, page?: number) {
