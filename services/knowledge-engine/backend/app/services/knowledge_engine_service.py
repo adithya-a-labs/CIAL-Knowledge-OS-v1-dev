@@ -50,6 +50,8 @@ class ProfileSettings:
 class SelectedContextScope:
     applied: bool
     allowed_relative_paths: frozenset[str]
+    selected_document_ids: tuple[str, ...] = ()
+    selected_folder_ids: tuple[str, ...] = ()
     selected_document_count: int = 0
     selected_folder_count: int = 0
     effective_document_count: int = 0
@@ -413,7 +415,10 @@ class KnowledgeEngineService:
         document_ids = [value for value in request.selected_document_ids if value.strip()]
         folder_ids = [value for value in request.selected_folder_ids if value.strip()]
         if not document_ids and not folder_ids:
-            return SelectedContextScope(applied=False, allowed_relative_paths=frozenset())
+            return SelectedContextScope(
+                applied=False,
+                allowed_relative_paths=frozenset(),
+            )
         if SessionLocal is None:
             raise KnowledgeEngineInvalidRequest(
                 "Selected context requires the metadata database, but DATABASE_URL is not configured."
@@ -457,6 +462,8 @@ class KnowledgeEngineService:
         return SelectedContextScope(
             applied=True,
             allowed_relative_paths=frozenset(relative_paths),
+            selected_document_ids=tuple(document_ids),
+            selected_folder_ids=tuple(folder_ids),
             selected_document_count=len(document_ids),
             selected_folder_count=len(folder_ids),
             effective_document_count=len(relative_paths),
@@ -527,10 +534,15 @@ class KnowledgeEngineService:
             _SELECTED_CONTEXT_RETRIEVAL_FLOOR,
             selected_scope.effective_document_count * 12,
         )
+        search_stats: dict[str, Any] = {
+            "query_count": 0,
+            "raw_counts": [],
+            "filtered_counts": [],
+        }
 
         def selected_search(query: str) -> list[dict[str, Any]]:
             raw_results = original_search(query)
-            return [
+            filtered_results = [
                 dict(result)
                 for result in raw_results
                 if self._result_matches_selected_context(
@@ -538,6 +550,10 @@ class KnowledgeEngineService:
                     selected_scope.allowed_relative_paths,
                 )
             ]
+            search_stats["query_count"] = int(search_stats["query_count"]) + 1
+            search_stats["raw_counts"].append(len(raw_results))
+            search_stats["filtered_counts"].append(len(filtered_results))
+            return filtered_results
 
         try:
             for name, value in saved_values.items():
@@ -548,12 +564,49 @@ class KnowledgeEngineService:
                 on_config_changed()
             pipeline._search = selected_search
             response = dict(pipeline.run(question))
+            raw_total = sum(int(count) for count in search_stats["raw_counts"])
+            filtered_total = sum(int(count) for count in search_stats["filtered_counts"])
+            selected_evidence = response.get("selected_evidence")
+            selected_evidence_count = len(selected_evidence) if isinstance(selected_evidence, list) else 0
+            retrieved_chunks = response.get("retrieved")
+            retrieved_count = len(retrieved_chunks) if isinstance(retrieved_chunks, list) else 0
+            context_stages = response.get("context_stages")
+            compressed_chunks = (
+                list(context_stages.get("compressed") or [])
+                if isinstance(context_stages, Mapping)
+                else []
+            )
+            has_matching_evidence = any(
+                (
+                    filtered_total > 0,
+                    selected_evidence_count > 0,
+                    retrieved_count > 0,
+                    len(compressed_chunks) > 0,
+                )
+            )
+            if not has_matching_evidence:
+                response["answer"] = "No relevant information found in the selected context."
+                response["citations"] = []
+                response["retrieved"] = []
+                response["selected_evidence"] = []
+                response["context_stages"] = {"retrieved": [], "compressed": []}
+                response["weak_evidence"] = True
             response["selected_context_filter"] = {
                 "applied": True,
                 "mode": selected_scope.filter_mode,
-                "effective_document_count": selected_scope.effective_document_count,
-                "allowed_relative_paths": sorted(selected_scope.allowed_relative_paths),
+                "selected_document_ids": list(selected_scope.selected_document_ids),
+                "selected_folder_ids": list(selected_scope.selected_folder_ids),
+                "effective_scope": {
+                    "document_count": selected_scope.effective_document_count,
+                    "relative_paths": sorted(selected_scope.allowed_relative_paths),
+                },
                 "candidate_floor": candidate_floor,
+                "query_count": search_stats["query_count"],
+                "before_filter_counts": list(search_stats["raw_counts"]),
+                "after_filter_counts": list(search_stats["filtered_counts"]),
+                "before_filter_count": raw_total,
+                "after_filter_count": filtered_total,
+                "filtered_count": max(raw_total - filtered_total, 0),
             }
             return response
         finally:
@@ -686,7 +739,7 @@ class KnowledgeEngineService:
         )
         debug = (
             self._debug_payload(response, config=config, selected_scope=selected_scope)
-            if include_debug and settings.chat_debug
+            if include_debug
             else None
         )
         return ChatResponse(
@@ -735,7 +788,12 @@ class KnowledgeEngineService:
             or {
                 "applied": selected_scope.applied,
                 "mode": selected_scope.filter_mode,
-                "effective_document_count": selected_scope.effective_document_count,
+                "selected_document_ids": list(selected_scope.selected_document_ids),
+                "selected_folder_ids": list(selected_scope.selected_folder_ids),
+                "effective_scope": {
+                    "document_count": selected_scope.effective_document_count,
+                    "relative_paths": sorted(selected_scope.allowed_relative_paths),
+                },
             },
         }
 
