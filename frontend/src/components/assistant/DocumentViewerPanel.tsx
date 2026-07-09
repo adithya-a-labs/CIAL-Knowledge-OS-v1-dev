@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { FileSearch } from 'lucide-react';
-import { getDocumentPreview } from '@/api/client';
+import { apiUrl, getDocumentPreview } from '@/api/client';
 import DocumentPreviewRenderer from './DocumentPreviewRenderer';
 import DocumentToolbar from './DocumentToolbar';
 import HighlightExcerpt from './HighlightExcerpt';
@@ -38,6 +38,7 @@ export default function DocumentViewerPanel({
   });
   const preview = previewQuery.data ?? null;
   const title = preview?.name || source?.documentTitle || 'Source';
+  const openUrl = preview?.open_url ? apiUrl(preview.open_url) : null;
 
   if (!source) {
     return (
@@ -69,7 +70,7 @@ export default function DocumentViewerPanel({
         onPrevious={() => previousSource && onSelectSource(previousSource)}
         onNext={() => nextSource && onSelectSource(nextSource)}
         onClose={onClose}
-        openUrl={preview?.open_url}
+        openUrl={openUrl}
       />
 
       <div className="scrollbar-soft flex-1 space-y-3 overflow-y-auto p-4">
@@ -100,7 +101,19 @@ export default function DocumentViewerPanel({
           </div>
           <div>
             <dt className="font-semibold text-muted-foreground">Index status</dt>
-            <dd className="mt-1 text-foreground">{preview?.indexing_status || 'Unknown'}</dd>
+            <dd className="mt-1 text-foreground" title="pending means metadata synced but not vector indexed; indexing is in progress; indexed is searchable; failed needs attention; deleted was removed from the corpus source.">{preview?.indexing_status || 'Unknown'}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-muted-foreground">Modified</dt>
+            <dd className="mt-1 text-foreground">{preview?.modified_at ? new Date(preview.modified_at).toLocaleString() : 'Unknown'}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-muted-foreground">Pages / sheets</dt>
+            <dd className="mt-1 text-foreground">{preview?.page_count ?? preview?.sheet_count ?? 'n/a'}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-muted-foreground">Extraction</dt>
+            <dd className="mt-1 text-foreground">{preview?.extraction_method || 'metadata'}</dd>
           </div>
           <div>
             <dt className="font-semibold text-muted-foreground">Page</dt>
@@ -115,4 +128,3 @@ export default function DocumentViewerPanel({
     </div>
   );
 }
-
