@@ -238,3 +238,38 @@ def test_golden_phase45_prompt_for_operational_profile(tmp_path: Path) -> None:
     assert "[1]\nDocument:" in llm.prompt
     assert "SELECTED EVIDENCE" in llm.prompt
     assert "Do not exceed" not in llm.prompt
+
+
+def test_sources_expose_relative_paths_and_deep_link_metadata() -> None:
+    service = KnowledgeEngineService()
+
+    sources = service._sources(
+        {
+            "context_stages": {
+                "compressed": [
+                    {
+                        "page_number": 5,
+                        "chunk_id": "chunk-1",
+                        "text": "Quoted context for the viewer.",
+                        "metadata": {
+                            "document_id": "11111111-1111-4111-8111-111111111111",
+                            "relative_path": "Policies/manual.pdf",
+                            "file_name": "manual.pdf",
+                            "file_type": "pdf",
+                            "page_count": 18,
+                            "source": "C:/absolute/path/manual.pdf",
+                        },
+                    }
+                ]
+            }
+        }
+    )
+
+    assert len(sources) == 1
+    assert sources[0].document_id == "11111111-1111-4111-8111-111111111111"
+    assert sources[0].relative_path == "Policies/manual.pdf"
+    assert sources[0].path == "Policies/manual.pdf"
+    assert sources[0].page == 5
+    assert sources[0].page_count == 18
+    assert sources[0].file_type == "pdf"
+    assert sources[0].file_url == "/api/corpus/document/11111111-1111-4111-8111-111111111111/view"
