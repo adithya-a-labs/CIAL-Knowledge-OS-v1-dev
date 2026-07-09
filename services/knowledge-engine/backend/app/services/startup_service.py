@@ -282,6 +282,7 @@ class StartupService:
                         if document is not None:
                             document.indexed = True
                             document.indexing_status = "indexed"
+                            document.lifecycle_status = "indexed"
                             document.indexed_at = datetime.now(timezone.utc)
                 session.commit()
                 if jobs:
