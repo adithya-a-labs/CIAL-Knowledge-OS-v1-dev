@@ -8,10 +8,13 @@ import ChatMessage, { ChatMessageData } from './ChatMessage';
 import ContextChips from './ContextChips';
 import ContextManagerDialog from './ContextManagerDialog';
 import RetrievalTimeline from './RetrievalTimeline';
+import SourceViewerPanel from './SourceViewerPanel';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { askQuestion, getCorpusTree, getHealth, uploadDocument } from '@/api/client';
 import { flattenCorpusTree, toAssistantMessage, toChatRequest } from '@/api/adapters';
 import type { CorpusDocument, HealthResponse, SelectedContextItem } from '@/api/types';
 import {
+  MOCK_CHAT_SOURCES,
   RETRIEVAL_STAGES,
 } from '@/data/assistantData';
 import { suggestedPrompts } from '@/data/homePageData';
@@ -64,6 +67,8 @@ export default function ChatPanel() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeStageIndex, setActiveStageIndex] = useState(0);
   const [contextManagerOpen, setContextManagerOpen] = useState(false);
+  const [selectedSource, setSelectedSource] = useState<ChatSource | null>(null);
+  const [sourceViewerOpen, setSourceViewerOpen] = useState(false);
   const [, navigate] = useLocation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -126,6 +131,8 @@ export default function ChatPanel() {
   useEffect(() => {
     setInput('');
     setErrorMessage(null);
+    setSelectedSource(null);
+    setSourceViewerOpen(false);
   }, [activeSession.id]);
 
   const allVisibleSources = useMemo(() => {
@@ -133,8 +140,9 @@ export default function ChatPanel() {
     messages.forEach((message) => {
       message.sources?.forEach((source) => sourceMap.set(source.id, source));
     });
+    if (selectedSource) sourceMap.set(selectedSource.id, selectedSource);
     return Array.from(sourceMap.values()).sort((a, b) => a.citationIndex - b.citationIndex);
-  }, [messages]);
+  }, [messages, selectedSource]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -154,28 +162,28 @@ export default function ChatPanel() {
   }, [isLoading]);
 
   const openSource = (source: ChatSource) => {
-    const documentId = toUuidDocumentId(source.documentId) ? source.documentId : null;
-    let finalDocId = documentId;
-
-    if (!finalDocId) {
-      const matchedDocument =
-        corpusLookup.documentsById.get(source.documentId) ??
-        corpusLookup.documents.find((document) => document.relative_path === source.relativePath || document.relative_path === source.documentId) ??
-        corpusLookup.documents.find((document) => document.name === source.documentTitle || source.documentTitle.endsWith(source.documentTitle));
-      if (matchedDocument) {
-        finalDocId = matchedDocument.id;
-      }
+    if (toUuidDocumentId(source.documentId)) {
+      setSelectedSource(source);
+      setSourceViewerOpen(true);
+      return;
     }
-
-    if (finalDocId) {
-      const pageQuery = source.pageNumber ? `?page=${source.pageNumber}` : '';
-      navigate(`/knowledge/document/${finalDocId}${pageQuery}`);
-    } else {
-      toast({
-        title: 'Document not found',
-        description: 'This citation could not be matched to an active document in the workspace.',
-      });
-    }
+    const matchedDocument =
+      corpusLookup.documentsById.get(source.documentId) ??
+      corpusLookup.documents.find((document) => document.relative_path === source.relativePath || document.relative_path === source.documentId) ??
+      corpusLookup.documents.find((document) => document.name === source.documentTitle || source.documentTitle.endsWith(source.documentTitle));
+    setSelectedSource(
+      matchedDocument
+        ? {
+            ...source,
+            documentId: matchedDocument.id,
+            relativePath: matchedDocument.relative_path,
+            documentTitle: matchedDocument.name,
+            fileType: matchedDocument.file_type,
+            pageCount: matchedDocument.page_count ?? undefined,
+          }
+        : source,
+    );
+    setSourceViewerOpen(true);
   };
 
   const clearActiveContext = () => {
@@ -311,185 +319,222 @@ export default function ChatPanel() {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden" data-testid="assistant-workspace">
-      <div
-        className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] bg-white shadow-[0_28px_80px_-48px_rgba(15,23,42,0.45)] ring-1 ring-black/5"
-        data-testid="chat-panel"
-      >
-        <div
-          className="scrollbar-soft min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,#f8fbf5_0%,#f8fafc_40%,#f8fafc_100%)] px-4 py-5 sm:px-6 sm:py-6"
-          data-testid="chat-messages"
+      <ResizablePanelGroup direction="horizontal" key={sourceViewerOpen ? 'split' : 'single'}>
+        <ResizablePanel
+          defaultSize={sourceViewerOpen ? 60 : 100}
+          minSize={30}
+          className="flex flex-col h-full min-h-0 min-w-0"
+          id="chat-panel-resizable"
         >
-          {messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full min-h-[40vh] text-center max-w-lg mx-auto py-12">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#25611f]/10 text-[#25611f] mb-4">
-                <Sparkles size={24} className="animate-pulse" />
-              </div>
-              <h2 className="text-xl font-semibold tracking-tight text-slate-900">How can I help you today?</h2>
-              <p className="mt-2 text-sm text-slate-500 mb-6">
-                Ask questions, scope knowledge, or analyze files in this grounded workspace.
-              </p>
-              {visibleSuggestedPrompts.length > 0 && (
-                <div className="flex flex-wrap justify-center gap-2">
-                  {visibleSuggestedPrompts.map((prompt) => (
-                    <button
-                      key={prompt}
-                      type="button"
-                      onClick={() => setInput(prompt)}
-                      className="ce-action min-h-9 rounded-xl px-4 py-2 border border-slate-200 bg-white/80 hover:bg-[#f6f8f5] hover:border-slate-300 text-sm font-medium text-slate-700 shadow-sm transition"
-                    >
-                      {prompt}
-                    </button>
+          <div
+            className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[1.75rem] bg-white shadow-[0_28px_80px_-48px_rgba(15,23,42,0.45)] ring-1 ring-black/5"
+            data-testid="chat-panel"
+          >
+            <div
+              className="scrollbar-soft min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,#f8fbf5_0%,#f8fafc_40%,#f8fafc_100%)] px-4 py-5 sm:px-6 sm:py-6"
+              data-testid="chat-messages"
+            >
+              {messages.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full min-h-[40vh] text-center max-w-lg mx-auto py-12">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#25611f]/10 text-[#25611f] mb-4">
+                    <Sparkles size={24} className="animate-pulse" />
+                  </div>
+                  <h2 className="text-xl font-semibold tracking-tight text-slate-900">How can I help you today?</h2>
+                  <p className="mt-2 text-sm text-slate-500 mb-6">
+                    Ask questions, scope knowledge, or analyze files in this grounded workspace.
+                  </p>
+                  {visibleSuggestedPrompts.length > 0 && (
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {visibleSuggestedPrompts.map((prompt) => (
+                        <button
+                          key={prompt}
+                          type="button"
+                          onClick={() => setInput(prompt)}
+                          className="ce-action min-h-9 rounded-xl px-4 py-2 border border-slate-200 bg-white/80 hover:bg-[#f6f8f5] hover:border-slate-300 text-sm font-medium text-slate-700 shadow-sm transition"
+                        >
+                          {prompt}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  {messages.map((msg) => (
+                    <ChatMessage
+                      key={msg.id}
+                      message={msg}
+                      selectedFeedback={feedbackByMessageId[msg.id]}
+                      onCitationClick={openSource}
+                      onSourceOpen={openSource}
+                      onRelatedQuestionClick={setInput}
+                      onCopy={handleCopy}
+                      onUnavailableAction={(label) => {
+                        toast({ title: `${label} is coming soon` });
+                      }}
+                      onFeedback={(messageId, feedback) =>
+                        updateActiveSession({
+                          feedbackByMessageId: {
+                            ...feedbackByMessageId,
+                            [messageId]: feedback,
+                          },
+                        })
+                      }
+                    />
                   ))}
+
+                  {isLoading && (
+                    <div className="flex justify-start">
+                      <RetrievalTimeline activeStageIndex={activeStageIndex} />
+                    </div>
+                  )}
+
+                  {errorMessage && (
+                    <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" data-testid="assistant-error">
+                      {errorMessage}
+                    </div>
+                  )}
                 </div>
               )}
+              <div ref={messagesEndRef} />
             </div>
-          ) : (
-            <div className="space-y-5">
-              {messages.map((msg) => (
-                <ChatMessage
-                  key={msg.id}
-                  message={msg}
-                  selectedFeedback={feedbackByMessageId[msg.id]}
-                  onCitationClick={openSource}
-                  onSourceOpen={openSource}
-                  onRelatedQuestionClick={setInput}
-                  onCopy={handleCopy}
-                  onUnavailableAction={(label) => {
-                    toast({ title: `${label} is coming soon` });
-                  }}
-                  onFeedback={(messageId, feedback) =>
-                    updateActiveSession({
-                      feedbackByMessageId: {
-                        ...feedbackByMessageId,
-                        [messageId]: feedback,
-                      },
-                    })
-                  }
-                />
-              ))}
 
-              {isLoading && (
-                <div className="flex justify-start">
-                  <RetrievalTimeline activeStageIndex={activeStageIndex} />
+            <div className="border-t border-border bg-white/96 px-4 pb-4 pt-3 backdrop-blur sm:px-5">
+              <ContextChips
+                selectedContextItems={selectedContextItems}
+                uploadedFiles={uploadedFiles}
+                searchScope={searchScope}
+                onRemoveContext={(id) =>
+                  updateActiveSession({
+                    selectedContextItems: selectedContextItems.filter((context) => context.id !== id),
+                  })
+                }
+                onRemoveFile={(id) =>
+                  updateActiveSession({
+                    uploadedFiles: uploadedFiles.filter((file) => file.id !== id),
+                  })
+                }
+                onClearAll={clearActiveContext}
+              />
+
+              <div className="mt-3 rounded-[1.5rem] border border-border bg-[hsl(0_0%_100%/0.96)] p-3 shadow-[0_12px_34px_-28px_rgba(15,23,42,0.45)]">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <ChatControlBar
+                      searchScope={searchScope}
+                      activeProfile={activeProfile}
+                      selectedContextCount={selectedContextItems.length}
+                      uploadedFileCount={uploadedFiles.length}
+                      onSearchScopeChange={(value) => updateActiveSession({ searchScope: value })}
+                      onActiveProfileChange={(value) => updateActiveSession({ activeProfile: value })}
+                      onManageContext={() => setContextManagerOpen(true)}
+                      onClearContext={clearActiveContext}
+                    />
+                    
+                    {/* Small inline status chip near controls */}
+                    <div
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs border font-medium transition ${
+                        chatReady
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                          : 'border-amber-200 bg-amber-50 text-amber-900'
+                      }`}
+                      data-testid="backend-status-chip"
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full ${chatReady ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                      <span>{chatReady ? 'Connected' : healthLabel}</span>
+                    </div>
+                  </div>
+                  
+                  <p className="text-[10px] text-muted-foreground">
+                    Grounded responses only. Verify critical information with the source documents.
+                  </p>
                 </div>
-              )}
 
-              {errorMessage && (
-                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" data-testid="assistant-error">
-                  {errorMessage}
-                </div>
-              )}
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
+                <div className="ce-control flex min-w-0 items-end gap-3 rounded-[1.25rem] bg-[hsl(210_20%_98%)] px-3 py-3">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept={supportedFileTypes}
+                    className="hidden"
+                    onChange={(event) => handleFileChange(event.target.files)}
+                    data-testid="input-file-upload"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="ce-icon-button h-10 w-10 rounded-full"
+                    aria-label="Attach files"
+                    data-testid="button-attach-file"
+                  >
+                    <Paperclip size={16} />
+                  </button>
 
-        <div className="border-t border-border bg-white/96 px-4 pb-4 pt-3 backdrop-blur sm:px-5">
-          <ContextChips
-            selectedContextItems={selectedContextItems}
-            uploadedFiles={uploadedFiles}
-            searchScope={searchScope}
-            onRemoveContext={(id) =>
-              updateActiveSession({
-                selectedContextItems: selectedContextItems.filter((context) => context.id !== id),
-              })
-            }
-            onRemoveFile={(id) =>
-              updateActiveSession({
-                uploadedFiles: uploadedFiles.filter((file) => file.id !== id),
-              })
-            }
-            onClearAll={clearActiveContext}
-          />
+                  <textarea
+                    value={input}
+                    onChange={(event) => setInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault();
+                        void handleSend();
+                      }
+                    }}
+                    placeholder={chatReady ? 'Ask a grounded question' : 'Backend readiness pending'}
+                    className="max-h-40 min-h-[3rem] flex-1 resize-none bg-transparent py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
+                    data-testid="input-chat"
+                  />
 
-          <div className="mt-3 rounded-[1.5rem] border border-border bg-[hsl(0_0%_100%/0.96)] p-3 shadow-[0_12px_34px_-28px_rgba(15,23,42,0.45)]">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <ChatControlBar
-                  searchScope={searchScope}
-                  activeProfile={activeProfile}
-                  selectedContextCount={selectedContextItems.length}
-                  uploadedFileCount={uploadedFiles.length}
-                  onSearchScopeChange={(value) => updateActiveSession({ searchScope: value })}
-                  onActiveProfileChange={(value) => updateActiveSession({ activeProfile: value })}
-                  onManageContext={() => setContextManagerOpen(true)}
-                  onClearContext={clearActiveContext}
-                />
-                
-                {/* Small inline status chip near controls */}
-                <div
-                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs border font-medium transition ${
-                    chatReady
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                      : 'border-amber-200 bg-amber-50 text-amber-900'
-                  }`}
-                  data-testid="backend-status-chip"
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${chatReady ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
-                  <span>{chatReady ? 'Connected' : healthLabel}</span>
+                  <button
+                    type="button"
+                    onClick={() => void handleSend()}
+                    disabled={!input.trim() || isLoading || !chatReady}
+                    className="ce-action ce-action-primary h-10 w-10 shrink-0 rounded-full p-0 disabled:border-gray-300 disabled:bg-gray-300"
+                    data-testid="button-send"
+                    aria-label="Send message"
+                  >
+                    <Send size={15} />
+                  </button>
                 </div>
               </div>
-              
-              <p className="text-[10px] text-muted-foreground">
-                Grounded responses only. Verify critical information with the source documents.
-              </p>
             </div>
 
-            <div className="ce-control flex min-w-0 items-end gap-3 rounded-[1.25rem] bg-[hsl(210_20%_98%)] px-3 py-3">
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept={supportedFileTypes}
-                className="hidden"
-                onChange={(event) => handleFileChange(event.target.files)}
-                data-testid="input-file-upload"
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="ce-icon-button h-10 w-10 rounded-full"
-                aria-label="Attach files"
-                data-testid="button-attach-file"
-              >
-                <Paperclip size={16} />
-              </button>
-
-              <textarea
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
-                    event.preventDefault();
-                    void handleSend();
-                  }
-                }}
-                placeholder={chatReady ? 'Ask a grounded question' : 'Backend readiness pending'}
-                className="max-h-40 min-h-[3rem] flex-1 resize-none bg-transparent py-2 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground"
-                data-testid="input-chat"
-              />
-
-              <button
-                type="button"
-                onClick={() => void handleSend()}
-                disabled={!input.trim() || isLoading || !chatReady}
-                className="ce-action ce-action-primary h-10 w-10 shrink-0 rounded-full p-0 disabled:border-gray-300 disabled:bg-gray-300"
-                data-testid="button-send"
-                aria-label="Send message"
-              >
-                <Send size={15} />
-              </button>
-            </div>
+            <ContextManagerDialog
+              open={contextManagerOpen}
+              selectedItems={selectedContextItems}
+              onApply={(items) => updateActiveSession({ selectedContextItems: items })}
+              onClose={() => setContextManagerOpen(false)}
+            />
           </div>
-        </div>
+        </ResizablePanel>
 
-        <ContextManagerDialog
-          open={contextManagerOpen}
-          selectedItems={selectedContextItems}
-          onApply={(items) => updateActiveSession({ selectedContextItems: items })}
-          onClose={() => setContextManagerOpen(false)}
-        />
-      </div>
+        {sourceViewerOpen && (
+          <>
+            <ResizableHandle withHandle />
+            <ResizablePanel
+              defaultSize={40}
+              minSize={25}
+              maxSize={70}
+              className="flex flex-col h-full min-h-0 min-w-0"
+              id="source-viewer-resizable"
+            >
+              <SourceViewerPanel
+                open={sourceViewerOpen}
+                source={selectedSource}
+                sources={
+                  allVisibleSources.length > 0
+                    ? allVisibleSources.map((source) => ({
+                        ...source,
+                        documentId: toUuidDocumentId(source.documentId) ?? source.documentId,
+                      }))
+                    : MOCK_CHAT_SOURCES
+                }
+                onClose={() => setSourceViewerOpen(false)}
+                onSelectSource={openSource}
+              />
+            </ResizablePanel>
+          </>
+        )}
+      </ResizablePanelGroup>
     </div>
   );
 }
