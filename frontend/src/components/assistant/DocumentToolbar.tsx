@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Download, ExternalLink, FileText, Search, ZoomIn, ZoomOut } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, ExternalLink, FileText, RotateCcw, Search, ZoomIn, ZoomOut } from 'lucide-react';
 import type { ChangeEvent } from 'react';
 import type { ChatSource } from '@/types/assistant';
 
@@ -7,6 +7,7 @@ interface DocumentToolbarProps {
   citationIndex?: number;
   pageNumber?: number | null;
   pageCount?: number | null;
+  pageLabel?: string;
   fileType?: string | null;
   currentIndex: number;
   total: number;
@@ -21,6 +22,7 @@ interface DocumentToolbarProps {
   onSearchChange: (value: string) => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
+  onZoomReset: () => void;
   onPageChange: (value: number) => void;
   openUrl?: string | null;
   downloadUrl?: string | null;
@@ -31,6 +33,7 @@ export default function DocumentToolbar({
   citationIndex,
   pageNumber,
   pageCount,
+  pageLabel = 'Page',
   fileType,
   currentIndex,
   total,
@@ -45,6 +48,7 @@ export default function DocumentToolbar({
   onSearchChange,
   onZoomIn,
   onZoomOut,
+  onZoomReset,
   onPageChange,
   openUrl,
   downloadUrl,
@@ -56,7 +60,7 @@ export default function DocumentToolbar({
   };
 
   return (
-    <div className="border-b border-border bg-white px-5 py-4">
+    <div className="sticky top-0 z-10 border-b border-border bg-white/95 px-5 py-4 backdrop-blur">
       <div className="min-w-0">
         <div className="mb-2 flex flex-wrap items-center gap-2">
           {citationIndex ? <span className="ce-badge ce-badge-accent">[{citationIndex}]</span> : null}
@@ -86,13 +90,16 @@ export default function DocumentToolbar({
             <ZoomOut size={14} />
           </button>
           <span className="min-w-12 text-center text-xs font-semibold text-muted-foreground">{Math.round(zoomLevel * 100)}%</span>
+          <button type="button" onClick={onZoomReset} className="ce-icon-button h-8 w-8 rounded-full" aria-label="Reset zoom">
+            <RotateCcw size={14} />
+          </button>
           <button type="button" onClick={onZoomIn} className="ce-icon-button h-8 w-8 rounded-full" aria-label="Zoom in">
             <ZoomIn size={14} />
           </button>
         </div>
 
         <div className="flex items-center gap-2 rounded-full border border-border bg-[hsl(210_20%_98%)] px-3 py-1.5">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Page</span>
+          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{pageLabel}</span>
           <input
             type="number"
             min={1}
