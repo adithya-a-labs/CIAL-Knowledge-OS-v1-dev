@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import DocumentViewerPanel from './DocumentViewerPanel';
 import type { ChatSource } from '@/types/assistant';
 
@@ -16,20 +17,32 @@ export default function SourceViewerPanel({
   onClose,
   onSelectSource,
 }: SourceViewerPanelProps) {
+  const [isDesktopViewport, setIsDesktopViewport] = useState(() => window.innerWidth >= 1024);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(min-width: 1024px)');
+    const onChange = () => setIsDesktopViewport(mediaQuery.matches);
+    onChange();
+    mediaQuery.addEventListener('change', onChange);
+    return () => mediaQuery.removeEventListener('change', onChange);
+  }, []);
+
   if (!open) return null;
 
-  return (
-    <>
-      <aside className="ce-panel hidden h-full min-h-0 w-[22rem] shrink-0 overflow-hidden lg:block 2xl:w-[26rem]" data-testid="source-viewer-panel">
+  if (isDesktopViewport) {
+    return (
+      <aside className="ce-panel h-full min-h-0 w-[22rem] shrink-0 overflow-hidden 2xl:w-[26rem]" data-testid="source-viewer-panel">
         <DocumentViewerPanel source={source} sources={sources} onClose={onClose} onSelectSource={onSelectSource} />
       </aside>
+    );
+  }
 
-      <div className="fixed inset-0 z-50 bg-black/45 lg:hidden" data-testid="source-viewer-mobile">
-        <div className="ml-auto flex h-full w-full max-w-[32rem] flex-col border-l border-border bg-white shadow-2xl">
-          <DocumentViewerPanel source={source} sources={sources} onClose={onClose} onSelectSource={onSelectSource} />
-        </div>
+  return (
+    <div className="fixed inset-0 z-50" data-testid="source-viewer-mobile">
+      <button className="absolute inset-0 bg-black/45" onClick={onClose} aria-label="Close source viewer overlay" />
+      <div className="relative ml-auto flex h-full w-full max-w-[32rem] flex-col border-l border-border bg-white shadow-2xl">
+        <DocumentViewerPanel source={source} sources={sources} onClose={onClose} onSelectSource={onSelectSource} />
       </div>
-    </>
+    </div>
   );
 }
-
