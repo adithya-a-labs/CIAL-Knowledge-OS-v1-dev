@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { History, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, History, X } from 'lucide-react';
 import { AssistantSessionsProvider } from '@/components/assistant/AssistantSessionContext';
 import ChatPanel from '@/components/assistant/ChatPanel';
 import ConversationHistory from '@/components/assistant/ConversationHistory';
@@ -40,14 +40,43 @@ export default function AIAssistantPage() {
         </div>
 
         <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
-          {historySidebarOpen && (
-            <div
-              className="hidden h-full min-h-0 w-72 shrink-0 overflow-hidden rounded-[1.5rem] bg-white shadow-[0_20px_50px_-40px_rgba(15,23,42,0.45)] ring-1 ring-black/5 xl:flex 2xl:w-80"
-              data-testid="conversation-history-sidebar"
-            >
-              <ConversationHistory variant="sidebar" />
-            </div>
-          )}
+          {/* Collapsible History Sidebar / Narrow Rail */}
+          <div
+            className={`hidden h-full min-h-0 flex-col overflow-hidden rounded-[1.5rem] bg-white shadow-[0_20px_50px_-40px_rgba(15,23,42,0.45)] ring-1 ring-black/5 transition-all duration-300 ease-in-out xl:flex ${
+              historySidebarOpen ? 'w-72 2xl:w-80' : 'w-12'
+            }`}
+            data-testid="conversation-history-sidebar"
+          >
+            {historySidebarOpen ? (
+              <div className="flex h-full flex-col min-w-0 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between border-b border-slate-100 p-3 shrink-0">
+                  <span className="text-xs font-semibold text-slate-700 truncate">History</span>
+                  <button
+                    onClick={() => setHistorySidebarOpen(false)}
+                    className="p-1 rounded-md hover:bg-slate-100 text-slate-500 hover:text-slate-950 transition"
+                    title="Collapse history"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                </div>
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <ConversationHistory variant="sidebar" />
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-full flex-col items-center py-4 gap-4 animate-in fade-in duration-200">
+                <button
+                  onClick={() => setHistorySidebarOpen(true)}
+                  className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500 hover:text-slate-950 transition"
+                  title="Expand history"
+                  data-testid="button-expand-history-sidebar"
+                >
+                  <ChevronRight size={16} />
+                </button>
+                <div className="w-px flex-1 bg-slate-100" />
+              </div>
+            )}
+          </div>
 
           <ChatPanel />
         </div>
