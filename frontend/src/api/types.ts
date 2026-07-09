@@ -282,8 +282,12 @@ export interface DocumentPreview extends CorpusDocument {
   open_url: string | null;
   download_url: string | null;
   file_url?: string | null;
+  viewer_url?: string | null;
+  viewer_format?: string | null;
+  viewer_ready?: boolean;
   thumbnail_url?: string | null;
   rendered_html?: string | null;
+  preview_notice?: string | null;
   read_error: string | null;
   render_kind?: 'pdf' | 'image' | 'text' | 'code' | 'table' | 'spreadsheet' | 'slides' | 'docx' | 'markdown' | 'html' | 'card' | string;
   extraction_method?: string;
