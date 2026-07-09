@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, FileSearch } from 'lucide-react';
+import { AlertTriangle, FileSearch, Sparkles } from 'lucide-react';
+import { Link } from 'wouter';
 import { apiUrl, getDocumentPreview } from '@/api/client';
-import DocumentPreviewRenderer from './DocumentPreviewRenderer';
 import DocumentToolbar from './DocumentToolbar';
 import HighlightExcerpt from './HighlightExcerpt';
 import type { ChatSource } from '@/types/assistant';
@@ -160,75 +160,75 @@ export default function DocumentViewerPanel({
           </div>
         ) : null}
 
-        <div className="grid gap-4 xl:grid-rows-[minmax(28rem,3fr)_auto]">
-          <div className="min-h-[28rem]">
-            <DocumentPreviewRenderer
-              preview={preview}
-              title={title}
-              searchQuery={searchQuery}
-              zoomLevel={zoomLevel}
-              activePage={pageNumber}
-              requestedPage={previewPage ?? pageNumber}
-              onPageCountChange={setPageCount}
-              onActivePageChange={(value) => setActivePage(value)}
-            />
+        <div className="flex flex-col gap-4">
+          {/* CTA card to open full workspace */}
+          <div className="rounded-2xl border border-[#e3e9e1] bg-[#edf6e9]/40 p-4 text-center">
+            <Sparkles className="mx-auto mb-2 text-[#2f6d25]" size={20} />
+            <h3 className="text-sm font-semibold text-slate-900">Inspect Full Document Workspace</h3>
+            <p className="mt-1 text-xs text-slate-600 mb-3">
+              View this document in high fidelity, search text, and run deep AI queries in the full workspace.
+            </p>
+            <Link
+              href={`/knowledge/document/${activeDocument}?page=${pageNumber ?? 1}`}
+              className="ce-action ce-action-primary h-9 px-4 inline-flex items-center justify-center rounded-xl text-xs font-semibold"
+            >
+              Open Full Workspace
+            </Link>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(18rem,0.7fr)]">
-            <div className="space-y-4">
-              <HighlightExcerpt
-                text={source.previewText || source.excerpt}
-                highlight={preview?.highlight_text || source.highlightText || source.excerpt}
-              />
-              <div className="rounded-2xl border border-border bg-white p-4">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Document excerpt</p>
-                <p className="safe-text whitespace-pre-wrap text-sm leading-6 text-foreground">
-                  {preview?.preview_text || source.previewText || source.excerpt || 'No preview text is available for this document.'}
-                </p>
-              </div>
+          <div className="space-y-4">
+            <HighlightExcerpt
+              text={source.previewText || source.excerpt}
+              highlight={preview?.highlight_text || source.highlightText || source.excerpt}
+            />
+            <div className="rounded-2xl border border-border bg-white p-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Document excerpt</p>
+              <p className="safe-text whitespace-pre-wrap text-sm leading-6 text-foreground font-sans">
+                {preview?.preview_text || source.previewText || source.excerpt || 'No preview text is available for this document.'}
+              </p>
             </div>
+          </div>
 
-            <details className="rounded-2xl border border-border bg-[hsl(210_20%_98%)] p-4 text-xs" open={false}>
-              <summary className="cursor-pointer list-none text-sm font-semibold text-foreground">Document details</summary>
-              <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                <div>
-                  <dt className="font-semibold text-muted-foreground">Relative path</dt>
-                  <dd className="safe-text mt-1 text-foreground">{preview?.relative_path || source.relativePath || source.documentId}</dd>
-                </div>
-                <div>
-                  <dt className="font-semibold text-muted-foreground">Type</dt>
-                  <dd className="mt-1 text-foreground">{preview?.file_type || source.fileType || 'Unknown'}</dd>
-                </div>
-                <div>
-                  <dt className="font-semibold text-muted-foreground">Size</dt>
-                  <dd className="mt-1 text-foreground">{formatBytes(preview?.size_bytes)}</dd>
-                </div>
-                <div>
-                  <dt className="font-semibold text-muted-foreground">Index status</dt>
-                  <dd className="mt-1 text-foreground">{preview?.indexing_status || 'Unknown'}</dd>
-                </div>
-                <div>
-                  <dt className="font-semibold text-muted-foreground">Modified</dt>
-                  <dd className="mt-1 text-foreground">{preview?.modified_at ? new Date(preview.modified_at).toLocaleString() : 'Unknown'}</dd>
-                </div>
-                <div>
-                  <dt className="font-semibold text-muted-foreground">Pages / sheets</dt>
-                  <dd className="mt-1 text-foreground">{effectivePageCount ?? preview?.sheet_count ?? 'n/a'}</dd>
-                </div>
-                <div>
-                  <dt className="font-semibold text-muted-foreground">Extraction</dt>
-                  <dd className="mt-1 text-foreground">{preview?.extraction_method || 'metadata'}</dd>
-                </div>
-                <div>
-                  <dt className="font-semibold text-muted-foreground">{pageLabel}</dt>
-                  <dd className="mt-1 text-foreground">{pageNumber || 'n/a'}</dd>
-                </div>
-                <div>
-                  <dt className="font-semibold text-muted-foreground">Chunk</dt>
-                  <dd className="safe-text mt-1 text-foreground">{activeChunk || preview?.chunk_id || source.chunkId || 'n/a'}</dd>
-                </div>
-              </dl>
-            </details>
+          <div className="rounded-2xl border border-border bg-[hsl(210_20%_98%)] p-4 text-xs">
+            <h3 className="text-sm font-semibold text-foreground mb-4">Document details</h3>
+            <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <dt className="font-semibold text-muted-foreground">Relative path</dt>
+                <dd className="safe-text mt-1 text-foreground">{preview?.relative_path || source.relativePath || source.documentId}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-muted-foreground">Type</dt>
+                <dd className="mt-1 text-foreground">{preview?.file_type || source.fileType || 'Unknown'}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-muted-foreground">Size</dt>
+                <dd className="mt-1 text-foreground">{formatBytes(preview?.size_bytes)}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-muted-foreground">Index status</dt>
+                <dd className="mt-1 text-foreground">{preview?.indexing_status || 'Unknown'}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-muted-foreground">Modified</dt>
+                <dd className="mt-1 text-foreground">{preview?.modified_at ? new Date(preview.modified_at).toLocaleString() : 'Unknown'}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-muted-foreground">Pages / sheets</dt>
+                <dd className="mt-1 text-foreground">{effectivePageCount ?? preview?.sheet_count ?? 'n/a'}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-muted-foreground">Extraction</dt>
+                <dd className="mt-1 text-foreground">{preview?.extraction_method || 'metadata'}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-muted-foreground">{pageLabel}</dt>
+                <dd className="mt-1 text-foreground">{pageNumber || 'n/a'}</dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="font-semibold text-muted-foreground">Chunk</dt>
+                <dd className="safe-text mt-1 text-foreground break-all">{activeChunk || preview?.chunk_id || source.chunkId || 'n/a'}</dd>
+              </div>
+            </dl>
           </div>
         </div>
       </div>
