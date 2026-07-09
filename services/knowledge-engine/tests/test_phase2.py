@@ -269,7 +269,8 @@ class SafeFailureAndCitationTests(unittest.TestCase):
         self.assertIn("query_variants", response)
         self.assertIn("context_stages", response)
         self.assertIn("Document: CISG-2026-01.pdf", llm.prompt)
-        self.assertIn("References:", response["answer"])
+        self.assertIn("[1]", response["answer"])
+        self.assertNotIn("References:", response["answer"])
 
     def test_empty_retrieval_does_not_require_a_local_llm(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
