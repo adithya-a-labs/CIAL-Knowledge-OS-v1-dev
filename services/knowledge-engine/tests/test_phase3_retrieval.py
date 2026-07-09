@@ -215,7 +215,8 @@ class TokenBudgetAndPipelineTests(unittest.TestCase):
             response["token_usage"]["budget"],
         )
         self.assertTrue(response["citations"][0]["pdf_link"].startswith("file:///"))
-        self.assertIn("References:", response["answer"])
+        self.assertIn("[1]", response["answer"])
+        self.assertNotIn("References:", response["answer"])
         trace = response["question_trace"]
         self.assertEqual(trace["question"], "What is AGL-47?")
         self.assertEqual(len(trace["dense_results"]), 1)
