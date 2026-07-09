@@ -8,8 +8,6 @@ import {
   Download,
   ExternalLink,
   FileSearch,
-  FileText,
-  Info,
   Minus,
   Plus,
   RotateCcw,
@@ -49,23 +47,6 @@ function statusTone(status?: string | null) {
   if (status === 'failed' || status === 'deleted') return 'border-red-200 bg-red-50 text-red-700';
   if (status === 'indexing' || status === 'pending') return 'border-amber-200 bg-amber-50 text-amber-800';
   return 'border-slate-200 bg-slate-50 text-slate-600';
-}
-
-function detailRows(document: CorpusDocument | null, pageCount: number | null, extraction?: string) {
-  return [
-    ['Relative path', document?.relative_path || 'Unknown'],
-    ['Type', document?.file_type || document?.extension || 'Unknown'],
-    ['MIME type', document?.mime_type || 'Unknown'],
-    ['Size', formatBytes(document?.size_bytes)],
-    ['Index status', document?.indexing_status || 'Unknown'],
-    ['Indexed', document?.indexed ? 'Yes' : 'No'],
-    ['Pages / sheets', pageCount ? String(pageCount) : 'n/a'],
-    ['Modified', formatDate(document?.modified_at)],
-    ['Created', formatDate(document?.created_at)],
-    ['Updated', formatDate(document?.updated_at)],
-    ['Extraction', extraction || 'metadata'],
-    ['Content hash', document?.content_hash || 'n/a'],
-  ];
 }
 
 function UnavailableState({
@@ -124,10 +105,19 @@ export default function DocumentWorkspacePage() {
   const viewUrl = preview?.open_url ? apiUrl(preview.open_url) : getDocumentViewUrl(documentId);
   const downloadUrl = preview?.download_url ? apiUrl(preview.download_url) : getDocumentDownloadUrl(documentId);
   const effectivePageCount = preview?.page_count ?? preview?.slides?.length ?? pageCount ?? null;
-  const rows = useMemo(
-    () => detailRows(document, effectivePageCount, preview?.extraction_method),
-    [document, effectivePageCount, preview?.extraction_method],
+  const typeLabel = useMemo(
+    () => (document?.extension || document?.file_type || 'file').replace('.', '').toUpperCase(),
+    [document?.extension, document?.file_type],
   );
+  const canOpenInline = preview ? preview.viewer_ready !== false : true;
+  const viewerMode = preview?.viewer_format?.replace(/^\./, '').toLowerCase() || '';
+  const showExtractedTextFallback = useMemo(() => {
+    if (!preview?.preview_text) return false;
+    if (preview.render_kind === 'card') return true;
+    if (preview.render_kind === 'pdf' || preview.render_kind === 'image') return true;
+    if (preview.viewer_ready && ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'bmp'].includes(viewerMode)) return true;
+    return false;
+  }, [preview?.preview_text, preview?.render_kind, preview?.viewer_ready, viewerMode]);
 
   useEffect(() => {
     if (preview?.page_count) setPageCount(preview.page_count);
@@ -185,25 +175,29 @@ export default function DocumentWorkspacePage() {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden" data-testid="document-workspace-page">
-      <div className="mb-3 flex shrink-0 flex-col gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+      <div className="mb-2 flex shrink-0 flex-col gap-2 border-b border-slate-200 bg-white px-3 py-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-start gap-3">
-          <button type="button" onClick={goBack} className="ce-icon-button h-10 w-10 shrink-0" aria-label="Back to Knowledge Center">
+          <button type="button" onClick={goBack} className="ce-icon-button h-9 w-9 shrink-0" aria-label="Back to Knowledge Center">
             <ArrowLeft size={18} />
           </button>
           <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h1 className="safe-text min-w-0 text-base font-semibold text-slate-950 sm:text-lg">{title}</h1>
-              <span className="ce-badge px-2 py-1 text-xs">{(document?.extension || document?.file_type || 'file').replace('.', '').toUpperCase()}</span>
+              <span className="ce-badge px-2 py-1 text-[11px]">{typeLabel}</span>
               <span className={`rounded-md border px-2 py-1 text-xs font-semibold ${statusTone(document?.indexing_status)}`}>
                 {document?.indexing_status || 'unknown'}
               </span>
             </div>
-            <p className="safe-text mt-1 text-xs text-slate-500">{document?.relative_path || documentId}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+              <span>{formatBytes(document?.size_bytes)}</span>
+              <span>{effectivePageCount ? `${effectivePageCount} ${preview?.slides?.length ? 'slides' : 'pages'}` : 'Preview workspace'}</span>
+              <span>Updated {formatDate(document?.updated_at || document?.modified_at)}</span>
+            </div>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <label className="hidden h-10 min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500 md:flex">
+          <label className="hidden h-9 min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500 md:flex">
             <Search size={15} />
             <input
               value={searchQuery}
@@ -213,16 +207,26 @@ export default function DocumentWorkspacePage() {
               type="search"
             />
           </label>
-          <button type="button" onClick={() => setZoomLevel((current) => Math.max(current - 0.1, 0.7))} className="ce-icon-button h-10 w-10" aria-label="Zoom out"><Minus size={16} /></button>
-          <button type="button" onClick={() => setZoomLevel(1)} className="ce-icon-button h-10 w-10" aria-label="Reset zoom"><RotateCcw size={16} /></button>
-          <button type="button" onClick={() => setZoomLevel((current) => Math.min(current + 0.1, 2))} className="ce-icon-button h-10 w-10" aria-label="Zoom in"><Plus size={16} /></button>
-          <a href={viewUrl} target="_blank" rel="noreferrer" className="ce-action h-10 px-3">
-            <ExternalLink size={15} />Open
-          </a>
-          <a href={downloadUrl} className="ce-action h-10 px-3">
+          <button type="button" onClick={() => setZoomLevel((current) => Math.max(current - 0.1, 0.7))} className="ce-icon-button h-9 w-9" aria-label="Zoom out"><Minus size={16} /></button>
+          <button type="button" onClick={() => setZoomLevel(1)} className="ce-icon-button h-9 w-9" aria-label="Reset zoom"><RotateCcw size={16} /></button>
+          <button type="button" onClick={() => setZoomLevel((current) => Math.min(current + 0.1, 2))} className="ce-icon-button h-9 w-9" aria-label="Zoom in"><Plus size={16} /></button>
+          {canOpenInline ? (
+            <a href={viewUrl} target="_blank" rel="noreferrer" className="ce-action h-9 px-3">
+              <ExternalLink size={15} />Open
+            </a>
+          ) : (
+            <span
+              className="ce-action h-9 cursor-not-allowed px-3 opacity-60"
+              aria-disabled="true"
+              title="Inline open is unavailable for this file type. Use the workspace preview or Download."
+            >
+              <ExternalLink size={15} />Open
+            </span>
+          )}
+          <a href={downloadUrl} className="ce-action h-9 px-3">
             <Download size={15} />Download
           </a>
-          <button type="button" onClick={useInAssistant} disabled={!document || unavailable} className="ce-action ce-action-primary h-10 px-3 disabled:opacity-50">
+          <button type="button" onClick={useInAssistant} disabled={!document || unavailable} className="ce-action ce-action-primary h-9 px-3 disabled:opacity-50">
             <Sparkles size={15} />Ask AI
           </button>
         </div>
@@ -234,8 +238,8 @@ export default function DocumentWorkspacePage() {
           message="This document record exists, but the source file is marked deleted or unavailable. Metadata remains visible for audit and recovery."
         />
       ) : (
-        <div className="grid min-h-0 flex-1 gap-3 overflow-hidden xl:grid-cols-[minmax(0,1fr)_22rem]">
-          <main className="min-h-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <main className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
             {previewQuery.isLoading ? (
               <div className="flex h-full min-h-[28rem] items-center justify-center text-sm text-slate-500">Loading preview...</div>
             ) : previewQuery.isError ? (
@@ -243,71 +247,42 @@ export default function DocumentWorkspacePage() {
                 <div className="max-w-lg rounded-xl border border-amber-200 bg-amber-50 p-5 text-center text-sm text-amber-900">
                   <AlertTriangle className="mx-auto mb-3" size={28} />
                   <p className="font-semibold">Preview unavailable</p>
-                  <p className="mt-2 leading-6">The file metadata loaded, but the preview endpoint did not. Use Open or Download, or inspect the metadata panel.</p>
+                  <p className="mt-2 leading-6">The metadata loaded, but the preview endpoint did not return a usable inline preview. Use Open or Download to inspect the source document.</p>
                 </div>
               </div>
             ) : (
-              <div className="h-full min-h-[28rem] p-3">
+              <div className="flex min-h-0 flex-1 flex-col">
                 {preview?.preview_notice ? (
-                  <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                     {preview.preview_notice}
                   </div>
                 ) : null}
-                <DocumentPreviewRenderer
-                  preview={preview}
-                  title={title}
-                  searchQuery={searchQuery}
-                  zoomLevel={zoomLevel}
-                  activePage={activePage}
-                  requestedPage={requestedPage}
-                  onPageCountChange={setPageCount}
-                  onActivePageChange={setActivePage}
-                  useNativePdf
-                />
+                <div className="min-h-0 flex-1 p-3">
+                  <DocumentPreviewRenderer
+                    preview={preview}
+                    title={title}
+                    searchQuery={searchQuery}
+                    zoomLevel={zoomLevel}
+                    activePage={activePage}
+                    requestedPage={requestedPage}
+                    onPageCountChange={setPageCount}
+                    onActivePageChange={setActivePage}
+                    useNativePdf
+                  />
+                </div>
+                {showExtractedTextFallback ? (
+                  <section className="border-t border-slate-200 bg-slate-50/70 px-4 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Extracted text fallback</p>
+                    <div className="scrollbar-soft mt-2 max-h-40 overflow-auto rounded-lg border border-slate-200 bg-white p-3">
+                      <p className="safe-text whitespace-pre-wrap text-xs leading-5 text-slate-700">
+                        {preview?.preview_text || 'Extracted text is unavailable for this document.'}
+                      </p>
+                    </div>
+                  </section>
+                ) : null}
               </div>
             )}
           </main>
-
-          <aside className="scrollbar-soft min-h-0 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-4 py-3">
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-                <Info size={16} className="text-primary" />
-                Document details
-              </div>
-            </div>
-            <div className="space-y-5 p-4">
-              <section>
-                <h2 className="text-xs font-semibold uppercase text-slate-500">Metadata</h2>
-                <dl className="mt-3 space-y-3 text-xs">
-                  {rows.map(([label, value]) => (
-                    <div key={label} className="grid gap-1">
-                      <dt className="font-semibold text-slate-500">{label}</dt>
-                      <dd className="safe-text text-slate-900">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </section>
-
-              <section>
-                <h2 className="text-xs font-semibold uppercase text-slate-500">Extracted text</h2>
-                <div className="mt-3 max-h-80 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <p className="safe-text whitespace-pre-wrap text-xs leading-5 text-slate-700">
-                    {preview?.preview_text || 'No extracted text is available for this file. Open or download the source document to inspect it.'}
-                  </p>
-                </div>
-              </section>
-
-              <section>
-                <h2 className="text-xs font-semibold uppercase text-slate-500">Related context</h2>
-                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600">
-                  <div className="flex items-start gap-2">
-                    <FileText size={14} className="mt-0.5 shrink-0 text-primary" />
-                    <span>Use this document in AI Assistant to scope answers to the selected source.</span>
-                  </div>
-                </div>
-              </section>
-            </div>
-          </aside>
         </div>
       )}
     </div>
