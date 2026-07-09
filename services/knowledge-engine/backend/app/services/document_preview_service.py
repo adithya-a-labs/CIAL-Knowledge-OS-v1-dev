@@ -9,7 +9,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from html import escape, unescape
-from io import BytesIO, StringIO
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,11 @@ from fastapi.responses import FileResponse
 from backend.app.core.config import settings
 from backend.app.db.session import SessionLocal
 from backend.app.models.knowledge import DocumentChunk
+from backend.app.services.document_rendering_service import (
+    LEGACY_CONVERSION_TARGETS,
+    rendered_preview_path,
+    viewer_asset_payload,
+)
 from sqlalchemy import select
 
 
@@ -30,7 +35,6 @@ SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | TABLE_EXTENSIONS | OFFICE_EXTENSIONS | 
 MAX_TEXT_PREVIEW_BYTES = 256 * 1024
 MAX_PREVIEW_CHARS = 24_000
 THUMBNAIL_SIZE = (360, 240)
-VIEWER_IMAGE_SIZE = (1440, 1920)
 
 
 @dataclass(frozen=True)
@@ -347,21 +351,6 @@ def _render_pdf_thumbnail(path: Path, output_path: Path, page: int) -> bool:
         import fitz
     except Exception:
         return False
-
-
-def _render_pdf_viewer_image(path: Path, output_path: Path, page: int) -> bool:
-    try:
-        import fitz
-    except Exception:
-        return False
-    try:
-        with fitz.open(path) as document:
-            index = min(max(page, 1), document.page_count) - 1
-            pixmap = document.load_page(index).get_pixmap(matrix=fitz.Matrix(2.4, 2.4), alpha=False)
-            pixmap.save(output_path)
-        return True
-    except Exception:
-        return False
     try:
         with fitz.open(path) as document:
             index = min(max(page, 1), document.page_count) - 1
@@ -449,6 +438,21 @@ def resolve_document(metadata: dict[str, Any]) -> ResolvedDocument:
     return ResolvedDocument(metadata=metadata, path=path, extension=extension, content_hash=content_hash)
 
 
+def _converted_document(document: ResolvedDocument, output_format: str) -> ResolvedDocument | None:
+    converted_path = rendered_preview_path(document, output_format)
+    if converted_path is None or not converted_path.is_file():
+        return None
+    metadata = dict(document.metadata)
+    metadata["extension"] = f".{output_format.lstrip('.')}"
+    metadata["mime_type"] = "application/pdf" if output_format == "pdf" else metadata.get("mime_type")
+    return ResolvedDocument(
+        metadata=metadata,
+        path=converted_path,
+        extension=f".{output_format.lstrip('.')}",
+        content_hash=f"{document.content_hash}-{output_format}",
+    )
+
+
 def _chunk_context(document: ResolvedDocument, chunk_id: str | None) -> dict[str, Any]:
     if SessionLocal is None or not chunk_id:
         return {}
@@ -489,22 +493,28 @@ def thumbnail_response(document: ResolvedDocument, page: int | None = None) -> F
     output_path = _cache_dir("thumbnails") / f"{_cache_key(document, page_number)}.png"
     if not output_path.is_file():
         rendered = False
-        if document.extension == ".pdf":
-            rendered = _render_pdf_thumbnail(document.path, output_path, page_number)
+        thumbnail_source = document
+        if document.extension in LEGACY_CONVERSION_TARGETS:
+            converted = _converted_document(document, LEGACY_CONVERSION_TARGETS[document.extension])
+            if converted is not None:
+                thumbnail_source = converted
+
+        if thumbnail_source.extension == ".pdf":
+            rendered = _render_pdf_thumbnail(thumbnail_source.path, output_path, page_number)
         elif document.extension in IMAGE_EXTENSIONS:
             rendered = _render_image_thumbnail(document.path, output_path)
 
         if not rendered:
             rows: list[list[str]] | None = None
             lines: list[str] | None = None
-            if document.extension == ".csv":
+            if thumbnail_source.extension == ".csv":
                 rows = _csv_rows(document.path)
-            elif document.extension == ".xlsx":
+            elif thumbnail_source.extension == ".xlsx":
                 rows, _, _, _ = _xlsx_rows(document.path)
-            elif document.extension == ".xls":
+            elif thumbnail_source.extension == ".xls":
                 rows, _, _, _ = _xls_rows(document.path)
             else:
-                preview = _preview_content(document, page=page_number)
+                preview = _preview_content(thumbnail_source, page=page_number)
                 if preview.get("slides"):
                     first_slide = preview["slides"][0]
                     lines = _text_lines(
@@ -615,10 +625,21 @@ def _preview_content(document: ResolvedDocument, *, page: int | None = None) -> 
 
 def preview_payload(document: ResolvedDocument, *, page: int | None = None, chunk_id: str | None = None) -> dict[str, Any]:
     chunk_context = _chunk_context(document, chunk_id)
+    viewer_asset = viewer_asset_payload(document)
+    preview_source = document
+    if (
+        document.extension in LEGACY_CONVERSION_TARGETS
+        and viewer_asset.get("viewer_ready")
+        and viewer_asset.get("viewer_format") == "pdf"
+    ):
+        converted = _converted_document(document, "pdf")
+        if converted is not None:
+            preview_source = converted
+
     resolved_page = page or chunk_context.get("page")
     if resolved_page is not None:
         resolved_page = max(int(resolved_page), 1)
-    cache_path = _preview_cache_path(document, resolved_page, chunk_id)
+    cache_path = _preview_cache_path(preview_source, resolved_page, chunk_id)
     cached: dict[str, Any] | None = None
     if cache_path.is_file():
         try:
@@ -626,7 +647,7 @@ def preview_payload(document: ResolvedDocument, *, page: int | None = None, chun
         except (OSError, json.JSONDecodeError):
             cached = None
     if cached is None:
-        cached = _preview_content(document, page=resolved_page)
+        cached = _preview_content(preview_source, page=resolved_page)
         try:
             cache_path.write_text(json.dumps(cached, ensure_ascii=False), encoding="utf-8")
         except OSError:
@@ -652,13 +673,14 @@ def preview_payload(document: ResolvedDocument, *, page: int | None = None, chun
         "page_count": cached.get("page_count") or document.metadata.get("page_count"),
         "open_url": f"/api/corpus/document/{file_id}/view",
         "download_url": f"/api/corpus/document/{file_id}/download",
-        "file_url": f"/api/corpus/document/{file_id}/view",
+        "file_url": f"/api/corpus/document/{file_id}/file",
         "thumbnail_url": f"/api/corpus/document/{file_id}/thumbnail?page={max(resolved_page or 1, 1)}",
         "read_error": None,
         "render_kind": cached.get("render_kind") or "card",
         "extraction_method": cached.get("extraction_method") or "metadata",
         "table_rows": rows,
-        "supported_preview": document.extension in SUPPORTED_EXTENSIONS,
+        "supported_preview": document.extension in SUPPORTED_EXTENSIONS or bool(viewer_asset.get("viewer_ready")),
+        **viewer_asset,
         **{key: value for key, value in cached.items() if key not in {"preview_text", "table_rows", "render_kind", "extraction_method"}},
     }
 
