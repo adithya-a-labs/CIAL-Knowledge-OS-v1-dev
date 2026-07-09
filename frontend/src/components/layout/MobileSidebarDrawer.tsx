@@ -37,7 +37,6 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
       return location.startsWith('/knowledge-center') || location.startsWith('/knowledge/document') || location === '/documents' || location === '/knowledge' || location === '/policies';
     }
     if (path === '/workspace') return location === '/workspace' || location.startsWith('/workspace/');
-    if (path === '/collections') return location === '/collections' || location === '/workspace/collections';
     if (path === '/saved-knowledge') return location === '/saved-knowledge' || location === '/workspace/bookmarks';
     return location.startsWith(path);
   };
