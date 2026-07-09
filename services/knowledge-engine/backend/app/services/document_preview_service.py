@@ -20,7 +20,7 @@ from backend.app.core.config import settings
 from backend.app.db.session import SessionLocal
 from backend.app.models.knowledge import DocumentChunk
 from backend.app.services.document_rendering_service import (
-    LEGACY_CONVERSION_TARGETS,
+    INLINE_CONVERSION_TARGETS,
     rendered_preview_path,
     viewer_asset_payload,
 )
@@ -32,6 +32,7 @@ TABLE_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 OFFICE_EXTENSIONS = {".docx", ".doc", ".pptx", ".ppt"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".gif"}
 SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | TABLE_EXTENSIONS | OFFICE_EXTENSIONS | IMAGE_EXTENSIONS | {".pdf"}
+DIRECT_INLINE_EXTENSIONS = TEXT_EXTENSIONS | {".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif", ".csv"}
 MAX_TEXT_PREVIEW_BYTES = 256 * 1024
 MAX_PREVIEW_CHARS = 24_000
 THUMBNAIL_SIZE = (360, 240)
@@ -488,14 +489,34 @@ def file_response(
     )
 
 
+def view_response(document: ResolvedDocument) -> FileResponse:
+    if document.extension in DIRECT_INLINE_EXTENSIONS:
+        return file_response(document, disposition="inline")
+
+    target_format = INLINE_CONVERSION_TARGETS.get(document.extension)
+    if target_format:
+        converted = _converted_document(document, target_format)
+        if converted is not None:
+            return file_response(converted, disposition="inline")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inline preview is not available for this document. Use the workspace preview or Download to inspect the original file.",
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Inline preview is not available for this document type. Use the workspace preview or Download to inspect the original file.",
+    )
+
+
 def thumbnail_response(document: ResolvedDocument, page: int | None = None) -> FileResponse:
     page_number = max(page or 1, 1)
     output_path = _cache_dir("thumbnails") / f"{_cache_key(document, page_number)}.png"
     if not output_path.is_file():
         rendered = False
         thumbnail_source = document
-        if document.extension in LEGACY_CONVERSION_TARGETS:
-            converted = _converted_document(document, LEGACY_CONVERSION_TARGETS[document.extension])
+        if document.extension in INLINE_CONVERSION_TARGETS:
+            converted = _converted_document(document, INLINE_CONVERSION_TARGETS[document.extension])
             if converted is not None:
                 thumbnail_source = converted
 
@@ -628,7 +649,7 @@ def preview_payload(document: ResolvedDocument, *, page: int | None = None, chun
     viewer_asset = viewer_asset_payload(document)
     preview_source = document
     if (
-        document.extension in LEGACY_CONVERSION_TARGETS
+        document.extension in INLINE_CONVERSION_TARGETS
         and viewer_asset.get("viewer_ready")
         and viewer_asset.get("viewer_format") == "pdf"
     ):
