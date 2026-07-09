@@ -16,6 +16,12 @@ from backend.app.core.config import settings
 from backend.app.core.paths import KNOWLEDGE_ENGINE_SRC, REPO_ROOT
 from backend.app.db.session import SessionLocal
 from backend.app.models.knowledge import Document, DocumentChunk, Folder
+from backend.app.security.access import (
+    RequestAccessContext,
+    anonymous_access_context,
+    apply_document_access_filter,
+    list_accessible_relative_paths,
+)
 from backend.app.schemas.chat import (
     ChatCitation,
     ChatMetadata,
@@ -23,7 +29,7 @@ from backend.app.schemas.chat import (
     ChatResponse,
     ChatSource,
 )
-from sqlalchemy import select
+from sqlalchemy import false, or_, select
 
 logger = logging.getLogger(__name__)
 
@@ -213,24 +219,69 @@ class KnowledgeEngineService:
             if callable(close):
                 close()
 
-    def answer_question(self, request: ChatRequest) -> ChatResponse:
+    def answer_question(
+        self,
+        request: ChatRequest,
+        *,
+        access_context: RequestAccessContext | None = None,
+    ) -> ChatResponse:
         if not self.engine_available:
             raise KnowledgeEngineUnavailable(self._engine_error_message())
 
+        access_context = access_context or anonymous_access_context()
         profile = self._resolve_profile(request.response_length, request.profile)
         pipeline = self._ready_pipeline(
             request.response_length,
             profile=request.profile,
             max_answer_words=request.max_answer_words,
         )
-        selected_scope = self._resolve_selected_context(request)
+        selected_scope = self._resolve_selected_context(
+            request,
+            access_context=access_context,
+        )
+        access_relative_paths = self._accessible_relative_paths(access_context)
+        effective_relative_paths = self._effective_relative_paths(
+            access_relative_paths,
+            selected_scope,
+        )
         started_at = time.perf_counter()
         try:
-            response = self._run_with_selected_context(
-                pipeline,
-                request.question,
-                selected_scope,
-            )
+            if selected_scope.applied or access_relative_paths is not None:
+                response = self._run_with_relative_path_filter(
+                    pipeline,
+                    request.question,
+                    effective_relative_paths,
+                    response_key=(
+                        "selected_context_filter"
+                        if selected_scope.applied
+                        else "access_scope_filter"
+                    ),
+                    filter_payload=(
+                        {
+                            "applied": True,
+                            "mode": selected_scope.filter_mode,
+                            "selected_document_ids": list(selected_scope.selected_document_ids),
+                            "selected_folder_ids": list(selected_scope.selected_folder_ids),
+                            "effective_scope": {
+                                "document_count": len(effective_relative_paths),
+                                "relative_paths": sorted(effective_relative_paths),
+                            },
+                            "access_scope": access_context.scope,
+                        }
+                        if selected_scope.applied
+                        else {
+                            "applied": True,
+                            "mode": f"access_scope:{access_context.scope}",
+                            "scope": access_context.scope,
+                            "effective_scope": {
+                                "document_count": len(effective_relative_paths),
+                                "relative_paths": sorted(effective_relative_paths),
+                            },
+                        }
+                    ),
+                )
+            else:
+                response = pipeline.run(request.question)
         except Exception as exc:  # noqa: BLE001 - convert local runtime failures to API errors.
             logger.exception("knowledge_engine_answer_failed")
             raise KnowledgeEngineUnavailable(str(exc)) from exc
@@ -244,6 +295,8 @@ class KnowledgeEngineService:
             include_debug=request.include_debug,
             include_sources=request.include_sources,
             latency_ms=latency_ms,
+            access_context=access_context,
+            allowed_relative_paths=effective_relative_paths if effective_relative_paths else None,
         )
 
     def rebuild_index(self, *, force: bool) -> tuple[bool, str, int, int]:
@@ -411,7 +464,12 @@ class KnowledgeEngineService:
         config.include_decision_notes = resolved.include_decision_notes
         return resolved
 
-    def _resolve_selected_context(self, request: ChatRequest) -> SelectedContextScope:
+    def _resolve_selected_context(
+        self,
+        request: ChatRequest,
+        *,
+        access_context: RequestAccessContext,
+    ) -> SelectedContextScope:
         document_ids = [value for value in request.selected_document_ids if value.strip()]
         folder_ids = [value for value in request.selected_folder_ids if value.strip()]
         if not document_ids and not folder_ids:
@@ -427,7 +485,11 @@ class KnowledgeEngineService:
         relative_paths: set[str] = set()
         with SessionLocal() as session:
             for value in document_ids:
-                document = self._document_for_context_id(session, value)
+                document = self._document_for_context_id(
+                    session,
+                    value,
+                    access_context=access_context,
+                )
                 if document is None:
                     raise KnowledgeEngineInvalidRequest(
                         f"Selected document was not found: {value}"
@@ -447,9 +509,8 @@ class KnowledgeEngineService:
                         Document.indexing_status != "deleted",
                     )
                 else:
-                    statement = select(Document).where(
-                        Document.indexing_status != "deleted"
-                    )
+                    statement = select(Document).where(Document.indexing_status != "deleted")
+                statement = apply_document_access_filter(statement, access_context)
                 for document in session.scalars(statement):
                     relative_paths.add(
                         self._normalize_relative_path(document.relative_path)
@@ -471,12 +532,26 @@ class KnowledgeEngineService:
         )
 
     @staticmethod
-    def _document_for_context_id(session: Any, value: str) -> Document | None:
+    def _document_for_context_id(
+        session: Any,
+        value: str,
+        *,
+        access_context: RequestAccessContext,
+    ) -> Document | None:
         try:
-            return session.get(Document, uuid.UUID(value))
+            document_id = uuid.UUID(value)
+            return session.scalar(
+                apply_document_access_filter(
+                    select(Document).where(Document.id == document_id),
+                    access_context,
+                )
+            )
         except ValueError:
             return session.scalar(
-                select(Document).where(Document.relative_path == value)
+                apply_document_access_filter(
+                    select(Document).where(Document.relative_path == value),
+                    access_context,
+                )
             )
 
     @staticmethod
@@ -521,7 +596,32 @@ class KnowledgeEngineService:
     ) -> Mapping[str, Any]:
         if not selected_scope.applied:
             return pipeline.run(question)
+        return self._run_with_relative_path_filter(
+            pipeline,
+            question,
+            selected_scope.allowed_relative_paths,
+            response_key="selected_context_filter",
+            filter_payload={
+                "applied": True,
+                "mode": selected_scope.filter_mode,
+                "selected_document_ids": list(selected_scope.selected_document_ids),
+                "selected_folder_ids": list(selected_scope.selected_folder_ids),
+                "effective_scope": {
+                    "document_count": selected_scope.effective_document_count,
+                    "relative_paths": sorted(selected_scope.allowed_relative_paths),
+                },
+            },
+        )
 
+    def _run_with_relative_path_filter(
+        self,
+        pipeline: Any,
+        question: str,
+        allowed_relative_paths: frozenset[str],
+        *,
+        response_key: str,
+        filter_payload: dict[str, Any],
+    ) -> Mapping[str, Any]:
         original_search = pipeline._search
         config = pipeline.config
         saved_values = {
@@ -532,7 +632,7 @@ class KnowledgeEngineService:
         }
         candidate_floor = max(
             _SELECTED_CONTEXT_RETRIEVAL_FLOOR,
-            selected_scope.effective_document_count * 12,
+            max(len(allowed_relative_paths), 1) * 12,
         )
         search_stats: dict[str, Any] = {
             "query_count": 0,
@@ -547,7 +647,7 @@ class KnowledgeEngineService:
                 for result in raw_results
                 if self._result_matches_selected_context(
                     result,
-                    selected_scope.allowed_relative_paths,
+                    allowed_relative_paths,
                 )
             ]
             search_stats["query_count"] = int(search_stats["query_count"]) + 1
@@ -585,21 +685,17 @@ class KnowledgeEngineService:
                 )
             )
             if not has_matching_evidence:
-                response["answer"] = "No relevant information found in the selected context."
+                response["answer"] = (
+                    "No relevant information found in the selected context."
+                    if response_key == "selected_context_filter"
+                    else "No accessible information found for the current access scope."
+                )
                 response["citations"] = []
                 response["retrieved"] = []
                 response["selected_evidence"] = []
                 response["context_stages"] = {"retrieved": [], "compressed": []}
                 response["weak_evidence"] = True
-            response["selected_context_filter"] = {
-                "applied": True,
-                "mode": selected_scope.filter_mode,
-                "selected_document_ids": list(selected_scope.selected_document_ids),
-                "selected_folder_ids": list(selected_scope.selected_folder_ids),
-                "effective_scope": {
-                    "document_count": selected_scope.effective_document_count,
-                    "relative_paths": sorted(selected_scope.allowed_relative_paths),
-                },
+            response_filter_payload = {
                 "candidate_floor": candidate_floor,
                 "query_count": search_stats["query_count"],
                 "before_filter_counts": list(search_stats["raw_counts"]),
@@ -608,6 +704,11 @@ class KnowledgeEngineService:
                 "after_filter_count": filtered_total,
                 "filtered_count": max(raw_total - filtered_total, 0),
             }
+            payload = {
+                **filter_payload,
+                **response_filter_payload,
+            }
+            response[response_key] = payload
             return response
         finally:
             pipeline._search = original_search
@@ -695,9 +796,23 @@ class KnowledgeEngineService:
         include_debug: bool,
         include_sources: bool,
         latency_ms: int,
+        access_context: RequestAccessContext | None = None,
+        allowed_relative_paths: frozenset[str] | None = None,
     ) -> ChatResponse:
-        citations = self._citations(response)
-        sources = self._sources(response) if include_sources else []
+        citations = self._citations(
+            response,
+            access_context=access_context,
+            allowed_relative_paths=allowed_relative_paths,
+        )
+        sources = (
+            self._sources(
+                response,
+                access_context=access_context,
+                allowed_relative_paths=allowed_relative_paths,
+            )
+            if include_sources
+            else []
+        )
         context_stages = response.get("context_stages")
         compressed_chunks = (
             list(context_stages.get("compressed") or [])
@@ -784,6 +899,7 @@ class KnowledgeEngineService:
             "prompt_preview": str(response.get("prompt") or "")[:4000],
             "context_preview": str(response.get("context") or "")[:4000],
             "selected_evidence": evidence_summaries,
+            "access_scope_filter": response.get("access_scope_filter"),
             "selected_context_filter": response.get("selected_context_filter")
             or {
                 "applied": selected_scope.applied,
@@ -797,9 +913,19 @@ class KnowledgeEngineService:
             },
         }
 
-    def _citations(self, response: Mapping[str, Any]) -> list[ChatCitation]:
+    def _citations(
+        self,
+        response: Mapping[str, Any],
+        *,
+        access_context: RequestAccessContext | None = None,
+        allowed_relative_paths: frozenset[str] | None = None,
+    ) -> list[ChatCitation]:
         citation_payload = response.get("citations") or []
-        sources = self._sources(response)
+        sources = self._sources(
+            response,
+            access_context=access_context,
+            allowed_relative_paths=allowed_relative_paths,
+        )
         source_by_id = {source.id: source for source in sources}
         citations: list[ChatCitation] = []
         for index, citation in enumerate(citation_payload, start=1):
@@ -831,14 +957,31 @@ class KnowledgeEngineService:
             )
         return citations
 
-    def _sources(self, response: Mapping[str, Any]) -> list[ChatSource]:
+    def _sources(
+        self,
+        response: Mapping[str, Any],
+        *,
+        access_context: RequestAccessContext | None = None,
+        allowed_relative_paths: frozenset[str] | None = None,
+    ) -> list[ChatSource]:
         stages = response.get("context_stages")
         chunks: list[Any] = []
         if isinstance(stages, Mapping):
             chunks = list(stages.get("compressed") or stages.get("retrieved") or [])
         if not chunks:
             chunks = list(response.get("retrieved") or [])
-        document_context = self._document_context(chunks)
+        if allowed_relative_paths:
+            chunks = [
+                chunk
+                for chunk in chunks
+                if isinstance(chunk, Mapping)
+                and self._result_matches_selected_context(chunk, allowed_relative_paths)
+            ]
+        document_context = self._document_context(
+            chunks,
+            access_context=access_context,
+            allowed_relative_paths=allowed_relative_paths,
+        )
         sources: list[ChatSource] = []
         for index, chunk in enumerate(chunks, start=1):
             if not isinstance(chunk, Mapping):
@@ -888,7 +1031,13 @@ class KnowledgeEngineService:
             )
         return sources
 
-    def _document_context(self, chunks: list[Any]) -> dict[str, dict[str, Any]]:
+    def _document_context(
+        self,
+        chunks: list[Any],
+        *,
+        access_context: RequestAccessContext | None = None,
+        allowed_relative_paths: frozenset[str] | None = None,
+    ) -> dict[str, dict[str, Any]]:
         relative_paths: set[str] = set()
         document_ids: set[uuid.UUID] = set()
         chunk_ids_by_document: dict[uuid.UUID, set[str]] = {}
@@ -917,18 +1066,27 @@ class KnowledgeEngineService:
 
         by_document_id: dict[uuid.UUID, dict[str, Any]] = {}
         with SessionLocal() as session:
-            for document_id in document_ids:
-                document = session.get(Document, document_id)
-                if document is None:
-                    continue
-                by_document_id[document_id] = self._serialize_document_context(document)
-
-            if relative_paths:
-                documents = session.scalars(
-                    select(Document).where(Document.relative_path.in_(sorted(relative_paths)))
-                ).all()
-                for document in documents:
-                    by_document_id[document.id] = self._serialize_document_context(document)
+            statement = select(Document)
+            if document_ids:
+                statement = statement.where(
+                    or_(
+                        Document.id.in_(sorted(document_ids)),
+                        Document.relative_path.in_(sorted(relative_paths)) if relative_paths else false(),
+                    )
+                )
+            elif relative_paths:
+                statement = statement.where(Document.relative_path.in_(sorted(relative_paths)))
+            if access_context is not None:
+                statement = apply_document_access_filter(
+                    statement,
+                    access_context,
+                    allowed_relative_paths=allowed_relative_paths,
+                )
+            elif allowed_relative_paths:
+                statement = statement.where(Document.relative_path.in_(sorted(allowed_relative_paths)))
+            documents = session.scalars(statement).all()
+            for document in documents:
+                by_document_id[document.id] = self._serialize_document_context(document)
 
             for document_id, chunk_ids in chunk_ids_by_document.items():
                 if document_id not in by_document_id or not chunk_ids:
@@ -957,6 +1115,26 @@ class KnowledgeEngineService:
             if document_id:
                 by_relative_path[str(document_id)] = context
         return by_relative_path
+
+    def _accessible_relative_paths(
+        self,
+        access_context: RequestAccessContext,
+    ) -> frozenset[str] | None:
+        if SessionLocal is None:
+            return None
+        with SessionLocal() as session:
+            return list_accessible_relative_paths(session, access_context)
+
+    @staticmethod
+    def _effective_relative_paths(
+        access_relative_paths: frozenset[str] | None,
+        selected_scope: SelectedContextScope,
+    ) -> frozenset[str]:
+        if access_relative_paths is None:
+            return selected_scope.allowed_relative_paths
+        if not selected_scope.applied:
+            return access_relative_paths
+        return frozenset(access_relative_paths.intersection(selected_scope.allowed_relative_paths))
 
     @staticmethod
     def _serialize_document_context(document: Document) -> dict[str, Any]:

@@ -13,6 +13,7 @@ from typing import Any, BinaryIO
 
 from backend.app.core.paths import DATA_FILES_ROOT, REPO_ROOT
 from backend.app.db.session import SessionLocal
+from backend.app.security.access import RequestAccessContext, list_accessible_documents
 from backend.app.schemas.documents import DocumentMetadata, DocumentType, UploadResponse
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,16 @@ class DocumentService:
     def __init__(self, root: Path = DATA_FILES_ROOT) -> None:
         self.root = root
 
-    def list_documents(self) -> list[DocumentMetadata]:
+    def list_documents(
+        self,
+        *,
+        access_context: RequestAccessContext | None = None,
+    ) -> list[DocumentMetadata]:
+        if SessionLocal is not None and access_context is not None:
+            try:
+                return self._list_documents_from_database(access_context)
+            except Exception:  # noqa: BLE001
+                logger.exception("document_list_db_filter_failed")
         indexed_paths = self._indexed_paths()
         if not self.root.exists():
             return []
@@ -73,6 +83,7 @@ class DocumentService:
         *,
         corpus_sync: Any | None = None,
         indexing_worker: Any | None = None,
+        access_context: RequestAccessContext | None = None,
     ) -> UploadResponse:
         """Save an uploaded file, create metadata + indexing job, trigger background indexing.
 
@@ -88,7 +99,10 @@ class DocumentService:
                 shutil.copyfileobj(stream, handle)
 
             content_hash = self._hash_file(temp_path)
-            duplicate_doc = self._find_duplicate_by_hash(content_hash)
+            duplicate_doc = self._find_duplicate_by_hash(
+                content_hash,
+                access_context=access_context,
+            )
 
             # Move to final location
             destination = self._available_path(self.root / safe_name)
@@ -263,7 +277,11 @@ class DocumentService:
         return hasher.hexdigest()
 
     @staticmethod
-    def _find_duplicate_by_hash(content_hash: str) -> dict[str, Any] | None:
+    def _find_duplicate_by_hash(
+        content_hash: str,
+        *,
+        access_context: RequestAccessContext | None = None,
+    ) -> dict[str, Any] | None:
         """Check the database for an existing non-deleted document with the same hash."""
         if SessionLocal is None:
             return None
@@ -271,13 +289,20 @@ class DocumentService:
             from sqlalchemy import select
             from backend.app.models.knowledge import Document
             with SessionLocal() as session:
-                document = session.scalar(
-                    select(Document).where(
-                        Document.content_hash == content_hash,
-                        Document.indexing_status != "deleted",
-                        Document.indexed == True,  # noqa: E712
-                    )
+                statement = select(Document).where(
+                    Document.content_hash == content_hash,
+                    Document.indexing_status != "deleted",
+                    Document.indexed == True,  # noqa: E712
                 )
+                if access_context is not None:
+                    accessible_ids = {
+                        document.id
+                        for document in list_accessible_documents(session, access_context)
+                    }
+                    if not accessible_ids:
+                        return None
+                    statement = statement.where(Document.id.in_(sorted(accessible_ids)))
+                document = session.scalar(statement)
                 if document is not None:
                     return {
                         "id": str(document.id),
@@ -287,6 +312,42 @@ class DocumentService:
         except Exception:  # noqa: BLE001
             logger.exception("duplicate_hash_check_failed")
         return None
+
+    def _list_documents_from_database(
+        self,
+        access_context: RequestAccessContext,
+    ) -> list[DocumentMetadata]:
+        indexed_paths = self._indexed_paths()
+        if not self.root.exists():
+            return []
+        documents: list[DocumentMetadata] = []
+        with SessionLocal() as session:
+            for document in list_accessible_documents(session, access_context):
+                relative_path = str(document.relative_path or "").replace("\\", "/").strip("/")
+                path = self.root / relative_path
+                if not path.is_file():
+                    continue
+                stat = path.stat()
+                documents.append(
+                    DocumentMetadata(
+                        id=str(document.id),
+                        name=document.name,
+                        path=relative_path,
+                        type=_TYPE_BY_SUFFIX.get(path.suffix.casefold(), "unknown"),
+                        size_bytes=stat.st_size,
+                        modified_at=(
+                            document.modified_at.isoformat()
+                            if document.modified_at is not None
+                            else datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+                        ),
+                        indexed=bool(
+                            document.indexed
+                            or str(path.resolve()) in indexed_paths
+                            or relative_path in indexed_paths
+                        ),
+                    )
+                )
+        return documents
 
     @staticmethod
     def _find_latest_job_for_hash(content_hash: str) -> str | None:
