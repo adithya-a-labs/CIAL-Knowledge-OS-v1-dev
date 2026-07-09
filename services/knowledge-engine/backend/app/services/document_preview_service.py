@@ -227,11 +227,16 @@ def resolve_document(metadata: dict[str, Any]) -> ResolvedDocument:
     return ResolvedDocument(metadata=metadata, path=path, extension=extension, content_hash=content_hash)
 
 
-def file_response(document: ResolvedDocument) -> FileResponse:
+def file_response(
+    document: ResolvedDocument,
+    *,
+    disposition: str = "inline",
+) -> FileResponse:
     return FileResponse(
         document.path,
         media_type=_media_type(document.path, document.metadata.get("mime_type")),
         filename=document.metadata.get("name") or document.path.name,
+        content_disposition_type=disposition,
     )
 
 
@@ -345,9 +350,9 @@ def preview_payload(document: ResolvedDocument, *, page: int | None = None, chun
         "highlight_text": escape(highlight_text),
         "page": page,
         "chunk_id": chunk_id,
-        "open_url": f"/api/corpus/document/{file_id}/file",
-        "download_url": f"/api/corpus/document/{file_id}/file",
-        "file_url": f"/api/corpus/document/{file_id}/file",
+        "open_url": f"/api/corpus/document/{file_id}/view",
+        "download_url": f"/api/corpus/document/{file_id}/download",
+        "file_url": f"/api/corpus/document/{file_id}/view",
         "thumbnail_url": f"/api/corpus/document/{file_id}/thumbnail?page={max(page or 1, 1)}",
         "read_error": None,
         "render_kind": cached.get("render_kind") or "card",
