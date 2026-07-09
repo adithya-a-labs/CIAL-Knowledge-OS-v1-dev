@@ -5,7 +5,10 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request, status
 
 from backend.app.schemas.chat import ChatRequest, ChatResponse
-from backend.app.services.knowledge_engine_service import KnowledgeEngineUnavailable
+from backend.app.services.knowledge_engine_service import (
+    KnowledgeEngineInvalidRequest,
+    KnowledgeEngineUnavailable,
+)
 
 router = APIRouter()
 
@@ -19,7 +22,16 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
             detail=runtime_state.chat_unavailable_detail(),
         )
     try:
-        return request.app.state.knowledge_engine.answer_question(payload)
+        response = request.app.state.knowledge_engine.answer_question(payload)
+        response.metadata.index_fresh = bool(
+            runtime_state.snapshot().get("index_fresh")
+        )
+        return response
+    except KnowledgeEngineInvalidRequest as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
     except KnowledgeEngineUnavailable as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
