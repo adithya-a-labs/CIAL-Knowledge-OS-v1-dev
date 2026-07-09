@@ -10,7 +10,10 @@ from pydantic import BaseModel, Field
 class ChatRequest(BaseModel):
     question: str = Field(min_length=1)
     selected_document_ids: list[str] = Field(default_factory=list)
+    selected_folder_ids: list[str] = Field(default_factory=list)
     response_length: Literal["short", "medium", "long"] = "medium"
+    profile: str | None = None
+    max_answer_words: int | None = None
     include_sources: bool = True
 
 
