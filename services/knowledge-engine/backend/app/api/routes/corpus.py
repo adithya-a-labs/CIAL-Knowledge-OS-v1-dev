@@ -11,6 +11,7 @@ from backend.app.services.document_preview_service import (
     resolve_document,
     thumbnail_response,
 )
+from backend.app.services.document_rendering_service import rendered_response
 from cial_knowledge_os.corpus.service import CorpusServiceUnavailable
 
 router = APIRouter()
@@ -73,6 +74,16 @@ def corpus_document_view(document_id: str, request: Request):
 def corpus_document_download(document_id: str, request: Request):
     document = _get_corpus_document_or_404(document_id, request)
     return file_response(resolve_document(document), disposition="attachment")
+
+
+@router.get("/corpus/document/{document_id}/rendered")
+def corpus_document_rendered(
+    document_id: str,
+    request: Request,
+    format: str = Query(default="pdf"),
+):
+    document = _get_corpus_document_or_404(document_id, request)
+    return rendered_response(resolve_document(document), format)
 
 
 @router.get("/corpus/document/{document_id}/thumbnail")
