@@ -29,8 +29,8 @@ export function toChatRequest(payload: ChatRequestPayload) {
     question: payload.query,
     selected_document_ids: [...payload.selectedDocumentIds],
     selected_folder_ids: [...payload.selectedFolderIds],
-    response_length: toApiResponseLength(payload.responseLength),
-    profile: payload.responseLength,
+    response_length: toApiResponseLength(payload.activeProfile),
+    profile: payload.activeProfile,
     include_sources: true,
     include_debug: import.meta.env.DEV,
   };
@@ -50,7 +50,7 @@ export function toAssistantMessageMetadata(
   };
   return {
     searchScope: request.searchScope,
-    responseLength: request.responseLength,
+    activeProfile: request.activeProfile,
     documentsSearched: request.selectedDocumentIds.length + request.uploadedFileIds.length + request.selectedFolderIds.length,
     chunksRetrieved: sources.length,
     sourcesUsed: citations.length,
@@ -93,7 +93,7 @@ function citationIndexById(citations: ChatCitation[]): Map<string, number> {
 }
 
 function documentTitleFromSource(source: ChatSource): string {
-  return source.document_name || source.path?.split('/').pop() || 'Unknown document';
+  return source.document_name || source.relative_path?.split('/').pop() || source.path?.split('/').pop() || 'Unknown document';
 }
 
 export function toUiChatCitations(response: ChatResponse): UiChatCitation[] {
@@ -126,16 +126,22 @@ export function toUiChatSources(response: ChatResponse): UiChatSource[] {
       citationIndex,
       documentId:
         source.document_id ||
+        source.relative_path ||
         source.path ||
         source.id ||
         documentTitleFromSource(source),
-      relativePath: source.path || undefined,
+      relativePath: source.relative_path || source.path || undefined,
       documentTitle: documentTitleFromSource(source),
       sourceType: 'enterprise',
       pageNumber: source.page ?? undefined,
+      pageCount: source.page_count ?? undefined,
       chunkId: source.chunk_id || undefined,
       score: source.score ?? undefined,
       excerpt: source.text || undefined,
+      highlightText: source.highlight_text || undefined,
+      previewText: source.preview_text || undefined,
+      fileType: source.file_type || undefined,
+      fileUrl: source.file_url || undefined,
       reason: `Retrieved through ${metadata.retrieval_mode} / Phase ${metadata.phase}.`,
     };
   });
