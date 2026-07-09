@@ -164,7 +164,7 @@ function renderContentWithCitations(
 function MetadataPanel({ metadata }: { metadata: AssistantMessageMetadata }) {
   return (
     <div className="rounded-2xl bg-[hsl(210_20%_98%)] px-3 py-2 text-[11px] font-medium leading-5 text-muted-foreground ring-1 ring-black/5">
-      {SEARCH_SCOPE_LABELS[metadata.searchScope]} / {RESPONSE_LENGTH_LABELS[metadata.responseLength]} /{' '}
+      {SEARCH_SCOPE_LABELS[metadata.searchScope]} / {RESPONSE_LENGTH_LABELS[metadata.activeProfile]} /{' '}
       {metadata.documentsSearched} docs / {metadata.chunksRetrieved} chunks / {metadata.sourcesUsed} sources /{' '}
       {metadata.confidence}% confidence / {metadata.generationTimeSeconds.toFixed(1)}s
     </div>
