@@ -30,7 +30,6 @@ export const STORAGE_PRIVACY_BULLETS: string[] = [
 export const WORKSPACE_STATS: WorkspaceStatItem[] = [
   { key: 'documents', label: 'My Documents', count: 128, unit: 'documents', icon: 'FileText', href: '/workspace/documents' },
   { key: 'notes', label: 'My Notes', count: 34, unit: 'notes', icon: 'StickyNote', href: '/workspace/notes' },
-  { key: 'collections', label: 'My Collections', count: 12, unit: 'collections', icon: 'FolderOpen', href: '/workspace' },
   { key: 'conversations', label: 'My Conversations', count: 56, unit: 'conversations', icon: 'MessageSquare', href: '/workspace/conversations' },
 ];
 

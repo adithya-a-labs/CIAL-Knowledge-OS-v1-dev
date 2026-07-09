@@ -1,18 +1,16 @@
 import { Link } from 'wouter';
-import { FileText, StickyNote, FolderOpen, MessageSquare } from 'lucide-react';
+import { FileText, StickyNote, MessageSquare } from 'lucide-react';
 import type { WorkspaceStatItem } from '@/data/workspace/workspaceTypes';
 
 const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   FileText,
   StickyNote,
-  FolderOpen,
   MessageSquare,
 };
 
 const COLOR_MAP: Record<string, string> = {
   documents: 'bg-blue-50 text-blue-600',
   notes: 'bg-amber-50 text-amber-600',
-  collections: 'bg-purple-50 text-purple-600',
   conversations: 'bg-[#f0f7ed] text-[#4a7c3f]',
 };
 

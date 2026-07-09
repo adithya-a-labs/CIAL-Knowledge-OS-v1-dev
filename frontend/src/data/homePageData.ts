@@ -15,7 +15,6 @@ import {
   UserRound,
   BookMarked,
   Files,
-  Layers3,
 } from 'lucide-react';
 import type React from 'react';
 
@@ -32,7 +31,6 @@ export const homeNavItems: HomeNavItem[] = [
   { label: 'AI Assistant', path: '/assistant', icon: Bot },
   { label: 'Knowledge Center', path: '/knowledge-center', icon: BookOpen },
   { label: 'Departments', path: '/departments', icon: Building2 },
-  { label: 'Collections', path: '/collections', icon: Layers3 },
   { label: 'My Workspace', path: '/workspace', icon: UserRound },
   { label: 'Saved Knowledge', path: '/saved-knowledge', icon: Bookmark },
 ];
