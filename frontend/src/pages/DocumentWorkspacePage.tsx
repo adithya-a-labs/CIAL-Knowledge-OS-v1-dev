@@ -93,10 +93,15 @@ export default function DocumentWorkspacePage() {
   const params = useParams<{ documentId: string }>();
   const [, navigate] = useLocation();
   const documentId = params.documentId;
+
+  const queryParams = new URLSearchParams(window.location.search);
+  const pageParam = queryParams.get('page');
+  const initialPage = pageParam ? parseInt(pageParam, 10) || 1 : 1;
+
   const [zoomLevel, setZoomLevel] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
-  const [activePage, setActivePage] = useState(1);
-  const [requestedPage, setRequestedPage] = useState(1);
+  const [activePage, setActivePage] = useState(initialPage);
+  const [requestedPage, setRequestedPage] = useState(initialPage);
   const [pageCount, setPageCount] = useState<number | null>(null);
 
   const documentQuery = useQuery({
@@ -128,6 +133,18 @@ export default function DocumentWorkspacePage() {
     if (preview?.page_count) setPageCount(preview.page_count);
     else if (preview?.slides?.length) setPageCount(preview.slides.length);
   }, [preview?.page_count, preview?.slides?.length]);
+
+  useEffect(() => {
+    const qParams = new URLSearchParams(window.location.search);
+    const pVal = qParams.get('page');
+    if (pVal) {
+      const page = parseInt(pVal, 10);
+      if (page && page !== requestedPage) {
+        setActivePage(page);
+        setRequestedPage(page);
+      }
+    }
+  }, [window.location.search]);
 
   const useInAssistant = () => {
     if (!document) return;
