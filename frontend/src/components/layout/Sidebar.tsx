@@ -1,11 +1,16 @@
 import * as React from 'react';
 import { Link, useLocation } from 'wouter';
-import { Bell, ChevronDown, HelpCircle, MessageSquarePlus, Settings2, Search } from 'lucide-react';
+import { Bell, ChevronDown, HelpCircle, History, MessageSquarePlus, Settings2, Search } from 'lucide-react';
 import { THEME } from '@/config/themeConfig';
 import { CURRENT_USER } from '@/config/userConfig';
 import { homeNavItems } from '@/data/homePageData';
 import { useCommandPalette } from '@/components/common/CommandPalette';
 import { Kbd } from '@/components/ui/kbd';
+import {
+  ASSISTANT_HISTORY_SIDEBAR_VISIBILITY_EVENT,
+  readAssistantHistorySidebarOpen,
+  requestAssistantHistorySidebarOpen,
+} from '@/lib/assistantHistorySidebar';
 
 const ASSISTANT_CONTEXT_STORAGE_KEY = 'cial-assistant-selected-context';
 const ASSISTANT_NEW_SESSION_PENDING_STORAGE_KEY = 'cial-new-conversation-pending';
@@ -14,6 +19,20 @@ const NEW_CONVERSATION_EVENT = 'cial-new-conversation';
 export default function Sidebar() {
   const [location] = useLocation();
   const { setOpen } = useCommandPalette();
+  const [assistantHistoryOpen, setAssistantHistoryOpen] = React.useState(readAssistantHistorySidebarOpen);
+
+  React.useEffect(() => {
+    const handleHistoryVisibilityChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ open?: boolean }>).detail;
+      setAssistantHistoryOpen(typeof detail?.open === 'boolean' ? detail.open : readAssistantHistorySidebarOpen());
+    };
+
+    window.addEventListener(ASSISTANT_HISTORY_SIDEBAR_VISIBILITY_EVENT, handleHistoryVisibilityChange);
+    return () => window.removeEventListener(ASSISTANT_HISTORY_SIDEBAR_VISIBILITY_EVENT, handleHistoryVisibilityChange);
+  }, []);
+
+  const isAssistantRoute = location.startsWith('/assistant');
+  const showHistoryShortcut = isAssistantRoute && !assistantHistoryOpen;
 
   const isActive = (label: string, path: string) => {
     if (label === 'Conversations') return false;
@@ -83,6 +102,20 @@ export default function Sidebar() {
                   <Search size={18} className="text-slate-500" />
                   <span className="truncate">Search</span>
                   <Kbd className="ml-auto text-[10px] text-slate-400 bg-slate-100 border border-slate-200">Ctrl+K</Kbd>
+                </button>
+              )}
+
+              {showHistoryShortcut && item.label === 'AI Assistant' && (
+                <button
+                  type="button"
+                  onClick={requestAssistantHistorySidebarOpen}
+                  className="ml-11 mt-1 inline-flex h-8 items-center gap-1.5 rounded-full border border-[#dbe5d7] bg-[#f7faf4] px-2.5 text-xs font-medium text-slate-700 transition hover:border-[#cddbc7] hover:bg-[#eef5e8] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                  data-testid="button-sidebar-open-history"
+                  aria-label="Reopen conversation history"
+                  title="History"
+                >
+                  <History size={13} className="text-[#2f6d25]" />
+                  <span>History</span>
                 </button>
               )}
             </React.Fragment>
