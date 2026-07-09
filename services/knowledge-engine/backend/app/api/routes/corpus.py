@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 
+from backend.app.security.access import can_sync_corpus, resolve_access_context
 from backend.app.services.document_preview_service import (
     file_response,
     parse_document_id,
@@ -19,6 +20,12 @@ router = APIRouter()
 
 @router.post("/corpus/sync")
 def corpus_sync(request: Request) -> dict[str, object]:
+    access_context = resolve_access_context(request)
+    if not can_sync_corpus(access_context):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to synchronize corpus metadata.",
+        )
     try:
         return request.app.state.corpus_service.sync().to_dict()
     except CorpusServiceUnavailable as exc:
@@ -27,8 +34,9 @@ def corpus_sync(request: Request) -> dict[str, object]:
 
 @router.get("/corpus/tree")
 def corpus_tree(request: Request) -> dict[str, object]:
+    access_context = resolve_access_context(request)
     try:
-        return request.app.state.corpus_service.get_tree()
+        return request.app.state.corpus_service.get_tree(access_context=access_context)
     except CorpusServiceUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
@@ -38,8 +46,9 @@ def corpus_folder(
     request: Request,
     path: str = Query(default="", description="Corpus-relative folder path."),
 ) -> dict[str, object]:
+    access_context = resolve_access_context(request)
     try:
-        payload = request.app.state.corpus_service.get_folder(path)
+        payload = request.app.state.corpus_service.get_folder(path, access_context=access_context)
     except CorpusServiceUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     if payload is None:
@@ -49,8 +58,12 @@ def corpus_folder(
 
 def _get_corpus_document_or_404(document_id: str, request: Request) -> dict[str, object]:
     parsed_document_id = parse_document_id(document_id)
+    access_context = resolve_access_context(request)
     try:
-        document = request.app.state.corpus_service.get_document(parsed_document_id)
+        document = request.app.state.corpus_service.get_document(
+            parsed_document_id,
+            access_context=access_context,
+        )
     except CorpusServiceUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     if document is None:

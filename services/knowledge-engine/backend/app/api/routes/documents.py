@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile, status
 
 from backend.app.schemas.documents import DocumentListResponse, DocumentMetadata, UploadResponse
+from backend.app.security.access import can_upload_enterprise_documents, resolve_access_context
 
 router = APIRouter()
 
 
 @router.get("/documents", response_model=DocumentListResponse)
 def list_documents(request: Request) -> DocumentListResponse:
-    documents = request.app.state.document_service.list_documents()
+    access_context = resolve_access_context(request)
+    documents = request.app.state.document_service.list_documents(access_context=access_context)
     return DocumentListResponse(documents=documents)
 
 
@@ -33,10 +35,17 @@ def upload_document(
         corpus_sync = request.app.state.corpus_service.sync
     if hasattr(request.app.state, "indexing_worker") and request.app.state.indexing_worker is not None:
         indexing_worker = request.app.state.indexing_worker
+    access_context = resolve_access_context(request)
+    if not can_upload_enterprise_documents(access_context):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to upload enterprise documents.",
+        )
 
     return request.app.state.document_service.save_upload_with_indexing(
         file.filename or "upload",
         file.file,
         corpus_sync=corpus_sync,
         indexing_worker=indexing_worker,
+        access_context=access_context,
     )
