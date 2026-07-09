@@ -120,33 +120,9 @@ def render_answer_with_citations(
     answer: str,
     citations: Sequence[Mapping[str, Any]],
 ) -> str:
-    """Resolve numeric answer markers into a metadata-rich reference section."""
+    """Return the user-facing answer with inline markers preserved only."""
 
     cleaned_answer = _GENERIC_REFERENCE_LINE_PATTERN.sub("", answer).strip()
     if not cleaned_answer or cleaned_answer in _NO_EVIDENCE_ANSWERS or not citations:
         return cleaned_answer
-
-    valid_ids = {
-        int(citation["reference_id"])
-        for citation in citations
-    }
-    referenced_ids = list(
-        dict.fromkeys(
-            reference_id
-            for match in _REFERENCE_ID_PATTERN.finditer(answer)
-            if (reference_id := int(match.group(1))) in valid_ids
-        )
-    )
-    # If a model omitted inline markers, retain traceability by resolving all
-    # retrieved evidence rather than returning an uncited enterprise answer.
-    references = render_citations(
-        citations,
-        reference_ids=referenced_ids or None,
-    )
-    if not references:
-        return cleaned_answer
-    return DEFAULT_PROMPT_MANAGER.render(
-        "templates.answer_template",
-        cleaned_answer=cleaned_answer,
-        references=references,
-    )
+    return cleaned_answer
