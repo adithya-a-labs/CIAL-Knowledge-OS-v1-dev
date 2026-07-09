@@ -79,7 +79,7 @@ export default function DashboardPage() {
         </form>
       </section>
 
-      <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+      <section className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {quickActions.map((action) => {
           const Icon = action.icon;
           return (
