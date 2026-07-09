@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
-import { Bell, HelpCircle, MessageSquare, Settings, Sparkles, X } from 'lucide-react';
+import { Bell, HelpCircle, MessageSquarePlus, Settings2, X } from 'lucide-react';
 import { THEME } from '@/config/themeConfig';
 import { CURRENT_USER } from '@/config/userConfig';
 import { homeNavItems } from '@/data/homePageData';
@@ -11,6 +11,7 @@ interface MobileSidebarDrawerProps {
 }
 
 const ASSISTANT_CONTEXT_STORAGE_KEY = 'cial-assistant-selected-context';
+const ASSISTANT_NEW_SESSION_PENDING_STORAGE_KEY = 'cial-new-conversation-pending';
 const NEW_CONVERSATION_EVENT = 'cial-new-conversation';
 
 export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDrawerProps) {
@@ -41,8 +42,11 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
 
   const startNewConversation = () => {
     window.localStorage.removeItem(ASSISTANT_CONTEXT_STORAGE_KEY);
+    window.localStorage.setItem(ASSISTANT_NEW_SESSION_PENDING_STORAGE_KEY, String(Date.now()));
     window.dispatchEvent(new Event(NEW_CONVERSATION_EVENT));
   };
+
+  const primaryNavItems = homeNavItems.filter((item) => item.label !== 'Conversations');
 
   return (
     <div className="fixed inset-0 z-50 flex lg:hidden">
@@ -62,7 +66,7 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
         </div>
 
         <nav className="scrollbar-soft flex-1 space-y-1 overflow-y-auto px-3 py-4">
-          {homeNavItems.map((item) => {
+          {primaryNavItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.label, item.path);
 
@@ -81,35 +85,36 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
           })}
         </nav>
 
-        <div className="p-4">
-          <div className="rounded-2xl border border-[#e3e9e1] bg-white p-4 shadow-sm">
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-950">
-              <Sparkles size={16} className="text-[#2f6d25]" />
-              Ask CIAL Anything
-            </div>
-            <p className="text-xs leading-5 text-slate-500">Your AI knowledge assistant that knows everything.</p>
-            <Link
-              href="/assistant"
-              onClick={startNewConversation}
-              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#edf6e9] px-3 py-2.5 text-sm font-semibold text-[#24551f]"
-              aria-label="Start a new conversation"
-            >
-              <MessageSquare size={16} />
-              New Conversation
-            </Link>
-          </div>
-          <div className="mt-3 rounded-2xl border border-[#e3e9e1] bg-white p-3 shadow-sm">
-            <div className="flex min-w-0 items-center gap-3 rounded-xl p-2">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#25611f] text-sm font-bold text-white">{CURRENT_USER.initials}</div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-semibold text-slate-950">{CURRENT_USER.name}</div>
-                <div className="truncate text-xs text-slate-500">{CURRENT_USER.department}</div>
-              </div>
-            </div>
-            <div className="mt-2 flex items-center justify-between px-1 text-slate-500">
-              <button className="ce-icon-button" aria-label="Notifications" title="Notifications"><Bell size={17} /></button>
-              <button className="ce-icon-button" aria-label="Help" title="Help"><HelpCircle size={17} /></button>
-              <button className="ce-icon-button" aria-label="Settings" title="Settings"><Settings size={17} /></button>
+        <div className="space-y-1 border-t border-[#e8ece6] p-3">
+          <Link
+            href="/assistant"
+            onClick={startNewConversation}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-900"
+            aria-label="Start a new conversation"
+          >
+            <MessageSquarePlus size={18} className="text-[#2f6d25]" />
+            New Conversation
+          </Link>
+          <button className="relative flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5]">
+            <Bell size={18} className="text-slate-500" />
+            <span>Notifications</span>
+            {(CURRENT_USER.notificationsCount ?? 0) > 0 && (
+              <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#b76a09] px-1 text-[10px] font-bold text-white">{CURRENT_USER.notificationsCount}</span>
+            )}
+          </button>
+          <button className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5]">
+            <HelpCircle size={18} className="text-slate-500" />
+            <span>Help</span>
+          </button>
+          <button className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5]">
+            <Settings2 size={18} className="text-slate-500" />
+            <span>Theme & Settings</span>
+          </button>
+          <div className="flex min-w-0 items-center gap-3 rounded-xl px-3 py-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#25611f] text-sm font-bold text-white">{CURRENT_USER.initials}</div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold text-slate-950">{CURRENT_USER.name}</div>
+              <div className="truncate text-xs text-slate-500">{CURRENT_USER.department}</div>
             </div>
           </div>
         </div>
