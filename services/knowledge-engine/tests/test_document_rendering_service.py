@@ -31,3 +31,13 @@ def test_legacy_doc_payload_falls_back_when_conversion_is_unavailable(monkeypatc
     assert payload["viewer_ready"] is False
     assert payload["viewer_format"] == "doc"
     assert "Native preview is limited" in str(payload["preview_notice"])
+
+
+def test_docx_payload_falls_back_when_conversion_is_unavailable(monkeypatch) -> None:
+    monkeypatch.setattr(document_rendering_service, "_soffice_binary", lambda: None)
+
+    payload = document_rendering_service.viewer_asset_payload(_document(".docx"))
+
+    assert payload["viewer_ready"] is False
+    assert payload["viewer_format"] == "docx"
+    assert "Native preview is limited" in str(payload["preview_notice"])
