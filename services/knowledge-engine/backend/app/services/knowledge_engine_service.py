@@ -875,7 +875,7 @@ class KnowledgeEngineService:
                     preview_text=preview_text[:4000] or None,
                     file_type=str(context.get("file_type") or metadata.get("file_type") or ""),
                     file_url=(
-                        f"/api/corpus/document/{file_id}/view"
+                        f"/api/corpus/document/{file_id}/file"
                         if file_id
                         else None
                     ),
