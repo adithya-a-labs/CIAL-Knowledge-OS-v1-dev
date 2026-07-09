@@ -11,6 +11,7 @@ from backend.app.services.document_preview_service import (
     preview_payload,
     resolve_document,
     thumbnail_response,
+    view_response,
 )
 from backend.app.services.document_rendering_service import rendered_response
 from cial_knowledge_os.corpus.service import CorpusServiceUnavailable
@@ -80,7 +81,7 @@ def corpus_document_file(document_id: str, request: Request):
 @router.get("/corpus/document/{document_id}/view")
 def corpus_document_view(document_id: str, request: Request):
     document = _get_corpus_document_or_404(document_id, request)
-    return file_response(resolve_document(document), disposition="inline")
+    return view_response(resolve_document(document))
 
 
 @router.get("/corpus/document/{document_id}/download")
