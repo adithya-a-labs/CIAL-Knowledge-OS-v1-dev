@@ -29,8 +29,16 @@ export interface ChatRequest {
 export interface ChatCitation {
   id: string;
   document_name: string;
+  document_id?: string | null;
+  relative_path?: string | null;
   page: number | null;
+  page_count?: number | null;
+  chunk_id?: string | null;
   snippet: string;
+  highlight_text?: string | null;
+  preview_text?: string | null;
+  file_type?: string | null;
+  file_url?: string | null;
   score: number | null;
 }
 
@@ -39,9 +47,15 @@ export interface ChatSource {
   document_name: string;
   path: string;
   document_id?: string | null;
+  relative_path?: string | null;
   page: number | null;
+  page_count?: number | null;
   chunk_id: string;
   text: string;
+  highlight_text?: string | null;
+  preview_text?: string | null;
+  file_type?: string | null;
+  file_url?: string | null;
   score: number | null;
 }
 
@@ -258,20 +272,27 @@ export interface CorpusSyncResponse {
 }
 
 export interface DocumentPreview extends CorpusDocument {
+  document_id?: string;
+  relative_path: string;
   preview_text: string;
   highlight_text: string;
   page: number | null;
+  page_count: number | null;
   chunk_id: string | null;
   open_url: string | null;
   download_url: string | null;
   file_url?: string | null;
   thumbnail_url?: string | null;
+  rendered_html?: string | null;
   read_error: string | null;
-  render_kind?: 'pdf' | 'image' | 'text' | 'code' | 'table' | 'office_card' | 'card' | string;
+  render_kind?: 'pdf' | 'image' | 'text' | 'code' | 'table' | 'spreadsheet' | 'slides' | 'docx' | 'markdown' | 'html' | 'card' | string;
   extraction_method?: string;
   table_rows?: string[][];
   supported_preview?: boolean;
   sheet_count?: number;
+  sheet_names?: string[];
+  active_sheet?: string | null;
+  slides?: Array<{ index: string; title: string; body: string }>;
 }
 
 export interface SelectedContextItem {
