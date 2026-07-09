@@ -1,22 +1,20 @@
 # RBAC And Access Control
 
-## RBAC Shape
+## Authorization Shape
 
-The schema supports four layers of authorization:
+The schema now supports five authorization building blocks:
 
-1. `roles`
-2. `permissions`
-3. `role_permissions`
-4. user assignment through `user_roles` and optional department-scoped assignment through `department_role_assignments`
+1. global roles through `roles`, `permissions`, `role_permissions`, and `user_roles`
+2. department-scoped role assignment through `department_role_assignments`
+3. department membership through `users.department_id` and `department_memberships`
+4. group membership through `groups` and `group_memberships`
+5. explicit ACL grants through `document_permissions`, `folder_permissions`, and `workspace_permissions`
 
-Department affiliation is represented by:
-
-- `users.department_id` for the primary/home department
-- `department_memberships` for multi-department membership
+This is still application-enforced authorization. PostgreSQL stores the policy inputs; it does not yet enforce RLS.
 
 ## Seeded Permissions
 
-The migration seeds these permissions:
+The seeded permission catalog remains:
 
 - `manage_users`
 - `manage_roles`
@@ -32,18 +30,17 @@ The migration seeds these permissions:
 - `view_audit_logs`
 - `manage_settings`
 
-## Access Resolution Rules
+## ACL Model
 
-Document access should be resolved in this order:
+ACL tables preserve the legacy principal columns for compatibility:
 
-1. hard deny for soft-deleted documents
-2. ownership rule for personal documents
-3. document-level ACL grants from `document_permissions`
-4. visibility-based grants for enterprise documents
-5. role/permission evaluation
+- `user_id`
+- `department_id`
+- `role_id`
 
-`document_permissions` is the current ACL table. It preserves the old `user_id` / `department_id` / `role_id` columns for compatibility, and also stores normalized ACL fields:
+They now also support:
 
+- `group_id`
 - `subject_type`
 - `subject_id`
 - `permission`
@@ -52,51 +49,80 @@ Document access should be resolved in this order:
 - `created_at`
 - `updated_at`
 
-Valid ACL permission values are:
+Valid normalized ACL subjects:
+
+- `user`
+- `role`
+- `department`
+- `group`
+
+Valid ACL permissions:
 
 - `view`
 - `edit`
 - `manage`
 - `delete`
 
-Valid ACL subject values are:
+`workspace_permissions` is new and mirrors the same principal shape as folder/document ACLs so authorization can move upward from document-only grants over time.
 
-- `user`
-- `role`
-- `department`
+## Recommended Resolution Order
 
-## Critical Rule
+For document access:
 
-`department_id` on a document is classification and ownership context. It is not a standalone access grant.
+1. deny soft-deleted content
+2. allow the owner for personal documents
+3. evaluate explicit document ACLs
+4. evaluate inherited folder or workspace ACLs if the application supports inheritance
+5. evaluate visibility and role-based policy for enterprise content
+6. deny by default
 
-A user must not gain access to a personal document merely because:
+For folder or workspace access:
 
-- the user belongs to the same department
-- the document has the same `department_id`
+1. evaluate explicit ACLs first
+2. then evaluate role, department, and group-derived policy
+3. deny by default if no rule matches
 
-Personal-document access requires ownership or an explicit ACL rule.
+## Critical Isolation Rule
 
-## Enterprise vs Personal
+`department_id` is classification and ownership context. It is not an implicit allow rule.
 
-Personal document baseline:
+A personal document must not become visible merely because:
 
-- `storage_scope='personal'`
-- `owner_user_id` required
-- `visibility='private'`
-- `department_id` required
+- another user belongs to the same department
+- the document is classified under that department
+- a department-scoped role exists without an explicit rule allowing private content
 
-Enterprise document baseline:
+Ownership or an explicit ACL grant is still required.
 
-- `storage_scope='enterprise'`
-- `department_id` required
-- `visibility in ('department', 'enterprise', 'restricted')`
+## Groups
 
-## Future Application Layer Expectations
+`groups` and `group_memberships` are added to make access control scale beyond direct user lists and coarse department grants.
 
-The schema is ready for:
+Current scope:
 
-- login/session-backed RBAC
-- future SSO or LDAP identity mapping through `users.auth_provider`, `users.auth_subject`, `users.external_directory_id`, and `users.ldap_dn`
-- department-scoped admin/editor roles without changing global `user_roles`
+- groups can be attached to ACL rows now
+- group membership has active or inactive state and optional expiry
+- the schema enforces at most one active membership per user and group pair
 
-It does not yet implement database-enforced RLS policies. Access is still expected to be enforced in the application layer until the auth surface is stabilized.
+Deferred runtime work:
+
+- group-aware authorization resolution in services
+- admin APIs for managing groups and membership lifecycle
+- inheritance rules between workspace, folder, and document ACLs
+
+## Identity Readiness
+
+The identity schema is ready for:
+
+- SSO and LDAP identity mapping through `users.auth_provider`, `users.auth_subject`, `users.external_directory_id`, and `users.ldap_dn`
+- department-scoped and workspace-scoped access evolution without replacing existing role mappings
+- future RLS only after the authenticated request surface is stable
+
+## Current Runtime Bridging
+
+Until a full auth/session layer is introduced, the backend runtime resolves access context from optional request headers:
+
+- `X-CIAL-User-Id`
+- `X-CIAL-Access-Scope`
+
+That keeps the API shape stable while allowing document, corpus, and chat routes to enforce the PostgreSQL access model consistently.
