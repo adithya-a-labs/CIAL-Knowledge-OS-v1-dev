@@ -13,9 +13,34 @@ from fastapi.responses import FileResponse
 from backend.app.core.config import settings
 
 
-LEGACY_CONVERSION_TARGETS = {
+INLINE_CONVERSION_TARGETS = {
     ".doc": "pdf",
+    ".docx": "pdf",
     ".ppt": "pdf",
+    ".pptx": "pdf",
+    ".xls": "pdf",
+    ".xlsx": "pdf",
+    ".tif": "png",
+    ".tiff": "png",
+}
+DIRECT_VIEWER_EXTENSIONS = {
+    ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".bmp",
+    ".webp",
+    ".gif",
+    ".txt",
+    ".md",
+    ".markdown",
+    ".json",
+    ".xml",
+    ".yaml",
+    ".yml",
+    ".csv",
+    ".html",
+    ".htm",
 }
 
 
@@ -58,6 +83,10 @@ def _converted_path(document: RenderingDocument, output_format: str) -> Path:
 
 
 def _ensure_converted(document: RenderingDocument, output_format: str) -> Path | None:
+    image_converted = _ensure_image_converted(document, output_format)
+    if image_converted is not None:
+        return image_converted
+
     soffice = _soffice_binary()
     if not soffice:
         return None
@@ -91,20 +120,48 @@ def _ensure_converted(document: RenderingDocument, output_format: str) -> Path |
     return output_path
 
 
+def _ensure_image_converted(document: RenderingDocument, output_format: str) -> Path | None:
+    extension = document.extension.casefold()
+    target = output_format.lower().lstrip(".")
+    if extension not in {".tif", ".tiff"} or target not in {"png", "jpg", "jpeg", "webp"}:
+        return None
+
+    output_path = _converted_path(document, target)
+    if output_path.is_file():
+        return output_path
+
+    try:
+        from PIL import Image, ImageOps
+    except Exception:
+        return None
+
+    try:
+        with Image.open(document.path) as image:
+            image.seek(0)
+            converted = ImageOps.exif_transpose(image.convert("RGB"))
+            save_format = "JPEG" if target in {"jpg", "jpeg"} else target.upper()
+            converted.save(output_path, format=save_format)
+    except Exception:
+        return None
+
+    return output_path if output_path.is_file() else None
+
+
 def rendered_preview_path(document: RenderingDocument, output_format: str) -> Path | None:
     return _ensure_converted(document, output_format)
 
 
 def viewer_asset_payload(document: RenderingDocument) -> dict[str, Any]:
     document_id = str(document.metadata["id"])
+    extension = document.extension.casefold()
     payload: dict[str, Any] = {
         "viewer_url": f"/api/corpus/document/{document_id}/file",
-        "viewer_format": document.extension.replace(".", "") or "file",
-        "viewer_ready": True,
+        "viewer_format": extension.replace(".", "") or "file",
+        "viewer_ready": extension in DIRECT_VIEWER_EXTENSIONS,
         "preview_notice": None,
     }
 
-    target_format = LEGACY_CONVERSION_TARGETS.get(document.extension)
+    target_format = INLINE_CONVERSION_TARGETS.get(extension)
     if not target_format:
         return payload
 
@@ -121,7 +178,7 @@ def viewer_asset_payload(document: RenderingDocument) -> dict[str, Any]:
         "viewer_url": f"/api/corpus/document/{document_id}/rendered?format={target_format}",
         "viewer_format": target_format,
         "viewer_ready": True,
-        "preview_notice": "Showing a cached converted preview for this legacy Office file.",
+        "preview_notice": "Showing a cached converted preview for this document.",
     }
 
 
@@ -134,7 +191,20 @@ def rendered_response(document: RenderingDocument, output_format: str) -> FileRe
         )
     return FileResponse(
         converted,
-        media_type="application/pdf" if output_format == "pdf" else None,
+        media_type=_rendered_media_type(output_format),
         filename=converted.name,
         content_disposition_type="inline",
     )
+
+
+def _rendered_media_type(output_format: str) -> str | None:
+    normalized = output_format.lower().lstrip(".")
+    if normalized == "pdf":
+        return "application/pdf"
+    if normalized == "png":
+        return "image/png"
+    if normalized in {"jpg", "jpeg"}:
+        return "image/jpeg"
+    if normalized == "webp":
+        return "image/webp"
+    return None
