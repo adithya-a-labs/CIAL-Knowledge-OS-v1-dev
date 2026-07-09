@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, ExternalLink, FileText, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, ExternalLink, FileText, X } from 'lucide-react';
 import type { ChatSource } from '@/types/assistant';
 
 interface DocumentToolbarProps {
@@ -13,6 +13,7 @@ interface DocumentToolbarProps {
   onNext: () => void;
   onClose: () => void;
   openUrl?: string | null;
+  downloadUrl?: string | null;
 }
 
 export default function DocumentToolbar({
@@ -27,9 +28,10 @@ export default function DocumentToolbar({
   onNext,
   onClose,
   openUrl,
+  downloadUrl,
 }: DocumentToolbarProps) {
   return (
-    <div className="border-b border-border px-4 py-3">
+    <div className="border-b border-border bg-white px-4 py-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -44,8 +46,13 @@ export default function DocumentToolbar({
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {openUrl ? (
-            <a href={openUrl} target="_blank" rel="noreferrer" className="ce-icon-button" aria-label="Open document">
+            <a href={openUrl} target="_blank" rel="noreferrer" className="ce-icon-button" aria-label="Open preview in new tab">
               <ExternalLink size={15} />
+            </a>
+          ) : null}
+          {downloadUrl ? (
+            <a href={downloadUrl} className="ce-icon-button" aria-label="Download document">
+              <Download size={15} />
             </a>
           ) : null}
           <button type="button" onClick={onClose} className="ce-icon-button" aria-label="Close document viewer" data-testid="button-close-document-viewer">
@@ -54,11 +61,11 @@ export default function DocumentToolbar({
         </div>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <button type="button" disabled={!previousSource} onClick={onPrevious} className="ce-action min-h-9 text-primary disabled:opacity-40">
+        <button type="button" disabled={!previousSource} onClick={onPrevious} className="ce-action min-h-9 rounded-full text-primary disabled:opacity-40">
           <ChevronLeft size={14} />
           Previous
         </button>
-        <button type="button" disabled={!nextSource} onClick={onNext} className="ce-action min-h-9 text-primary disabled:opacity-40">
+        <button type="button" disabled={!nextSource} onClick={onNext} className="ce-action min-h-9 rounded-full text-primary disabled:opacity-40">
           Next
           <ChevronRight size={14} />
         </button>
@@ -66,4 +73,3 @@ export default function DocumentToolbar({
     </div>
   );
 }
-
