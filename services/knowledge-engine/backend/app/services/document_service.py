@@ -5,14 +5,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 from pathlib import Path
 import re
 import shutil
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 from backend.app.core.paths import DATA_FILES_ROOT, REPO_ROOT
-from backend.app.schemas.documents import DocumentMetadata, DocumentType
+from backend.app.db.session import SessionLocal
+from backend.app.schemas.documents import DocumentMetadata, DocumentType, UploadResponse
 
+logger = logging.getLogger(__name__)
 
 _TYPE_BY_SUFFIX: dict[str, DocumentType] = {
     ".pdf": "pdf",
@@ -62,6 +65,134 @@ class DocumentService:
         with destination.open("wb") as handle:
             shutil.copyfileobj(stream, handle)
         return self._metadata_for(destination, indexed_paths=self._indexed_paths())
+
+    def save_upload_with_indexing(
+        self,
+        filename: str,
+        stream: BinaryIO,
+        *,
+        corpus_sync: Any | None = None,
+        indexing_worker: Any | None = None,
+    ) -> UploadResponse:
+        """Save an uploaded file, create metadata + indexing job, trigger background indexing.
+
+        Pipeline: Upload → Save → Hash → Dedup check → Corpus Sync → Indexing Job → Background Index
+        """
+        self.root.mkdir(parents=True, exist_ok=True)
+        safe_name = self._safe_filename(filename)
+
+        # Save to a temp file first for hashing
+        temp_path = self.root / f".upload_{safe_name}.tmp"
+        try:
+            with temp_path.open("wb") as handle:
+                shutil.copyfileobj(stream, handle)
+
+            content_hash = self._hash_file(temp_path)
+            duplicate_doc = self._find_duplicate_by_hash(content_hash)
+
+            # Move to final location
+            destination = self._available_path(self.root / safe_name)
+            temp_path.replace(destination)
+
+        except Exception:
+            # Clean up temp file on error
+            if temp_path.exists():
+                temp_path.unlink(missing_ok=True)
+            raise
+
+        stat = destination.stat()
+        relative = destination.relative_to(REPO_ROOT).as_posix()
+        file_type = _TYPE_BY_SUFFIX.get(destination.suffix.casefold(), "unknown")
+        modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+
+        # Determine if this is a duplicate
+        if duplicate_doc is not None:
+            logger.info(
+                "upload_duplicate_detected",
+                extra={
+                    "event": "upload",
+                    "filename": safe_name,
+                    "content_hash": content_hash,
+                    "existing_document_id": str(duplicate_doc.get("id", "")),
+                },
+            )
+            return UploadResponse(
+                id=hashlib.sha1(relative.encode("utf-8")).hexdigest()[:16],
+                name=destination.name,
+                path=relative,
+                type=file_type,
+                size_bytes=stat.st_size,
+                modified_at=modified_at,
+                indexed=True,
+                indexing_status="skipped",
+                content_hash=content_hash,
+                duplicate_detected=True,
+                message="Duplicate content detected. File saved but indexing skipped — content already indexed.",
+            )
+
+        # Run corpus sync to create metadata + version + indexing job
+        indexing_job_id: str | None = None
+        if corpus_sync is not None:
+            try:
+                summary = corpus_sync()
+                logger.info(
+                    "upload_corpus_sync_completed",
+                    extra={
+                        "event": "upload",
+                        "filename": safe_name,
+                        "files_added": summary.files_added if hasattr(summary, "files_added") else 0,
+                        "indexing_jobs_created": summary.indexing_jobs_created if hasattr(summary, "indexing_jobs_created") else 0,
+                    },
+                )
+                # Get the job id from the newly created job
+                indexing_job_id = self._find_latest_job_for_hash(content_hash)
+            except Exception as exc:
+                logger.exception("upload_corpus_sync_failed")
+                return UploadResponse(
+                    id=hashlib.sha1(relative.encode("utf-8")).hexdigest()[:16],
+                    name=destination.name,
+                    path=relative,
+                    type=file_type,
+                    size_bytes=stat.st_size,
+                    modified_at=modified_at,
+                    indexed=False,
+                    indexing_status="failed",
+                    content_hash=content_hash,
+                    message=f"File saved but metadata sync failed: {exc}",
+                )
+
+        # Trigger background indexing
+        if indexing_worker is not None:
+            try:
+                import uuid as _uuid
+                job_uuid = _uuid.UUID(indexing_job_id) if indexing_job_id else None
+                indexing_worker.enqueue(job_uuid)
+            except Exception:
+                logger.exception("upload_indexing_enqueue_failed")
+
+        logger.info(
+            "upload_accepted",
+            extra={
+                "event": "upload",
+                "filename": safe_name,
+                "content_hash": content_hash,
+                "indexing_job_id": indexing_job_id,
+            },
+        )
+
+        return UploadResponse(
+            id=hashlib.sha1(relative.encode("utf-8")).hexdigest()[:16],
+            name=destination.name,
+            path=relative,
+            type=file_type,
+            size_bytes=stat.st_size,
+            modified_at=modified_at,
+            indexed=False,
+            indexing_status="pending",
+            indexing_job_id=indexing_job_id,
+            content_hash=content_hash,
+            message="Upload accepted. Background indexing queued.",
+        )
 
     def _metadata_for(
         self,
@@ -121,3 +252,61 @@ class DocumentService:
             if not candidate.exists():
                 return candidate
             counter += 1
+
+    @staticmethod
+    def _hash_file(path: Path) -> str:
+        """Compute SHA256 hash of a file."""
+        hasher = hashlib.sha256()
+        with path.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                hasher.update(block)
+        return hasher.hexdigest()
+
+    @staticmethod
+    def _find_duplicate_by_hash(content_hash: str) -> dict[str, Any] | None:
+        """Check the database for an existing non-deleted document with the same hash."""
+        if SessionLocal is None:
+            return None
+        try:
+            from sqlalchemy import select
+            from backend.app.models.knowledge import Document
+            with SessionLocal() as session:
+                document = session.scalar(
+                    select(Document).where(
+                        Document.content_hash == content_hash,
+                        Document.indexing_status != "deleted",
+                        Document.indexed == True,  # noqa: E712
+                    )
+                )
+                if document is not None:
+                    return {
+                        "id": str(document.id),
+                        "relative_path": document.relative_path,
+                        "content_hash": document.content_hash,
+                    }
+        except Exception:  # noqa: BLE001
+            logger.exception("duplicate_hash_check_failed")
+        return None
+
+    @staticmethod
+    def _find_latest_job_for_hash(content_hash: str) -> str | None:
+        """Find the most recent pending indexing job for a content hash."""
+        if SessionLocal is None or not content_hash:
+            return None
+        try:
+            from sqlalchemy import select
+            from backend.app.models.operations import IndexingJob
+            with SessionLocal() as session:
+                job = session.scalar(
+                    select(IndexingJob)
+                    .where(
+                        IndexingJob.content_hash == content_hash,
+                        IndexingJob.status == "pending",
+                    )
+                    .order_by(IndexingJob.started_at.desc())
+                )
+                if job is not None:
+                    return str(job.id)
+        except Exception:  # noqa: BLE001
+            logger.exception("find_job_for_hash_failed")
+        return None
