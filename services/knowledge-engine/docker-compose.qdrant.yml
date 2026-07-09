@@ -7,9 +7,9 @@ services:
       - "6335:6333"
 
     volumes:
-      - cial_qdrant_storage_v1_dev:/qdrant/storage
+      - cial_qdrant_storage:/qdrant/storage
 
     restart: unless-stopped
 
 volumes:
-  cial_qdrant_storage_v1_dev:
+  cial_qdrant_storage:
