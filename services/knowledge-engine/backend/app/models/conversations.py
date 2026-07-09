@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, Text, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,6 +21,7 @@ class ChatSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     title: Mapped[str | None] = mapped_column(Text)
 
     messages: Mapped[list[ChatMessage]] = relationship(back_populates="session")
+    summaries: Mapped[list[ConversationSummary]] = relationship(back_populates="session")
 
 
 class ChatMessage(UUIDPrimaryKeyMixin, Base):
@@ -67,3 +68,34 @@ class ConversationFeedback(UUIDPrimaryKeyMixin, Base):
     comment: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ConversationSummary(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "conversation_summaries"
+    __table_args__ = (
+        Index("ix_conversation_summaries_chat_session_id", "chat_session_id"),
+        CheckConstraint(
+            "summary_type in ('running', 'final', 'topic', 'handoff')",
+            name="ck_conversation_summaries_summary_type",
+        ),
+    )
+
+    chat_session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+    )
+    summary_type: Mapped[str] = mapped_column(Text, nullable=False)
+    summary_text: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+
+    session: Mapped[ChatSession] = relationship(back_populates="summaries")

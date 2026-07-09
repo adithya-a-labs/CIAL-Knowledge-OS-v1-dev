@@ -5,8 +5,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, func, text
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -21,6 +21,7 @@ class Organization(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     departments: Mapped[list[Department]] = relationship(back_populates="organization")
     users: Mapped[list[User]] = relationship(back_populates="organization")
+    groups: Mapped[list[Group]] = relationship(back_populates="organization")
 
 
 class Department(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -44,6 +45,7 @@ class Department(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     designations: Mapped[list[Designation]] = relationship(back_populates="department")
     users: Mapped[list[User]] = relationship(back_populates="department")
     memberships: Mapped[list[DepartmentMembership]] = relationship(back_populates="department")
+    groups: Mapped[list[Group]] = relationship(back_populates="department")
 
 
 class Designation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -112,6 +114,10 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     department_role_assignments: Mapped[list[DepartmentRoleAssignment]] = relationship(
         back_populates="user",
         foreign_keys="DepartmentRoleAssignment.user_id",
+    )
+    group_memberships: Mapped[list[GroupMembership]] = relationship(
+        back_populates="user",
+        foreign_keys="GroupMembership.user_id",
     )
 
 
@@ -239,3 +245,82 @@ class DepartmentRoleAssignment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     user: Mapped[User] = relationship(back_populates="department_role_assignments", foreign_keys=[user_id])
     department: Mapped[Department] = relationship(foreign_keys=[department_id])
     role: Mapped[Role] = relationship(back_populates="department_assignments", foreign_keys=[role_id])
+
+
+class Group(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "groups"
+    __table_args__ = (
+        Index("ix_groups_organization_id", "organization_id"),
+        Index("ix_groups_department_id", "department_id"),
+        UniqueConstraint("organization_id", "slug", name="uq_groups_organization_slug"),
+        CheckConstraint(
+            "group_type in ('team', 'committee', 'shift', 'contractor', 'custom')",
+            name="ck_groups_group_type",
+        ),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    slug: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    group_type: Mapped[str] = mapped_column(Text, nullable=False)
+    department_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("departments.id", ondelete="SET NULL"),
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    metadata_: Mapped[dict[str, object] | None] = mapped_column("metadata", JSONB)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+    )
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    organization: Mapped[Organization] = relationship(back_populates="groups")
+    department: Mapped[Department | None] = relationship(back_populates="groups")
+    memberships: Mapped[list[GroupMembership]] = relationship(back_populates="group")
+
+
+class GroupMembership(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "group_memberships"
+    __table_args__ = (
+        Index("ix_group_memberships_group_id", "group_id"),
+        Index("ix_group_memberships_user_id", "user_id"),
+        Index(
+            "uq_group_memberships_active_group_user",
+            "group_id",
+            "user_id",
+            unique=True,
+            postgresql_where=text("is_active = true"),
+        ),
+    )
+
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("groups.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    role_label: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+    )
+
+    group: Mapped[Group] = relationship(back_populates="memberships", foreign_keys=[group_id])
+    user: Mapped[User] = relationship(back_populates="group_memberships", foreign_keys=[user_id])

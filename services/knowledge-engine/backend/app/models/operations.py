@@ -92,3 +92,37 @@ class AuditEvent(UUIDPrimaryKeyMixin, Base):
     reason: Mapped[str | None] = mapped_column(Text)
     error_detail: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class RetrievalEvent(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "retrieval_events"
+    __table_args__ = (
+        Index("ix_retrieval_events_user_id", "user_id"),
+        Index("ix_retrieval_events_chat_session_id", "chat_session_id"),
+        Index("ix_retrieval_events_created_at", "created_at"),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+    )
+    chat_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("chat_sessions.id", ondelete="SET NULL"),
+    )
+    query_text: Mapped[str] = mapped_column(Text, nullable=False)
+    retrieval_scope: Mapped[str | None] = mapped_column(Text)
+    selected_document_ids: Mapped[list[object] | None] = mapped_column(JSONB)
+    selected_folder_ids: Mapped[list[object] | None] = mapped_column(JSONB)
+    retrieved_document_ids: Mapped[list[object] | None] = mapped_column(JSONB)
+    retrieved_chunk_ids: Mapped[list[object] | None] = mapped_column(JSONB)
+    reranker_scores: Mapped[list[object] | None] = mapped_column(JSONB)
+    filters_applied: Mapped[dict[str, object] | list[object] | None] = mapped_column(JSONB)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    result_count: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
