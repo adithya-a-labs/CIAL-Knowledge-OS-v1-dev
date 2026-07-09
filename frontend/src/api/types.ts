@@ -1,5 +1,5 @@
-export type ResponseLength = 'short' | 'medium' | 'long';
-export type ResponseMode = 'quick' | 'standard' | 'detailed' | 'operational';
+export type ResponseMode = 'quick' | 'standard' | 'detailed' | 'operational' | 'elite';
+export type ResponseLength = ResponseMode | 'short' | 'medium' | 'long';
 export type RuntimeStatus = 'starting' | 'ready' | 'indexing' | 'degraded' | 'failed' | 'no_documents';
 
 export interface HealthResponse {
@@ -50,6 +50,26 @@ export interface ChatMetadata {
   phase: string;
   latency_ms: number;
   model: string;
+  profile?: ResponseMode | string;
+  effective_min_answer_words?: number | null;
+  effective_max_answer_words?: number | null;
+  answer_detail_level?: string;
+  prompt_name?: string;
+  adaptive_sections?: boolean;
+  citation_mode?: string;
+  temperature?: number;
+  evidence_token_budget?: number | null;
+  max_context_tokens?: number | null;
+  retrieved_count?: number;
+  selected_evidence_count?: number;
+  context_sections?: number;
+  weak_evidence?: boolean;
+  index_fresh?: boolean | null;
+  selected_context_applied?: boolean;
+  selected_document_count?: number;
+  selected_folder_count?: number;
+  effective_document_count?: number;
+  selected_context_filter_mode?: string | null;
 }
 
 export interface ChatResponse {
@@ -57,6 +77,7 @@ export interface ChatResponse {
   citations: ChatCitation[];
   sources: ChatSource[];
   metadata: ChatMetadata;
+  debug?: Record<string, unknown> | null;
 }
 
 export type ApiDocumentType =

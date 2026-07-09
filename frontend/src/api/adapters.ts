@@ -21,20 +21,16 @@ import type {
 } from './types';
 
 export function toApiResponseLength(value: UiResponseLength): ResponseLength {
-  if (value === 'quick') return 'short';
-  if (value === 'operational' || value === 'detailed') return 'long';
-  return 'medium';
+  return value;
 }
 
 export function toChatRequest(payload: ChatRequestPayload) {
-  const maxAnswerWords = payload.responseLength === 'quick' ? 200 : undefined;
   return {
     question: payload.query,
     selected_document_ids: [...payload.selectedDocumentIds, ...payload.uploadedFileIds],
     selected_folder_ids: [...payload.selectedFolderIds],
     response_length: toApiResponseLength(payload.responseLength),
     profile: payload.responseLength,
-    max_answer_words: maxAnswerWords,
     include_sources: true,
   };
 }
