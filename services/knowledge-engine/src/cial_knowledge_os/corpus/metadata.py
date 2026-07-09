@@ -13,7 +13,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from backend.app.models.identity import Department, Organization
-from backend.app.models.knowledge import Document, Folder
+from backend.app.models.knowledge import Document, Folder, Workspace
 from backend.app.models.operations import IndexingJob, IngestionRun
 
 
@@ -25,6 +25,8 @@ _ACTIVE_JOB_STATUSES = ("pending", "running")
 _VALID_JOB_STATUSES = ("pending", "running", "succeeded", "failed", "skipped")
 _DEFAULT_SHARED_DEPARTMENT_CODE = "shared-knowledge"
 _DEFAULT_SHARED_DEPARTMENT_NAME = "Shared Knowledge"
+_DEFAULT_ENTERPRISE_WORKSPACE_SLUG = "enterprise"
+_DEFAULT_ENTERPRISE_WORKSPACE_NAME = "Enterprise Workspace"
 
 
 @dataclass(frozen=True)
@@ -57,7 +59,7 @@ class CorpusMetadataStore:
         )
         return int(current or 0) + 1
 
-    def ensure_enterprise_document_context(self) -> tuple[uuid.UUID, uuid.UUID]:
+    def ensure_enterprise_document_context(self) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
         organization = self.session.scalar(select(Organization).order_by(Organization.created_at, Organization.name))
         if organization is None:
             raise RuntimeError("An organization must exist before synchronizing corpus metadata.")
@@ -76,7 +78,26 @@ class CorpusMetadataStore:
             )
             self.session.add(department)
             self.session.flush()
-        return organization.id, department.id
+        workspace = self.session.scalar(
+            select(Workspace).where(
+                Workspace.organization_id == organization.id,
+                Workspace.slug == _DEFAULT_ENTERPRISE_WORKSPACE_SLUG,
+            )
+        )
+        if workspace is None:
+            workspace = Workspace(
+                organization_id=organization.id,
+                name=_DEFAULT_ENTERPRISE_WORKSPACE_NAME,
+                slug=_DEFAULT_ENTERPRISE_WORKSPACE_SLUG,
+                workspace_type="enterprise",
+                department_id=department.id,
+                visibility="enterprise",
+                description="Default enterprise workspace for corpus-synchronized documents and folders.",
+                is_active=True,
+            )
+            self.session.add(workspace)
+            self.session.flush()
+        return organization.id, department.id, workspace.id
 
     def add_indexing_job(
         self,
@@ -122,6 +143,7 @@ class CorpusMetadataStore:
                 "storage_scope": document.storage_scope,
                 "owner_user_id": str(document.owner_user_id) if document.owner_user_id else None,
                 "department_id": str(document.department_id),
+                "workspace_id": str(document.workspace_id),
                 "folder_id": str(document.folder_id) if document.folder_id else None,
                 "visibility": document.visibility,
                 "lifecycle_status": document.lifecycle_status,
@@ -262,6 +284,7 @@ from backend.app.models.knowledge import DocumentVersion  # noqa: E402
 def folder_to_dict(folder: Folder) -> dict[str, Any]:
     return {
         "id": str(folder.id),
+        "workspace_id": str(folder.workspace_id),
         "parent_id": str(folder.parent_id) if folder.parent_id else None,
         "name": folder.name,
         "relative_path": folder.relative_path,
@@ -279,6 +302,7 @@ def document_to_dict(document: Document) -> dict[str, Any]:
         "id": str(document.id),
         "organization_id": str(document.organization_id),
         "department_id": str(document.department_id),
+        "workspace_id": str(document.workspace_id),
         "folder_id": str(document.folder_id) if document.folder_id else None,
         "storage_scope": document.storage_scope,
         "owner_user_id": str(document.owner_user_id) if document.owner_user_id else None,

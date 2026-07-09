@@ -8,6 +8,7 @@ import uuid
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.db.base import import_models
+from backend.app.security.access import RequestAccessContext
 
 from .explorer import CorpusExplorer
 from .models import CorpusSyncSummary
@@ -50,23 +51,33 @@ class CorpusService:
                 summary = self.synchronizer.synchronize(tree, session)
         return summary
 
-    def get_tree(self) -> dict[str, object]:
+    def get_tree(self, *, access_context: RequestAccessContext | None = None) -> dict[str, object]:
         if self.session_factory is None:
             raise CorpusServiceUnavailable("Metadata database is not configured.")
         import_models()
         with self.session_factory() as session:
-            return CorpusExplorer(session).tree()
+            return CorpusExplorer(session, access_context=access_context).tree()
 
-    def get_folder(self, relative_path: str) -> dict[str, object] | None:
+    def get_folder(
+        self,
+        relative_path: str,
+        *,
+        access_context: RequestAccessContext | None = None,
+    ) -> dict[str, object] | None:
         if self.session_factory is None:
             raise CorpusServiceUnavailable("Metadata database is not configured.")
         import_models()
         with self.session_factory() as session:
-            return CorpusExplorer(session).folder_contents(relative_path)
+            return CorpusExplorer(session, access_context=access_context).folder_contents(relative_path)
 
-    def get_document(self, document_id: uuid.UUID) -> dict[str, object] | None:
+    def get_document(
+        self,
+        document_id: uuid.UUID,
+        *,
+        access_context: RequestAccessContext | None = None,
+    ) -> dict[str, object] | None:
         if self.session_factory is None:
             raise CorpusServiceUnavailable("Metadata database is not configured.")
         import_models()
         with self.session_factory() as session:
-            return CorpusExplorer(session).document(document_id)
+            return CorpusExplorer(session, access_context=access_context).document(document_id)

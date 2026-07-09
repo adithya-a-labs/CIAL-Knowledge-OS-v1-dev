@@ -243,6 +243,7 @@ class BasicRAGPipeline:
                     "document_version_id": str(row.current_version_id) if row.current_version_id else None,
                     "organization_id": str(row.organization_id),
                     "department_id": str(row.department_id),
+                    "workspace_id": str(row.workspace_id),
                     "folder_id": str(row.folder_id) if row.folder_id else None,
                     "storage_scope": row.storage_scope,
                     "owner_user_id": str(row.owner_user_id) if row.owner_user_id else None,

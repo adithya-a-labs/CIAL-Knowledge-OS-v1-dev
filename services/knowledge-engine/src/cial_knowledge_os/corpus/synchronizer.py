@@ -28,7 +28,7 @@ class CorpusSynchronizer:
         started = perf_counter()
         store = CorpusMetadataStore(session)
         snapshot = store.snapshot()
-        organization_id, default_department_id = store.ensure_enterprise_document_context()
+        organization_id, default_department_id, enterprise_workspace_id = store.ensure_enterprise_document_context()
         counters = _Counters(
             folders_scanned=tree.folders_scanned,
             files_scanned=tree.files_scanned,
@@ -43,7 +43,13 @@ class CorpusSynchronizer:
         session.flush()
 
         try:
-            folders_by_path = self._sync_folders(tree, snapshot, session, counters)
+            folders_by_path = self._sync_folders(
+                tree,
+                snapshot,
+                session,
+                counters,
+                enterprise_workspace_id=enterprise_workspace_id,
+            )
             jobs_created = self._sync_documents(
                 tree,
                 snapshot,
@@ -53,6 +59,7 @@ class CorpusSynchronizer:
                 counters,
                 organization_id=organization_id,
                 default_department_id=default_department_id,
+                enterprise_workspace_id=enterprise_workspace_id,
             )
             counters.indexing_jobs_created = jobs_created
             ingestion_run.status = "completed"
@@ -85,6 +92,8 @@ class CorpusSynchronizer:
         snapshot,
         session: Session,
         counters: "_Counters",
+        *,
+        enterprise_workspace_id,
     ) -> dict[str, Folder]:
         folders_by_path = dict(snapshot.folders_by_path)
         scanned_paths = set(tree.folders_by_path)
@@ -121,6 +130,7 @@ class CorpusSynchronizer:
             folder.name = scanned_folder.name
             folder.relative_path = scanned_folder.relative_path
             folder.depth = scanned_folder.depth
+            folder.workspace_id = enterprise_workspace_id
             folder.last_scanned_at = tree.scanned_at
             folders_by_path[match_path] = folder
             used_new_paths.add(match_path)
@@ -131,6 +141,7 @@ class CorpusSynchronizer:
             folder = folders_by_path.get(relative_path)
             if folder is None:
                 folder = Folder(
+                    workspace_id=enterprise_workspace_id,
                     name=corpus_folder.name,
                     relative_path=relative_path,
                     depth=corpus_folder.depth,
@@ -142,6 +153,7 @@ class CorpusSynchronizer:
                 counters.folders_added += 1
             folder.name = corpus_folder.name
             folder.depth = corpus_folder.depth
+            folder.workspace_id = enterprise_workspace_id
             folder.document_count = corpus_folder.document_count
             folder.subfolder_count = corpus_folder.subfolder_count
             folder.last_scanned_at = tree.scanned_at
@@ -173,6 +185,7 @@ class CorpusSynchronizer:
         *,
         organization_id,
         default_department_id,
+        enterprise_workspace_id,
     ) -> int:
         jobs_created = 0
         scanned_paths = set(tree.files_by_path)
@@ -195,6 +208,7 @@ class CorpusSynchronizer:
                         file,
                         organization_id=organization_id,
                         department_id=default_department_id,
+                        workspace_id=enterprise_workspace_id,
                     )
                     session.add(existing)
                     counters.files_added += 1
@@ -227,6 +241,8 @@ class CorpusSynchronizer:
                     counters.files_unchanged += 1
 
             existing.folder_id = folders_by_path[file.folder_relative_path].id
+            if existing.workspace_id is None:
+                existing.workspace_id = enterprise_workspace_id
             if existing.organization_id is None:
                 existing.organization_id = organization_id
             if existing.department_id is None:
@@ -271,10 +287,11 @@ class CorpusSynchronizer:
         return jobs_created
 
     @staticmethod
-    def _new_document(file: CorpusFile, *, organization_id, department_id) -> Document:
+    def _new_document(file: CorpusFile, *, organization_id, department_id, workspace_id) -> Document:
         document = Document(
             organization_id=organization_id,
             department_id=department_id,
+            workspace_id=workspace_id,
             storage_scope="enterprise",
             name=file.name,
             relative_path=file.relative_path,
