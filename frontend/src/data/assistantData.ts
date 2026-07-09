@@ -147,7 +147,7 @@ export const INITIAL_ASSISTANT_MESSAGES = [
     sources: MOCK_CHAT_SOURCES,
     metadata: {
       searchScope: 'hybrid',
-      responseLength: 'detailed',
+      activeProfile: 'detailed',
       documentsSearched: 5,
       chunksRetrieved: 18,
       sourcesUsed: 3,
