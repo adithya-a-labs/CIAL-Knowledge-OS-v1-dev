@@ -59,15 +59,9 @@ export default function SourceCitationCard({ sources, onOpenSource }: SourceCita
                     <span className="ce-badge ce-badge-accent">[{source.citationIndex}]</span>
                     <span className={`ce-badge ${badge.className}`}>{badge.label}</span>
                     {source.pageNumber ? <span className="ce-meta-text font-semibold">p. {source.pageNumber}</span> : null}
-                    {source.score !== undefined ? (
-                      <span className="ce-meta-text font-semibold">{Math.round(source.score * 100)}%</span>
-                    ) : null}
                   </div>
                   <h3 className="safe-text text-sm font-semibold text-foreground">{source.documentTitle}</h3>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    {source.department ?? 'Department pending'}
-                    {source.chunkId ? ` / ${source.chunkId}` : ''}
-                  </p>
+                  {source.department ? <p className="mt-1 text-[11px] text-muted-foreground">{source.department}</p> : null}
                 </div>
                 <button
                   type="button"
@@ -79,9 +73,6 @@ export default function SourceCitationCard({ sources, onOpenSource }: SourceCita
                   Open
                 </button>
               </div>
-              {source.reason ? (
-                <p className="safe-text mt-2 text-[11px] leading-5 text-muted-foreground">{source.reason}</p>
-              ) : null}
             </article>
           );
         })}
