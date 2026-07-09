@@ -272,4 +272,4 @@ def test_sources_expose_relative_paths_and_deep_link_metadata() -> None:
     assert sources[0].page == 5
     assert sources[0].page_count == 18
     assert sources[0].file_type == "pdf"
-    assert sources[0].file_url == "/api/corpus/document/11111111-1111-4111-8111-111111111111/view"
+    assert sources[0].file_url == "/api/corpus/document/11111111-1111-4111-8111-111111111111/file"
