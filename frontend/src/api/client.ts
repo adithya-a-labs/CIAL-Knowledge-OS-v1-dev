@@ -81,7 +81,7 @@ export function getCorpusDocument(id: string) {
 }
 
 export function getDocumentFileUrl(documentId: string) {
-  return apiUrl(`/api/corpus/document/${encodeURIComponent(documentId)}/file`);
+  return apiUrl(`/api/corpus/document/${encodeURIComponent(documentId)}/view`);
 }
 
 export function getDocumentThumbnailUrl(documentId: string, page = 1) {
