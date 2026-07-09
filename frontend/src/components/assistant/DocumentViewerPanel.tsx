@@ -33,16 +33,20 @@ export default function DocumentViewerPanel({
 }: DocumentViewerPanelProps) {
   const [activeDocument, setActiveDocument] = useState<string | null>(source?.documentId ?? null);
   const [activePage, setActivePage] = useState<number | null>(source?.pageNumber ?? null);
+  const [previewPage, setPreviewPage] = useState<number | null>(source?.pageNumber ?? null);
   const [activeChunk, setActiveChunk] = useState<string | null>(source?.chunkId ?? null);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
+  const [pageCount, setPageCount] = useState<number | null>(source?.pageCount ?? null);
 
   useEffect(() => {
     setActiveDocument(source?.documentId ?? null);
     setActivePage(source?.pageNumber ?? null);
+    setPreviewPage(source?.pageNumber ?? null);
     setActiveChunk(source?.chunkId ?? null);
     setZoomLevel(1);
     setSearchQuery('');
+    setPageCount(source?.pageCount ?? null);
   }, [source?.documentId, source?.pageNumber, source?.chunkId, source?.id]);
 
   const currentIndex = source ? sources.findIndex((candidate) => candidate.id === source.id) : -1;
@@ -51,8 +55,8 @@ export default function DocumentViewerPanel({
   const canFetchPreview = looksLikeUuid(activeDocument ?? undefined);
 
   const previewQuery = useQuery({
-    queryKey: ['document-preview', activeDocument, activeChunk, activePage],
-    queryFn: () => getDocumentPreview(activeDocument!, activeChunk ?? undefined, activePage ?? undefined),
+    queryKey: ['document-preview', activeDocument, activeChunk, previewPage],
+    queryFn: () => getDocumentPreview(activeDocument!, activeChunk ?? undefined, previewPage ?? undefined),
     enabled: canFetchPreview && Boolean(activeDocument),
     retry: false,
   });
@@ -62,14 +66,20 @@ export default function DocumentViewerPanel({
   const openUrl = preview?.open_url ? apiUrl(preview.open_url) : source?.fileUrl ? apiUrl(source.fileUrl) : null;
   const downloadUrl = preview?.download_url ? apiUrl(preview.download_url) : null;
   const pageNumber = activePage ?? preview?.page ?? source?.pageNumber ?? 1;
-  const pageCount = preview?.page_count ?? preview?.slides?.length ?? source?.pageCount ?? null;
+  const effectivePageCount = preview?.page_count ?? preview?.slides?.length ?? pageCount ?? source?.pageCount ?? null;
   const showUnavailablePreview = Boolean(source) && !canFetchPreview;
   const searchEnabled = Boolean(
     preview
-    && preview.render_kind !== 'pdf'
+    && !['docx', 'markdown', 'html', 'image'].includes(preview.render_kind || '')
     && preview.render_kind !== 'image'
     && (preview.preview_text || preview.table_rows?.length || preview.slides?.length || preview.rendered_html),
   );
+  const pageLabel = preview?.render_kind === 'slides' ? 'Slide' : 'Page';
+
+  useEffect(() => {
+    if (preview?.page_count) setPageCount(preview.page_count);
+    else if (preview?.slides?.length) setPageCount(preview.slides.length);
+  }, [preview?.page_count, preview?.slides?.length]);
 
   if (!source) {
     return (
@@ -94,7 +104,8 @@ export default function DocumentViewerPanel({
         title={title}
         citationIndex={source.citationIndex}
         pageNumber={pageNumber}
-        pageCount={pageCount}
+        pageCount={effectivePageCount}
+        pageLabel={pageLabel}
         fileType={preview?.file_type || source.fileType}
         currentIndex={Math.max(0, currentIndex)}
         total={sources.length}
@@ -109,8 +120,11 @@ export default function DocumentViewerPanel({
         onSearchChange={setSearchQuery}
         onZoomIn={() => setZoomLevel((current) => Math.min(current + 0.1, 2))}
         onZoomOut={() => setZoomLevel((current) => Math.max(current - 0.1, 0.7))}
+        onZoomReset={() => setZoomLevel(1)}
         onPageChange={(value) => {
-          setActivePage(pageCount ? Math.min(Math.max(value, 1), pageCount) : Math.max(value, 1));
+          const nextValue = effectivePageCount ? Math.min(Math.max(value, 1), effectivePageCount) : Math.max(value, 1);
+          setActivePage(nextValue);
+          setPreviewPage(nextValue);
           setActiveChunk(null);
         }}
         openUrl={openUrl}
@@ -139,9 +153,24 @@ export default function DocumentViewerPanel({
           </div>
         ) : null}
 
+        {preview?.preview_notice ? (
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
+            {preview.preview_notice}
+          </div>
+        ) : null}
+
         <div className="grid gap-4 xl:grid-rows-[minmax(28rem,3fr)_auto]">
           <div className="min-h-[28rem]">
-            <DocumentPreviewRenderer preview={preview} title={title} searchQuery={searchQuery} zoomLevel={zoomLevel} />
+            <DocumentPreviewRenderer
+              preview={preview}
+              title={title}
+              searchQuery={searchQuery}
+              zoomLevel={zoomLevel}
+              activePage={pageNumber}
+              requestedPage={previewPage ?? pageNumber}
+              onPageCountChange={setPageCount}
+              onActivePageChange={(value) => setActivePage(value)}
+            />
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(18rem,0.7fr)]">
@@ -158,44 +187,47 @@ export default function DocumentViewerPanel({
               </div>
             </div>
 
-            <dl className="grid grid-cols-1 gap-3 rounded-2xl border border-border bg-[hsl(210_20%_98%)] p-4 text-xs sm:grid-cols-2 xl:grid-cols-1">
-              <div>
-                <dt className="font-semibold text-muted-foreground">Relative path</dt>
-                <dd className="safe-text mt-1 text-foreground">{preview?.relative_path || source.relativePath || source.documentId}</dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-muted-foreground">Type</dt>
-                <dd className="mt-1 text-foreground">{preview?.file_type || source.fileType || 'Unknown'}</dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-muted-foreground">Size</dt>
-                <dd className="mt-1 text-foreground">{formatBytes(preview?.size_bytes)}</dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-muted-foreground">Index status</dt>
-                <dd className="mt-1 text-foreground">{preview?.indexing_status || 'Unknown'}</dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-muted-foreground">Modified</dt>
-                <dd className="mt-1 text-foreground">{preview?.modified_at ? new Date(preview.modified_at).toLocaleString() : 'Unknown'}</dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-muted-foreground">Pages / sheets</dt>
-                <dd className="mt-1 text-foreground">{pageCount ?? preview?.sheet_count ?? 'n/a'}</dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-muted-foreground">Extraction</dt>
-                <dd className="mt-1 text-foreground">{preview?.extraction_method || 'metadata'}</dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-muted-foreground">Page</dt>
-                <dd className="mt-1 text-foreground">{pageNumber || 'n/a'}</dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-muted-foreground">Chunk</dt>
-                <dd className="safe-text mt-1 text-foreground">{activeChunk || preview?.chunk_id || source.chunkId || 'n/a'}</dd>
-              </div>
-            </dl>
+            <details className="rounded-2xl border border-border bg-[hsl(210_20%_98%)] p-4 text-xs" open={false}>
+              <summary className="cursor-pointer list-none text-sm font-semibold text-foreground">Document details</summary>
+              <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                <div>
+                  <dt className="font-semibold text-muted-foreground">Relative path</dt>
+                  <dd className="safe-text mt-1 text-foreground">{preview?.relative_path || source.relativePath || source.documentId}</dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-muted-foreground">Type</dt>
+                  <dd className="mt-1 text-foreground">{preview?.file_type || source.fileType || 'Unknown'}</dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-muted-foreground">Size</dt>
+                  <dd className="mt-1 text-foreground">{formatBytes(preview?.size_bytes)}</dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-muted-foreground">Index status</dt>
+                  <dd className="mt-1 text-foreground">{preview?.indexing_status || 'Unknown'}</dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-muted-foreground">Modified</dt>
+                  <dd className="mt-1 text-foreground">{preview?.modified_at ? new Date(preview.modified_at).toLocaleString() : 'Unknown'}</dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-muted-foreground">Pages / sheets</dt>
+                  <dd className="mt-1 text-foreground">{effectivePageCount ?? preview?.sheet_count ?? 'n/a'}</dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-muted-foreground">Extraction</dt>
+                  <dd className="mt-1 text-foreground">{preview?.extraction_method || 'metadata'}</dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-muted-foreground">{pageLabel}</dt>
+                  <dd className="mt-1 text-foreground">{pageNumber || 'n/a'}</dd>
+                </div>
+                <div>
+                  <dt className="font-semibold text-muted-foreground">Chunk</dt>
+                  <dd className="safe-text mt-1 text-foreground">{activeChunk || preview?.chunk_id || source.chunkId || 'n/a'}</dd>
+                </div>
+              </dl>
+            </details>
           </div>
         </div>
       </div>
