@@ -6,7 +6,6 @@ import {
   Search,
   FileText,
   Folder,
-  Building2,
   MessageSquare,
   Bookmark,
   User,
@@ -18,7 +17,6 @@ import {
 } from 'lucide-react';
 import { getCorpusTree } from '@/api/client';
 import { flattenCorpusTree } from '@/api/adapters';
-import { DEPARTMENTS } from '@/data/departmentsData';
 import { MY_DOCUMENTS, MY_CONVERSATIONS } from '@/data/workspace/workspaceData';
 import {
   CommandDialog,
@@ -37,7 +35,6 @@ export interface CommandPaletteItem {
   category:
     | 'Documents'
     | 'Folders'
-    | 'Departments'
     | 'AI Conversations'
     | 'Saved Knowledge'
     | 'My Workspace'
@@ -218,21 +215,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
           findFolders(corpusTree.root);
         }
 
-        // 4. Departments
-        DEPARTMENTS.forEach((dept) => {
-          if (dept.name.toLowerCase().includes(lowerQuery) || dept.headName.toLowerCase().includes(lowerQuery)) {
-            results.push({
-              id: `dept-${dept.id}`,
-              title: `${dept.name} Department`,
-              subtitle: `Head: ${dept.headName} / ${dept.stats.documents} documents`,
-              category: 'Departments',
-              icon: Building2,
-              action: () => navigate('/departments'),
-            });
-          }
-        });
-
-        // 5. AI Conversations (from localStorage sessions + Workspace Mock Data)
+        // 4. AI Conversations (from localStorage sessions + Workspace Mock Data)
         const localConversations: any[] = [];
         try {
           const raw = localStorage.getItem('cial-assistant-sessions');
@@ -265,7 +248,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
           }
         });
 
-        // 6. Saved Knowledge & Workspace notes
+        // 5. Saved Knowledge & Workspace notes
         const savedKnowledgeItems = [
           'Fire alarm escalation SOP',
           'Runway Lighting System - Maintenance Manual',
@@ -304,7 +287,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
           }
         });
 
-        // 7. Workspace private documents
+        // 6. Workspace private documents
         MY_DOCUMENTS.forEach((doc) => {
           if (doc.name.toLowerCase().includes(lowerQuery)) {
             results.push({
@@ -422,8 +405,6 @@ export function CommandPalette() {
               action = () => navigate(`/knowledge/document/${docId}`);
             } else if (item.id.startsWith('folder-')) {
               action = () => navigate('/knowledge-center');
-            } else if (item.id.startsWith('dept-')) {
-              action = () => navigate('/departments');
             } else if (item.id.startsWith('convo-')) {
               action = () => navigate('/assistant');
             } else if (item.id.startsWith('saved-')) {
@@ -444,8 +425,6 @@ export function CommandPalette() {
                 ? FileText
                 : item.id.startsWith('folder-')
                 ? Folder
-                : item.id.startsWith('dept-')
-                ? Building2
                 : item.id.startsWith('convo-')
                 ? MessageSquare
                 : item.id.startsWith('saved-')
