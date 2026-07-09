@@ -212,12 +212,14 @@ function SettingsPopover<T extends string>({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="ce-control flex min-h-10 min-w-[10rem] items-center gap-3 bg-white px-3 text-left hover:bg-[hsl(210_20%_98%)]"
+          className="ce-control flex min-h-9 min-w-0 items-center gap-2 rounded-full bg-white px-3 text-left hover:bg-[hsl(210_20%_98%)]"
           aria-label={`Open ${title} selector`}
           aria-haspopup="dialog"
         >
           <TriggerIcon size={17} className="shrink-0 text-primary" />
-          <span className="text-[11px] font-semibold uppercase text-muted-foreground">{eyebrow}</span>
+          <span className="hidden text-[11px] font-semibold uppercase text-muted-foreground sm:inline">
+            {eyebrow}
+          </span>
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
             {selectedOption.title}
           </span>
