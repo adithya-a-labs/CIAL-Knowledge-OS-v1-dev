@@ -146,6 +146,14 @@ export default function DocumentViewerPanel({
   );
   const fallbackExcerpt = excerptFor(source, preview?.preview_text);
 
+  useEffect(() => {
+    if (source?.slideNumber || source?.pageNumber) return;
+    const previewPage = preview?.page;
+    if (!previewPage || previewPage <= 0) return;
+    setRequestedPage(previewPage);
+    setActivePage(previewPage);
+  }, [preview?.page, source?.pageNumber, source?.slideNumber]);
+
   if (!source) {
     return (
       <div className="flex h-full flex-col bg-white">
@@ -168,6 +176,9 @@ export default function DocumentViewerPanel({
       || preview.rendered_html
     ),
   );
+  const requiresExactPdfPage = preview?.render_kind === 'pdf';
+  const hasExactPdfPage = !requiresExactPdfPage || Boolean(effectivePageNumber && effectivePageNumber > 0);
+  const shouldRenderPreview = showRenderablePreview && hasExactPdfPage;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-white" data-testid="document-viewer-panel">
@@ -194,7 +205,7 @@ export default function DocumentViewerPanel({
           <div className="flex h-full items-center justify-center px-6 text-sm text-slate-500">
             Loading source preview...
           </div>
-        ) : showRenderablePreview ? (
+        ) : shouldRenderPreview ? (
           <DocumentPreviewRenderer
             preview={preview}
             title={title}
