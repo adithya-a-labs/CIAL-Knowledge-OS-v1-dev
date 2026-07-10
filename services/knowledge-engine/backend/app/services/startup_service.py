@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from backend.app.core.application_config import validate_repository_path
 from backend.app.core.config import settings
 from backend.app.core.runtime_state import RuntimeState, utc_now_iso
 from backend.app.db.session import SessionLocal
@@ -80,6 +81,16 @@ class StartupService:
             message="Backend startup checks are running.",
         )
         try:
+            self.validate_corpus_root()
+            logger.info(
+                "corpus_repository_config_loaded",
+                extra={
+                    "event": "startup",
+                    "corpus_root": str(settings.corpus_root_path),
+                    "repository_id": settings.corpus_repository_id,
+                    "application_config_file": settings.application_config_file,
+                },
+            )
             self.ensure_required_folders()
             sync_summary = self.sync_corpus_metadata()
             documents_seen = self.detect_documents()
@@ -101,7 +112,7 @@ class StartupService:
                     documents_indexed=0,
                     index_fresh=False,
                     message=(
-                        f"No documents were found under {settings.data_files_path}. "
+                        f"No documents were found under {settings.corpus_root_path}. "
                         "Add documents and rebuild or restart the backend."
                     ),
                 )
@@ -298,7 +309,6 @@ class StartupService:
 
     def ensure_required_folders(self) -> None:
         for path in (
-            settings.data_files_path,
             settings.indexes_path,
             settings.bm25_path,
             settings.outputs_path,
@@ -306,8 +316,22 @@ class StartupService:
         ):
             path.mkdir(parents=True, exist_ok=True)
 
+    def validate_corpus_root(self) -> None:
+        result = validate_repository_path(settings.corpus_root_path)
+        if not result.valid:
+            raise RuntimeError(result.message)
+        if not result.writable:
+            logger.warning(
+                "corpus_root_not_writable",
+                extra={
+                    "event": "startup",
+                    "corpus_root": str(result.path),
+                    "repository_id": settings.corpus_repository_id,
+                },
+            )
+
     def detect_documents(self) -> int:
-        root = settings.data_files_path
+        root = settings.corpus_root_path
         if not root.exists():
             return 0
         return sum(
