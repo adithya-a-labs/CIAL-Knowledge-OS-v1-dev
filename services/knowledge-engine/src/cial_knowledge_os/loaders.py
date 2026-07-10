@@ -104,6 +104,7 @@ def _base_metadata(
     page_number: int | None = None,
     *,
     corpus_root: Path | None = None,
+    repository_id: str | None = None,
 ) -> dict[str, Any]:
     resolved = path.resolve()
     relative_path: Path | None = None
@@ -120,6 +121,7 @@ def _base_metadata(
         "source_filename": path.name,
         "absolute_path": str(resolved),
         "relative_path": relative_path.as_posix() if relative_path else path.name,
+        "repository_id": repository_id,
         "category": folder_parts[0] if folder_parts else None,
         "collection": folder_parts[1] if len(folder_parts) > 1 else None,
         "loader_type": loader_type,
@@ -142,7 +144,12 @@ def _read_text_lossy(path: Path) -> str:
         return path.read_text(encoding="latin-1")
 
 
-def _load_text_like_document(path: Path, corpus_root: Path | None = None) -> list[Document]:
+def _load_text_like_document(
+    path: Path,
+    corpus_root: Path | None = None,
+    *,
+    repository_id: str | None = None,
+) -> list[Document]:
     suffix = path.suffix.casefold()
     raw = _read_text_lossy(path)
     text = raw
@@ -177,7 +184,12 @@ def _load_text_like_document(path: Path, corpus_root: Path | None = None) -> lis
     return [
         Document(
             page_content=text,
-            metadata=_base_metadata(path, loader_type, corpus_root=corpus_root),
+            metadata=_base_metadata(
+                path,
+                loader_type,
+                corpus_root=corpus_root,
+                repository_id=repository_id,
+            ),
         )
     ]
 
@@ -195,11 +207,17 @@ def load_text_documents(config: KnowledgeOSConfig) -> list[Document]:
             if resolved in seen:
                 continue
             seen.add(resolved)
-            documents.extend(_load_text_like_document(path))
+            documents.extend(
+                _load_text_like_document(
+                    path,
+                    corpus_root=config.knowledge_root,
+                    repository_id=config.repository_id,
+                )
+            )
     return documents
 
 
-def _load_with_docling(path: Path, corpus_root: Path) -> list[Document]:
+def _load_with_docling(path: Path, corpus_root: Path, *, repository_id: str | None = None) -> list[Document]:
     from docling.document_converter import DocumentConverter
 
     result = DocumentConverter().convert(str(path))
@@ -209,13 +227,13 @@ def _load_with_docling(path: Path, corpus_root: Path) -> list[Document]:
     return [
         Document(
             page_content=text,
-            metadata=_base_metadata(path, "docling", corpus_root=corpus_root),
+            metadata=_base_metadata(path, "docling", corpus_root=corpus_root, repository_id=repository_id),
         )
     ]
 
 
-def _load_pdf_with_docling(path: Path, corpus_root: Path) -> list[Document]:
-    return _load_with_docling(path, corpus_root)
+def _load_pdf_with_docling(path: Path, corpus_root: Path, *, repository_id: str | None = None) -> list[Document]:
+    return _load_with_docling(path, corpus_root, repository_id=repository_id)
 
 
 def _spreadsheet_row_text(values: list[object]) -> str:
@@ -223,7 +241,7 @@ def _spreadsheet_row_text(values: list[object]) -> str:
     return " | ".join(cell for cell in cells if cell)
 
 
-def _load_xlsx_document(path: Path, corpus_root: Path) -> list[Document]:
+def _load_xlsx_document(path: Path, corpus_root: Path, *, repository_id: str | None = None) -> list[Document]:
     try:
         from openpyxl import load_workbook
     except ImportError as exc:
@@ -241,7 +259,7 @@ def _load_xlsx_document(path: Path, corpus_root: Path) -> list[Document]:
             text = "\n".join(lines).strip()
             if not text:
                 continue
-            metadata = _base_metadata(path, "xlsx", corpus_root=corpus_root)
+            metadata = _base_metadata(path, "xlsx", corpus_root=corpus_root, repository_id=repository_id)
             metadata["sheet_name"] = worksheet.title
             metadata["sheet_index"] = sheet_index
             metadata["anchor"] = f"sheet:{worksheet.title}"
@@ -251,7 +269,7 @@ def _load_xlsx_document(path: Path, corpus_root: Path) -> list[Document]:
     return documents
 
 
-def _load_xls_document(path: Path, corpus_root: Path) -> list[Document]:
+def _load_xls_document(path: Path, corpus_root: Path, *, repository_id: str | None = None) -> list[Document]:
     try:
         import xlrd
     except ImportError as exc:
@@ -272,7 +290,7 @@ def _load_xls_document(path: Path, corpus_root: Path) -> list[Document]:
             text = "\n".join(lines).strip()
             if not text:
                 continue
-            metadata = _base_metadata(path, "xls", corpus_root=corpus_root)
+            metadata = _base_metadata(path, "xls", corpus_root=corpus_root, repository_id=repository_id)
             metadata["sheet_name"] = sheet_name
             metadata["sheet_index"] = sheet_index
             metadata["anchor"] = f"sheet:{sheet_name}"
@@ -282,7 +300,7 @@ def _load_xls_document(path: Path, corpus_root: Path) -> list[Document]:
     return documents
 
 
-def _load_pptx_document(path: Path, corpus_root: Path) -> list[Document]:
+def _load_pptx_document(path: Path, corpus_root: Path, *, repository_id: str | None = None) -> list[Document]:
     try:
         from pptx import Presentation
     except ImportError as exc:
@@ -302,14 +320,14 @@ def _load_pptx_document(path: Path, corpus_root: Path) -> list[Document]:
         slide_text = "\n".join(parts).strip()
         if not slide_text:
             continue
-        metadata = _base_metadata(path, "pptx", corpus_root=corpus_root)
+        metadata = _base_metadata(path, "pptx", corpus_root=corpus_root, repository_id=repository_id)
         metadata["slide_number"] = slide_number
         metadata["anchor"] = f"slide:{slide_number}"
         documents.append(Document(page_content=slide_text, metadata=metadata))
     return documents
 
 
-def _load_pdf_with_pymupdf(path: Path, corpus_root: Path) -> list[Document]:
+def _load_pdf_with_pymupdf(path: Path, corpus_root: Path, *, repository_id: str | None = None) -> list[Document]:
     import fitz
 
     documents: list[Document] = []
@@ -325,6 +343,7 @@ def _load_pdf_with_pymupdf(path: Path, corpus_root: Path) -> list[Document]:
                             "pymupdf",
                             index,
                             corpus_root=corpus_root,
+                            repository_id=repository_id,
                         ),
                     )
                 )
@@ -344,7 +363,7 @@ def _load_ocr_document(path: Path, config: KnowledgeOSConfig, corpus_root: Path)
         return []
     engine = create_ocr_engine(config)
     result = engine.extract(path)
-    metadata = _base_metadata(path, "ocr", corpus_root=corpus_root)
+    metadata = _base_metadata(path, "ocr", corpus_root=corpus_root, repository_id=config.repository_id)
     metadata.update(result.metadata)
     metadata["ocr_status"] = result.status
     if result.error:
@@ -420,12 +439,12 @@ def _load_supported_path(path: Path, config: KnowledgeOSConfig, corpus_root: Pat
     if suffix in OCR_EXTENSIONS:
         return _load_ocr_document(path, config, corpus_root)
     if suffix in TEXT_LIKE_EXTENSIONS:
-        return _load_text_like_document(path, corpus_root)
+        return _load_text_like_document(path, corpus_root, repository_id=config.repository_id)
     if suffix == ".pdf":
-        return _load_pdf_path(path, corpus_root)
+        return _load_pdf_path(path, corpus_root, repository_id=config.repository_id)
     if suffix == ".xlsx":
         try:
-            documents = _load_xlsx_document(path, corpus_root)
+            documents = _load_xlsx_document(path, corpus_root, repository_id=config.repository_id)
             if documents:
                 return documents
         except Exception as exc:
@@ -439,7 +458,7 @@ def _load_supported_path(path: Path, config: KnowledgeOSConfig, corpus_root: Pat
             )
     if suffix == ".xls":
         try:
-            documents = _load_xls_document(path, corpus_root)
+            documents = _load_xls_document(path, corpus_root, repository_id=config.repository_id)
             if documents:
                 return documents
         except Exception as exc:
@@ -453,7 +472,7 @@ def _load_supported_path(path: Path, config: KnowledgeOSConfig, corpus_root: Pat
             )
     if suffix == ".pptx":
         try:
-            documents = _load_pptx_document(path, corpus_root)
+            documents = _load_pptx_document(path, corpus_root, repository_id=config.repository_id)
             if documents:
                 return documents
         except Exception as exc:
@@ -467,7 +486,7 @@ def _load_supported_path(path: Path, config: KnowledgeOSConfig, corpus_root: Pat
             )
     if suffix in DOCLING_EXTENSIONS:
         try:
-            return _load_with_docling(path, corpus_root)
+            return _load_with_docling(path, corpus_root, repository_id=config.repository_id)
         except ImportError as exc:
             logger.warning(
                 "docling_document_loader_unavailable",
@@ -491,7 +510,7 @@ def _load_supported_path(path: Path, config: KnowledgeOSConfig, corpus_root: Pat
     return []
 
 
-def _load_pdf_path(path: Path, corpus_root: Path) -> list[Document]:
+def _load_pdf_path(path: Path, corpus_root: Path, *, repository_id: str | None = None) -> list[Document]:
     try:
         import docling  # noqa: F401
     except ImportError:
@@ -514,7 +533,11 @@ def _load_pdf_path(path: Path, corpus_root: Path) -> list[Document]:
 
     if docling_available:
         try:
-            docling_documents = _load_pdf_with_docling(path, corpus_root)
+            docling_documents = (
+                _load_pdf_with_docling(path, corpus_root, repository_id=repository_id)
+                if repository_id is not None
+                else _load_pdf_with_docling(path, corpus_root)
+            )
             if docling_documents:
                 return docling_documents
         except Exception as exc:
@@ -535,7 +558,11 @@ def _load_pdf_path(path: Path, corpus_root: Path) -> list[Document]:
                     "is not installed as a local fallback."
                 )
     try:
-        return _load_pdf_with_pymupdf(path, corpus_root)
+        return (
+            _load_pdf_with_pymupdf(path, corpus_root, repository_id=repository_id)
+            if repository_id is not None
+            else _load_pdf_with_pymupdf(path, corpus_root)
+        )
     except Exception as exc:
         raise RuntimeError(
             f"Could not read PDF '{path}'. The file may be corrupted, "

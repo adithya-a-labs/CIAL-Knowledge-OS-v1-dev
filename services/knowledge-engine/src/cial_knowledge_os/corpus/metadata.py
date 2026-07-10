@@ -37,12 +37,18 @@ class MetadataSnapshot:
 
 
 class CorpusMetadataStore:
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, *, repository_id: str | None = None) -> None:
         self.session = session
+        self.repository_id = repository_id
 
     def snapshot(self) -> MetadataSnapshot:
-        folders = list(self.session.scalars(select(Folder)))
-        documents = list(self.session.scalars(select(Document)))
+        folders_statement = select(Folder)
+        documents_statement = select(Document)
+        if self.repository_id is not None:
+            folders_statement = folders_statement.where(Folder.repository_id == self.repository_id)
+            documents_statement = documents_statement.where(Document.repository_id == self.repository_id)
+        folders = list(self.session.scalars(folders_statement))
+        documents = list(self.session.scalars(documents_statement))
         return MetadataSnapshot(
             folders_by_path={folder.relative_path: folder for folder in folders},
             documents_by_path={document.relative_path: document for document in documents},
@@ -130,11 +136,14 @@ class CorpusMetadataStore:
             document_id=document.id,
             document_version_id=document_version.id if document_version is not None else None,
             content_hash=document.content_hash,
+            repository_id=self.repository_id,
             status="pending",
             force_rebuild=False,
+            attempts=0,
             message=message,
             metadata_={
                 "source": "corpus_sync",
+                "repository_id": self.repository_id,
                 "action": action,
                 "document_id": str(document.id),
                 "document_version_id": str(document_version.id) if document_version is not None else None,
@@ -162,6 +171,8 @@ class CorpusMetadataStore:
         if document_version_id is None and document_id is None:
             return None
         conditions = [IndexingJob.status.in_(_ACTIVE_JOB_STATUSES)]
+        if self.repository_id is not None:
+            conditions.append(IndexingJob.repository_id == self.repository_id)
         if document_version_id is not None:
             conditions.append(IndexingJob.document_version_id == document_version_id)
         elif document_id is not None:
@@ -285,6 +296,7 @@ def folder_to_dict(folder: Folder) -> dict[str, Any]:
     return {
         "id": str(folder.id),
         "workspace_id": str(folder.workspace_id),
+        "repository_id": folder.repository_id,
         "parent_id": str(folder.parent_id) if folder.parent_id else None,
         "name": folder.name,
         "relative_path": folder.relative_path,
@@ -303,6 +315,7 @@ def document_to_dict(document: Document) -> dict[str, Any]:
         "organization_id": str(document.organization_id),
         "department_id": str(document.department_id),
         "workspace_id": str(document.workspace_id),
+        "repository_id": document.repository_id,
         "folder_id": str(document.folder_id) if document.folder_id else None,
         "storage_scope": document.storage_scope,
         "owner_user_id": str(document.owner_user_id) if document.owner_user_id else None,

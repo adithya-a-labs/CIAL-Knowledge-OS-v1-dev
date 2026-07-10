@@ -24,14 +24,28 @@ class CorpusExplorer:
         session: Session,
         *,
         access_context: RequestAccessContext | None = None,
+        repository_id: str | None = None,
     ) -> None:
         self.session = session
         self.access_context = access_context or anonymous_access_context()
+        self.repository_id = repository_id
+
+    def _folder_statement(self):
+        statement = select(Folder)
+        if self.repository_id is not None:
+            statement = statement.where(Folder.repository_id == self.repository_id)
+        return statement
+
+    def _document_statement(self):
+        statement = select(Document)
+        if self.repository_id is not None:
+            statement = statement.where(Document.repository_id == self.repository_id)
+        return statement
 
     def tree(self) -> dict[str, Any]:
         folders = list(
             self.session.scalars(
-                select(Folder)
+                self._folder_statement()
                 .where(Folder.last_scanned_at.is_not(None))
                 .order_by(Folder.depth, Folder.name)
             )
@@ -39,7 +53,7 @@ class CorpusExplorer:
         documents = list(
             self.session.scalars(
                 apply_document_access_filter(
-                    select(Document).order_by(Document.name),
+                    self._document_statement().order_by(Document.name),
                     self.access_context,
                 )
             )
@@ -76,13 +90,13 @@ class CorpusExplorer:
 
     def folder_contents(self, relative_path: str) -> dict[str, Any] | None:
         normalized = relative_path.replace("\\", "/").strip("/")
-        folder = self.session.scalar(select(Folder).where(Folder.relative_path == normalized))
+        folder = self.session.scalar(self._folder_statement().where(Folder.relative_path == normalized))
         if folder is None or folder.last_scanned_at is None:
             return None
         documents = list(
             self.session.scalars(
                 apply_document_access_filter(
-                    select(Document)
+                    self._document_statement()
                     .where(Document.indexing_status != DELETED_STATUS)
                     .order_by(Document.name),
                     self.access_context,
@@ -92,7 +106,7 @@ class CorpusExplorer:
         visible_folder_ids = self._visible_folder_ids(
             list(
                 self.session.scalars(
-                    select(Folder)
+                    self._folder_statement()
                     .where(Folder.last_scanned_at.is_not(None))
                     .order_by(Folder.depth, Folder.name)
                 )
@@ -103,7 +117,7 @@ class CorpusExplorer:
             return None
         subfolders = list(
             self.session.scalars(
-                select(Folder)
+                self._folder_statement()
                 .where(Folder.parent_id == folder.id, Folder.last_scanned_at.is_not(None))
                 .order_by(Folder.name)
             )
@@ -118,7 +132,7 @@ class CorpusExplorer:
     def document(self, document_id: uuid.UUID) -> dict[str, Any] | None:
         document = self.session.scalar(
             apply_document_access_filter(
-                select(Document).where(Document.id == document_id),
+                self._document_statement().where(Document.id == document_id),
                 self.access_context,
             )
         )

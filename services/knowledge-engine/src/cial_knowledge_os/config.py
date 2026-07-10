@@ -35,6 +35,7 @@ class KnowledgeOSConfig:
     sample_data_dir: Path | None = None
     raw_data_dir: Path | None = None
     knowledge_root: Path | None = None
+    repository_id: str | None = None
     legacy_pdf_root: Path | None = None
     # Deprecated compatibility alias. New code must use ``knowledge_root`` for
     # ingestion; ``legacy_pdf_root`` exists only for one-time migration.

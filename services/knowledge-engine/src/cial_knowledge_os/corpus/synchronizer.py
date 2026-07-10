@@ -21,12 +21,13 @@ INDEXED_STATUS = "indexed"
 
 
 class CorpusSynchronizer:
-    def __init__(self, *, batch_size: int = 500) -> None:
+    def __init__(self, *, batch_size: int = 500, repository_id: str | None = None) -> None:
         self.batch_size = batch_size
+        self.repository_id = repository_id
 
     def synchronize(self, tree: CorpusTree, session: Session) -> CorpusSyncSummary:
         started = perf_counter()
-        store = CorpusMetadataStore(session)
+        store = CorpusMetadataStore(session, repository_id=self.repository_id)
         snapshot = store.snapshot()
         organization_id, default_department_id, enterprise_workspace_id = store.ensure_enterprise_document_context()
         counters = _Counters(
@@ -35,6 +36,7 @@ class CorpusSynchronizer:
         )
 
         ingestion_run = IngestionRun(
+            repository_id=self.repository_id,
             status="running",
             files_seen=tree.files_scanned,
             message="Corpus synchronization started.",
@@ -131,6 +133,7 @@ class CorpusSynchronizer:
             folder.relative_path = scanned_folder.relative_path
             folder.depth = scanned_folder.depth
             folder.workspace_id = enterprise_workspace_id
+            folder.repository_id = self.repository_id
             folder.last_scanned_at = tree.scanned_at
             folders_by_path[match_path] = folder
             used_new_paths.add(match_path)
@@ -142,6 +145,7 @@ class CorpusSynchronizer:
             if folder is None:
                 folder = Folder(
                     workspace_id=enterprise_workspace_id,
+                    repository_id=self.repository_id,
                     name=corpus_folder.name,
                     relative_path=relative_path,
                     depth=corpus_folder.depth,
@@ -154,6 +158,7 @@ class CorpusSynchronizer:
             folder.name = corpus_folder.name
             folder.depth = corpus_folder.depth
             folder.workspace_id = enterprise_workspace_id
+            folder.repository_id = self.repository_id
             folder.document_count = corpus_folder.document_count
             folder.subfolder_count = corpus_folder.subfolder_count
             folder.last_scanned_at = tree.scanned_at
@@ -206,6 +211,7 @@ class CorpusSynchronizer:
                 if existing is None:
                     existing = self._new_document(
                         file,
+                        repository_id=self.repository_id,
                         organization_id=organization_id,
                         department_id=default_department_id,
                         workspace_id=enterprise_workspace_id,
@@ -241,6 +247,7 @@ class CorpusSynchronizer:
                     counters.files_unchanged += 1
 
             existing.folder_id = folders_by_path[file.folder_relative_path].id
+            existing.repository_id = self.repository_id
             if existing.workspace_id is None:
                 existing.workspace_id = enterprise_workspace_id
             if existing.organization_id is None:
@@ -287,11 +294,12 @@ class CorpusSynchronizer:
         return jobs_created
 
     @staticmethod
-    def _new_document(file: CorpusFile, *, organization_id, department_id, workspace_id) -> Document:
+    def _new_document(file: CorpusFile, *, repository_id: str | None, organization_id, department_id, workspace_id) -> Document:
         document = Document(
             organization_id=organization_id,
             department_id=department_id,
             workspace_id=workspace_id,
+            repository_id=repository_id,
             storage_scope="enterprise",
             name=file.name,
             relative_path=file.relative_path,
@@ -343,6 +351,7 @@ class CorpusSynchronizer:
         session.flush()
         version = DocumentVersion(
             document_id=document.id,
+            repository_id=getattr(document, "repository_id", None),
             version_number=store.next_document_version(document.id),
             storage_key=file.relative_path,
             content_hash=file.content_hash,

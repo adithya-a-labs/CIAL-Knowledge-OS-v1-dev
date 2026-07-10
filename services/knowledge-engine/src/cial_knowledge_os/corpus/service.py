@@ -31,14 +31,16 @@ class CorpusService:
         session_factory: sessionmaker | None,
         hash_algorithm: str = "sha256",
         batch_size: int = 500,
+        repository_id: str | None = None,
     ) -> None:
         self.root = root
         self.session_factory = session_factory
         self.hash_algorithm = hash_algorithm
         self.batch_size = batch_size
+        self.repository_id = repository_id
         self.scanner = FilesystemCorpusScanner(root, hash_algorithm=hash_algorithm)
         self.tree_builder = CorpusTreeBuilder()
-        self.synchronizer = CorpusSynchronizer(batch_size=batch_size)
+        self.synchronizer = CorpusSynchronizer(batch_size=batch_size, repository_id=repository_id)
 
     def sync(self) -> CorpusSyncSummary:
         if self.session_factory is None:
@@ -56,7 +58,7 @@ class CorpusService:
             raise CorpusServiceUnavailable("Metadata database is not configured.")
         import_models()
         with self.session_factory() as session:
-            return CorpusExplorer(session, access_context=access_context).tree()
+            return CorpusExplorer(session, access_context=access_context, repository_id=self.repository_id).tree()
 
     def get_folder(
         self,
@@ -68,7 +70,11 @@ class CorpusService:
             raise CorpusServiceUnavailable("Metadata database is not configured.")
         import_models()
         with self.session_factory() as session:
-            return CorpusExplorer(session, access_context=access_context).folder_contents(relative_path)
+            return CorpusExplorer(
+                session,
+                access_context=access_context,
+                repository_id=self.repository_id,
+            ).folder_contents(relative_path)
 
     def get_document(
         self,
@@ -80,4 +86,8 @@ class CorpusService:
             raise CorpusServiceUnavailable("Metadata database is not configured.")
         import_models()
         with self.session_factory() as session:
-            return CorpusExplorer(session, access_context=access_context).document(document_id)
+            return CorpusExplorer(
+                session,
+                access_context=access_context,
+                repository_id=self.repository_id,
+            ).document(document_id)
