@@ -30,11 +30,23 @@ def chunk_documents(
         source_indexes[source] += 1
         page = chunk.metadata.get("page_number", "na")
         file_name = str(chunk.metadata.get("file_name", "document"))
+        chunk_id = f"{file_name}:p{page}:c{chunk_index}"
+        anchor = chunk.metadata.get("anchor")
+        if not anchor:
+            if chunk.metadata.get("sheet_name"):
+                anchor = f"sheet:{chunk.metadata.get('sheet_name')}"
+            elif chunk.metadata.get("slide_number") is not None:
+                anchor = f"slide:{chunk.metadata.get('slide_number')}"
+            elif page not in {None, "", "na"}:
+                anchor = f"page:{page}"
+            else:
+                anchor = chunk_id
         chunk.metadata.update(
             {
-                "chunk_id": f"{file_name}:p{page}:c{chunk_index}",
+                "chunk_id": chunk_id,
                 "chunk_index": chunk_index,
                 "chunk_char_count": len(chunk.page_content),
+                "anchor": anchor,
             }
         )
     return chunks
