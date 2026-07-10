@@ -96,10 +96,22 @@ export function getDocumentThumbnailUrl(documentId: string, page = 1) {
   return apiUrl(`/api/corpus/document/${encodeURIComponent(documentId)}/thumbnail?page=${encodeURIComponent(String(page))}`);
 }
 
-export function getDocumentPreview(documentId: string, chunkId?: string, page?: number) {
+export function getDocumentPreview(
+  documentId: string,
+  options: {
+    chunkId?: string;
+    page?: number;
+    sheetName?: string;
+    sheetIndex?: number;
+    slideNumber?: number;
+  } = {},
+) {
   const params = new URLSearchParams();
-  if (chunkId) params.set('chunk_id', chunkId);
-  if (page !== undefined) params.set('page', String(page));
+  if (options.chunkId) params.set('chunk_id', options.chunkId);
+  if (options.page !== undefined) params.set('page', String(options.page));
+  if (options.sheetName) params.set('sheet_name', options.sheetName);
+  if (options.sheetIndex !== undefined) params.set('sheet_index', String(options.sheetIndex));
+  if (options.slideNumber !== undefined) params.set('slide_number', String(options.slideNumber));
   const query = params.toString();
   return request<DocumentPreview>(
     `/api/corpus/document/${encodeURIComponent(documentId)}/preview${query ? `?${query}` : ''}`,
