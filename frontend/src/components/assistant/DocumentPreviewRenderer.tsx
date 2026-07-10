@@ -59,10 +59,12 @@ export default function DocumentPreviewRenderer({
   }
 
   if (viewerIsPdf && viewerUrl && useNativePdf) {
+    const pdfSearch = searchQuery.trim();
+    const pdfFragment = `#page=${requestedPage || activePage || 1}&zoom=${Math.round(zoomLevel * 100)}${pdfSearch ? `&search=${encodeURIComponent(pdfSearch)}` : ''}`;
     return (
       <div className="flex h-full min-h-[28rem] flex-col overflow-hidden rounded-[1.5rem] border border-border bg-[hsl(210_20%_98%)]">
         <iframe
-          src={`${viewerUrl}#page=${requestedPage || activePage || 1}&zoom=${Math.round(zoomLevel * 100)}`}
+          src={`${viewerUrl}${pdfFragment}`}
           title={title}
           className="min-h-0 flex-1 bg-white"
           onLoad={() => {
