@@ -93,6 +93,7 @@ class BM25Retriever:
         self._chunks: list[dict[str, Any]] = []
         self._index: Any | None = None
         self._fingerprint: str | None = None
+        self.allowed_relative_paths: frozenset[str] | None = None
 
     @property
     def is_indexed(self) -> bool:
@@ -116,6 +117,33 @@ class BM25Retriever:
                 }
             )
         return normalize_result(chunk)
+
+    @staticmethod
+    def _normalize_relative_path(value: Any) -> str:
+        return str(value or "").replace("\\", "/").strip("/")
+
+    def set_allowed_relative_paths(
+        self,
+        allowed_relative_paths: frozenset[str] | None,
+    ) -> None:
+        if not allowed_relative_paths:
+            self.allowed_relative_paths = None
+            return
+        self.allowed_relative_paths = frozenset(
+            self._normalize_relative_path(value)
+            for value in allowed_relative_paths
+            if self._normalize_relative_path(value)
+        )
+
+    def _is_allowed(self, chunk: Mapping[str, Any]) -> bool:
+        if not self.allowed_relative_paths:
+            return True
+        metadata = chunk.get("metadata")
+        metadata = metadata if isinstance(metadata, Mapping) else {}
+        relative_path = self._normalize_relative_path(
+            chunk.get("relative_path") or metadata.get("relative_path")
+        )
+        return bool(relative_path and relative_path in self.allowed_relative_paths)
 
     @staticmethod
     def _corpus_fingerprint(chunks: Sequence[Mapping[str, Any]]) -> str:
@@ -256,6 +284,8 @@ class BM25Retriever:
             if score <= 0:
                 continue
             result = dict(self._chunks[index])
+            if not self._is_allowed(result):
+                continue
             result.update(
                 {
                     "score": score,
