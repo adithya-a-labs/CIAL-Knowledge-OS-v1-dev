@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Collection
+
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
@@ -20,6 +22,7 @@ def search_similar_chunks(
     config: KnowledgeOSConfig,
     *,
     top_k: int | None = None,
+    allowed_relative_paths: Collection[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Embed a query locally and return normalized, inspectable search results.
 
@@ -31,11 +34,26 @@ def search_similar_chunks(
     if retrieval_limit <= 0:
         raise ValueError("top_k must be greater than zero.")
     query_vector = embed_texts(embedding_model, [query])[0]
+    query_filter = None
+    if allowed_relative_paths:
+        normalized_paths = sorted({str(value).replace("\\", "/").strip("/") for value in allowed_relative_paths if str(value).strip()})
+        if not normalized_paths:
+            return []
+        query_filter = Filter(
+            should=[
+                FieldCondition(
+                    key="metadata.relative_path",
+                    match=MatchValue(value=value),
+                )
+                for value in normalized_paths
+            ]
+        )
     response = client.query_points(
         collection_name=config.qdrant_collection_name,
         query=query_vector.tolist(),
         limit=retrieval_limit,
         with_payload=True,
+        query_filter=query_filter,
     )
     results: list[dict[str, Any]] = []
     for point in response.points:
