@@ -11,6 +11,7 @@ interface DocumentToolbarProps {
   sheetIndex?: number | null;
   slideNumber?: number | null;
   anchor?: string | null;
+  citationId?: string | null;
   currentIndex: number;
   total: number;
   previousSource: ChatSource | null;
@@ -29,6 +30,7 @@ export default function DocumentToolbar({
   sheetIndex,
   slideNumber,
   anchor,
+  citationId,
   currentIndex,
   total,
   previousSource,
@@ -41,10 +43,11 @@ export default function DocumentToolbar({
     if (!documentId) return null;
     const params = new URLSearchParams();
     if (pageNumber) params.set('page', String(pageNumber));
+    if (citationId) params.set('citation', citationId);
     if (slideNumber) params.set('slide', String(slideNumber));
     if (sheetName) params.set('sheet', sheetName);
     if (sheetIndex) params.set('sheetIndex', String(sheetIndex));
-    if (anchor) params.set('chunk', anchor);
+    if (anchor && !citationId) params.set('chunk', anchor);
     const query = params.toString();
     return `/knowledge/document/${documentId}${query ? `?${query}` : ''}`;
   })();

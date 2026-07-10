@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { FileSearch } from 'lucide-react';
 import { Link } from 'wouter';
 import { getDocumentPreview } from '@/api/client';
+import type { DocumentPreview } from '@/api/types';
 import DocumentPreviewRenderer from './DocumentPreviewRenderer';
 import DocumentToolbar from './DocumentToolbar';
 import type { ChatSource } from '@/types/assistant';
@@ -29,31 +30,120 @@ function viewerSearchQuery(source: ChatSource | null, previewText?: string | nul
   return candidate.replace(/\s+/g, ' ').trim().slice(0, 120);
 }
 
+function normalizedPage(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return null;
+  return Math.trunc(value);
+}
+
+function isPdfSource(source: ChatSource | null, preview: DocumentPreview | null) {
+  const fileType = (source?.fileType || '').replace(/^\./, '').toLowerCase();
+  const title = (source?.documentTitle || source?.relativePath || '').toLowerCase();
+  const previewFormat = (preview?.viewer_format || '').replace(/^\./, '').toLowerCase();
+  return (
+    fileType === 'pdf'
+    || title.endsWith('.pdf')
+    || preview?.render_kind === 'pdf'
+    || previewFormat === 'pdf'
+  );
+}
+
+function pdfPreviewFromSource(source: ChatSource, pageNumber: number, preview: DocumentPreview | null): DocumentPreview | null {
+  const fileUrl = preview?.file_url || source.fileUrl;
+  const documentId = preview?.document_id || source.documentId;
+  if (!fileUrl || !documentId) return null;
+  return {
+    ...(preview ?? {
+      id: documentId,
+      folder_id: null,
+      name: source.documentTitle,
+      relative_path: source.relativePath || '',
+      extension: '.pdf',
+      mime_type: 'application/pdf',
+      file_type: 'pdf',
+      size_bytes: 0,
+      content_hash: null,
+      modified_at: null,
+      indexed: true,
+      indexing_status: 'indexed',
+      indexed_at: null,
+      page_count: source.pageCount ?? null,
+      created_at: '',
+      updated_at: '',
+      preview_text: source.previewText || source.excerpt || '',
+      highlight_text: source.highlightText || source.previewText || source.excerpt || '',
+      page: pageNumber,
+      chunk_id: source.chunkId ?? source.anchor ?? null,
+      open_url: null,
+      download_url: null,
+      read_error: null,
+    }),
+    document_id: documentId,
+    file_url: fileUrl,
+    viewer_url: fileUrl,
+    viewer_format: 'pdf',
+    viewer_ready: true,
+    render_kind: 'pdf',
+    page: pageNumber,
+    page_count: preview?.page_count ?? source.pageCount ?? null,
+    chunk_id: preview?.chunk_id ?? source.chunkId ?? source.anchor ?? null,
+    preview_text: preview?.preview_text ?? source.previewText ?? source.excerpt ?? '',
+    highlight_text: preview?.highlight_text ?? source.highlightText ?? source.previewText ?? source.excerpt ?? '',
+  };
+}
+
+function logCitationNavigation(
+  source: ChatSource | null,
+  values: {
+    extractedPage: number | null;
+    normalizedPage: number | null;
+    pdfEndpointUrl?: string | null;
+    viewerUrl?: string | null;
+    fallbackReason?: string | null;
+  },
+) {
+  if (typeof console === 'undefined') return;
+  console.debug('[citation-pdf-navigation]', {
+    citationId: source?.citationId ?? source?.id ?? null,
+    documentId: source?.documentId ?? null,
+    repositoryId: source?.repositoryId ?? null,
+    extractedPage: values.extractedPage,
+    normalizedPage: values.normalizedPage,
+    pdfEndpointUrl: values.pdfEndpointUrl ?? source?.fileUrl ?? null,
+    viewerUrl: values.viewerUrl ?? null,
+    fallbackReason: values.fallbackReason ?? null,
+  });
+}
+
 function SourceFallback({
   documentId,
+  citationId,
   excerpt,
   pageNumber,
   sheetName,
   sheetIndex,
   slideNumber,
   anchor,
+  reason,
 }: {
   documentId?: string | null;
+  citationId?: string | null;
   excerpt: string;
   pageNumber?: number | null;
   sheetName?: string | null;
   sheetIndex?: number | null;
   slideNumber?: number | null;
   anchor?: string | null;
+  reason: string;
 }) {
   const workspaceHref = (() => {
     if (!documentId) return null;
     const params = new URLSearchParams();
     if (pageNumber) params.set('page', String(pageNumber));
+    if (citationId) params.set('citation', citationId);
     if (slideNumber) params.set('slide', String(slideNumber));
     if (sheetName) params.set('sheet', sheetName);
     if (sheetIndex) params.set('sheetIndex', String(sheetIndex));
-    if (anchor) params.set('chunk', anchor);
+    if (anchor && !citationId) params.set('chunk', anchor);
     const query = params.toString();
     return `/knowledge/document/${documentId}${query ? `?${query}` : ''}`;
   })();
@@ -66,9 +156,9 @@ function SourceFallback({
             <FileSearch size={18} />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-semibold text-slate-950">Exact inline navigation unavailable</h3>
+            <h3 className="text-sm font-semibold text-slate-950">Source preview unavailable</h3>
             <p className="mt-1 text-xs leading-5 text-slate-600">
-              The cited excerpt is still available below, and the full document workspace opens at the referenced location.
+              {reason}
             </p>
           </div>
         </div>
@@ -136,7 +226,8 @@ export default function DocumentViewerPanel({
 
   const preview = previewQuery.data ?? null;
   const title = preview?.name || source?.documentTitle || 'Source';
-  const effectivePageNumber = source?.pageNumber ?? preview?.page ?? null;
+  const extractedPageNumber = source?.pageNumber ?? preview?.page ?? null;
+  const effectivePageNumber = normalizedPage(extractedPageNumber);
   const effectiveSheetName = source?.sheetName ?? preview?.active_sheet ?? null;
   const effectiveSheetIndex = source?.sheetIndex ?? preview?.active_sheet_index ?? null;
   const effectiveSlideNumber = source?.slideNumber ?? preview?.active_slide_number ?? null;
@@ -145,6 +236,20 @@ export default function DocumentViewerPanel({
     [preview?.highlight_text, preview?.preview_text, source],
   );
   const fallbackExcerpt = excerptFor(source, preview?.preview_text);
+  const sourceIsPdf = isPdfSource(source, preview);
+  const pdfPreview = source && sourceIsPdf && effectivePageNumber && !previewQuery.isError
+    ? pdfPreviewFromSource(source, effectivePageNumber, preview)
+    : null;
+  const previewForRenderer = pdfPreview ?? preview;
+  const pdfViewerUrl = pdfPreview?.viewer_url && effectivePageNumber
+    ? `${pdfPreview.viewer_url}#page=${effectivePageNumber}`
+    : null;
+  const fallbackReason = (() => {
+    if (sourceIsPdf && !effectivePageNumber) return 'Page metadata is missing for this PDF citation.';
+    if (sourceIsPdf && !source?.fileUrl && !preview?.file_url) return 'The PDF file endpoint was not provided for this citation.';
+    if (previewQuery.isError) return 'The PDF request failed or access was denied for this document.';
+    return 'This source is not page-addressable in the inline viewer.';
+  })();
 
   useEffect(() => {
     if (source?.slideNumber || source?.pageNumber) return;
@@ -153,6 +258,16 @@ export default function DocumentViewerPanel({
     setRequestedPage(previewPage);
     setActivePage(previewPage);
   }, [preview?.page, source?.pageNumber, source?.slideNumber]);
+
+  useEffect(() => {
+    logCitationNavigation(source, {
+      extractedPage: normalizedPage(extractedPageNumber),
+      normalizedPage: effectivePageNumber,
+      pdfEndpointUrl: pdfPreview?.viewer_url ?? preview?.file_url ?? source?.fileUrl ?? null,
+      viewerUrl: pdfViewerUrl,
+      fallbackReason: pdfPreview ? null : fallbackReason,
+    });
+  }, [effectivePageNumber, extractedPageNumber, fallbackReason, pdfPreview, pdfViewerUrl, preview?.file_url, source]);
 
   if (!source) {
     return (
@@ -191,6 +306,7 @@ export default function DocumentViewerPanel({
         sheetIndex={effectiveSheetIndex}
         slideNumber={effectiveSlideNumber}
         anchor={source.anchor ?? source.chunkId}
+        citationId={source.citationId ?? source.id}
         currentIndex={Math.max(0, currentIndex)}
         total={sources.length}
         previousSource={previousSource}
@@ -205,9 +321,9 @@ export default function DocumentViewerPanel({
           <div className="flex h-full items-center justify-center px-6 text-sm text-slate-500">
             Loading source preview...
           </div>
-        ) : shouldRenderPreview ? (
+        ) : shouldRenderPreview || pdfPreview ? (
           <DocumentPreviewRenderer
-            preview={preview}
+            preview={previewForRenderer}
             title={title}
             searchQuery={searchQuery}
             zoomLevel={zoomLevel}
@@ -220,12 +336,14 @@ export default function DocumentViewerPanel({
         ) : (
           <SourceFallback
             documentId={source.documentId}
+            citationId={source.citationId ?? source.id}
             excerpt={fallbackExcerpt}
             pageNumber={effectivePageNumber}
             sheetName={effectiveSheetName}
             sheetIndex={effectiveSheetIndex}
             slideNumber={effectiveSlideNumber}
             anchor={source.anchor ?? source.chunkId}
+            reason={fallbackReason}
           />
         )}
       </div>
