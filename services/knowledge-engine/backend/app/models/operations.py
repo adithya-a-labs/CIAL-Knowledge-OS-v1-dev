@@ -15,8 +15,12 @@ from backend.app.db.base import Base, UUIDPrimaryKeyMixin
 
 class IngestionRun(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "ingestion_runs"
-    __table_args__ = (Index("ix_ingestion_runs_status", "status"),)
+    __table_args__ = (
+        Index("ix_ingestion_runs_status", "status"),
+        Index("ix_ingestion_runs_repository_id", "repository_id"),
+    )
 
+    repository_id: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -34,6 +38,7 @@ class IndexingJob(UUIDPrimaryKeyMixin, Base):
         Index("ix_indexing_jobs_document_id", "document_id"),
         Index("ix_indexing_jobs_document_version_id", "document_version_id"),
         Index("ix_indexing_jobs_content_hash", "content_hash"),
+        Index("ix_indexing_jobs_repository_id", "repository_id"),
         Index(
             "uq_indexing_jobs_active_document_version",
             "document_version_id",
@@ -55,6 +60,7 @@ class IndexingJob(UUIDPrimaryKeyMixin, Base):
         ForeignKey("document_versions.id", ondelete="SET NULL"),
     )
     content_hash: Mapped[str | None] = mapped_column(Text)
+    repository_id: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     force_rebuild: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")

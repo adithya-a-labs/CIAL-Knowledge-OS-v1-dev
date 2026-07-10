@@ -79,7 +79,11 @@ class Workspace(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class Folder(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "folders"
-    __table_args__ = (Index("ix_folders_workspace_id", "workspace_id"),)
+    __table_args__ = (
+        Index("ix_folders_workspace_id", "workspace_id"),
+        Index("ix_folders_repository_id", "repository_id"),
+        UniqueConstraint("repository_id", "relative_path", name="uq_folders_repository_relative_path"),
+    )
 
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -91,8 +95,9 @@ class Folder(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UUID(as_uuid=True),
         ForeignKey("folders.id", ondelete="SET NULL"),
     )
+    repository_id: Mapped[str | None] = mapped_column(Text)
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    relative_path: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    relative_path: Mapped[str] = mapped_column(Text, nullable=False)
     depth: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     document_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     subfolder_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -108,6 +113,7 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         Index("ix_documents_organization_id", "organization_id"),
         Index("ix_documents_department_id", "department_id"),
+        Index("ix_documents_repository_id", "repository_id"),
         Index("ix_documents_content_hash", "content_hash"),
         Index("ix_documents_folder_id", "folder_id"),
         Index("ix_documents_workspace_id", "workspace_id"),
@@ -115,6 +121,7 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_documents_storage_scope", "storage_scope"),
         Index("ix_documents_visibility", "visibility"),
         Index("ix_documents_lifecycle_status", "lifecycle_status"),
+        UniqueConstraint("repository_id", "relative_path", name="uq_documents_repository_relative_path"),
         CheckConstraint(
             "storage_scope in ('enterprise', 'personal')",
             name="ck_documents_storage_scope",
@@ -164,13 +171,14 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UUID(as_uuid=True),
         ForeignKey("folders.id", ondelete="SET NULL"),
     )
+    repository_id: Mapped[str | None] = mapped_column(Text)
     storage_scope: Mapped[str] = mapped_column(Text, nullable=False, server_default="enterprise")
     owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    relative_path: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    relative_path: Mapped[str] = mapped_column(Text, nullable=False)
     file_type: Mapped[str] = mapped_column(Text, nullable=False)
     extension: Mapped[str | None] = mapped_column(Text)
     mime_type: Mapped[str | None] = mapped_column(Text)
@@ -222,6 +230,7 @@ class DocumentVersion(UUIDPrimaryKeyMixin, Base):
     __table_args__ = (
         UniqueConstraint("document_id", "version_number", name="uq_document_versions_document_version"),
         Index("ix_document_versions_document_id", "document_id"),
+        Index("ix_document_versions_repository_id", "repository_id"),
         CheckConstraint(
             "status in ('pending', 'indexing', 'indexed', 'failed', 'archived')",
             name="ck_document_versions_status",
@@ -233,6 +242,7 @@ class DocumentVersion(UUIDPrimaryKeyMixin, Base):
         ForeignKey("documents.id", ondelete="CASCADE"),
         nullable=False,
     )
+    repository_id: Mapped[str | None] = mapped_column(Text)
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     storage_key: Mapped[str | None] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(Text, nullable=False)
