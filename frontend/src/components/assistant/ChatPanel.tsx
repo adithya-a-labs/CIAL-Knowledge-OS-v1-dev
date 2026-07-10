@@ -93,6 +93,8 @@ export default function ChatPanel() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const chatMessagesRef = useRef<HTMLDivElement>(null);
+  const [chatMessagesWidth, setChatMessagesWidth] = useState<number>(0);
   const messages = activeSession.messages as ChatMessageData[];
   const selectedContextItems = activeSession.selectedContextItems as SelectedContextItem[];
   const uploadedFiles = activeSession.uploadedFiles as UploadedFileContext[];
@@ -194,6 +196,21 @@ export default function ChatPanel() {
     return () => mediaQuery.removeEventListener('change', handleViewportChange);
   }, []);
 
+  useEffect(() => {
+    const element = chatMessagesRef.current;
+    if (!element) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      if (entries && entries[0]) {
+        setChatMessagesWidth(entries[0].contentRect.width);
+      }
+    });
+    resizeObserver.observe(element);
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+
   const openSource = (source: ChatSource) => {
     if (toUuidDocumentId(source.documentId)) {
       setSelectedSource(source);
@@ -237,14 +254,14 @@ export default function ChatPanel() {
     }
 
     const explicitDocumentIds = selectedContextItems
-      .filter((item) => item.type === 'document')
-      .map((item) => item.id);
+        .filter((item) => item.type === 'document')
+        .map((item) => item.id);
     const explicitFolderIds = selectedContextItems
-      .filter((item) => item.type === 'folder')
-      .map((item) => item.id);
+        .filter((item) => item.type === 'folder')
+        .map((item) => item.id);
     const uploadedDocumentIds = uploadedFiles
-      .map((file) => file.backendDocumentId)
-      .filter((value): value is string => Boolean(value));
+        .map((file) => file.backendDocumentId)
+        .filter((value): value is string => Boolean(value));
 
     const requestPayload: ChatRequestPayload = {
       query: input.trim(),
@@ -348,71 +365,73 @@ export default function ChatPanel() {
   };
 
   const visibleSuggestedPrompts =
-    input.trim().length === 0 && !isLoading ? suggestedPrompts.slice(0, 5) : [];
+      input.trim().length === 0 && !isLoading ? suggestedPrompts.slice(0, 5) : [];
   const hasSelectedSource = Boolean(selectedSource);
   const showSourceReopen = hasSelectedSource && !sourceViewerOpen;
   const showDesktopSourcePane = hasSelectedSource && sourceViewerOpen && isDesktopViewport;
   const sourceViewerSources =
-    allVisibleSources.length > 0
-      ? allVisibleSources.map((source) => ({
-          ...source,
-          documentId: toUuidDocumentId(source.documentId) ?? source.documentId,
-        }))
-      : MOCK_CHAT_SOURCES;
+      allVisibleSources.length > 0
+          ? allVisibleSources.map((source) => ({
+            ...source,
+            documentId: toUuidDocumentId(source.documentId) ?? source.documentId,
+          }))
+          : MOCK_CHAT_SOURCES;
   const chatWorkspace = (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-testid="chat-panel">
-      <div
-        className="scrollbar-soft min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,#fbfcfa_0%,#ffffff_16rem)] px-3 py-4 sm:px-4 xl:px-5"
-        data-testid="chat-messages"
-      >
-        {messages.length === 0 ? (
-          <div className="mx-auto flex h-full min-h-[36vh] max-w-2xl flex-col items-center justify-center px-4 py-10 text-center">
-            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[#25611f]/10 text-[#25611f]">
-              <Sparkles size={22} className="animate-pulse" />
-            </div>
-            <h2 className="text-xl font-semibold tracking-tight text-slate-900">How can I help you today?</h2>
-            <p className="mb-6 mt-2 text-sm text-slate-500">
-              Ask questions, scope knowledge, or analyze files in this grounded workspace.
-            </p>
-            {visibleSuggestedPrompts.length > 0 && (
-              <div className="flex flex-wrap justify-center gap-2">
-                {visibleSuggestedPrompts.map((prompt) => (
-                  <button
-                    key={prompt}
-                    type="button"
-                    onClick={() => setInput(prompt)}
-                    className="inline-flex min-h-9 items-center rounded-md border border-[#dce4d8] bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5] hover:border-slate-300"
-                  >
-                    {prompt}
-                  </button>
-                ))}
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-testid="chat-panel">
+        <div
+            ref={chatMessagesRef}
+            className="scrollbar-soft min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,#fbfcfa_0%,#ffffff_16rem)] px-3 py-4 sm:px-4 xl:px-5"
+            data-testid="chat-messages"
+        >
+          {messages.length === 0 ? (
+              <div className="mx-auto flex h-full min-h-[36vh] max-w-2xl flex-col items-center justify-center px-4 py-10 text-center">
+                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[#25611f]/10 text-[#25611f]">
+                  <Sparkles size={22} className="animate-pulse" />
+                </div>
+                <h2 className="text-xl font-semibold tracking-tight text-slate-900">How can I help you today?</h2>
+                <p className="mb-6 mt-2 text-sm text-slate-500">
+                  Ask questions, scope knowledge, or analyze files in this grounded workspace.
+                </p>
+                {visibleSuggestedPrompts.length > 0 && (
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {visibleSuggestedPrompts.map((prompt) => (
+                          <button
+                              key={prompt}
+                              type="button"
+                              onClick={() => setInput(prompt)}
+                              className="inline-flex min-h-9 items-center rounded-md border border-[#dce4d8] bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5] hover:border-slate-300"
+                          >
+                            {prompt}
+                          </button>
+                      ))}
+                    </div>
+                )}
               </div>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-5">
-            {messages.map((msg) => (
-              <ChatMessage
-                key={msg.id}
-                message={msg}
-                selectedFeedback={feedbackByMessageId[msg.id]}
-                onCitationClick={openSource}
-                onSourceOpen={openSource}
-                onRelatedQuestionClick={setInput}
-                onCopy={handleCopy}
-                onUnavailableAction={(label) => {
-                  toast({ title: `${label} is coming soon` });
-                }}
-                onFeedback={(messageId, feedback) =>
-                  updateActiveSession({
-                    feedbackByMessageId: {
-                      ...feedbackByMessageId,
-                      [messageId]: feedback,
-                    },
-                  })
-                }
-              />
-            ))}
+          ) : (
+              <div className="space-y-5">
+                {messages.map((msg) => (
+                    <ChatMessage
+                        key={msg.id}
+                        message={msg}
+                        chatWidth={chatMessagesWidth}
+                        selectedFeedback={feedbackByMessageId[msg.id]}
+                        onCitationClick={openSource}
+                        onSourceOpen={openSource}
+                        onRelatedQuestionClick={setInput}
+                        onCopy={handleCopy}
+                        onUnavailableAction={(label) => {
+                          toast({ title: `${label} is coming soon` });
+                        }}
+                        onFeedback={(messageId, feedback) =>
+                            updateActiveSession({
+                              feedbackByMessageId: {
+                                ...feedbackByMessageId,
+                                [messageId]: feedback,
+                              },
+                            })
+                        }
+                    />
+                ))}
 
             {isLoading && (
               <div className="flex justify-start">
