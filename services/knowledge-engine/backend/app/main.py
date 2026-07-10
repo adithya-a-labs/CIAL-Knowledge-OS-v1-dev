@@ -15,7 +15,7 @@ from backend.app.core.paths import KNOWLEDGE_ENGINE_SRC
 if str(KNOWLEDGE_ENGINE_SRC) not in sys.path:
     sys.path.insert(0, str(KNOWLEDGE_ENGINE_SRC))
 
-from backend.app.api.routes import chat, corpus, documents, evaluation, exports, health, indexing
+from backend.app.api.routes import auth, chat, corpus, documents, evaluation, exports, health, indexing, settings as settings_routes
 from backend.app.core.config import settings
 from backend.app.core.logging import configure_logging
 from backend.app.core.runtime_state import RuntimeState
@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
     watcher = None
     if settings.corpus_watch:
         watcher = CorpusWatcher(
-            root=settings.data_files_path,
+            root=settings.corpus_root_path,
             sync_callback=app.state.corpus_service.sync,
         )
         try:
@@ -82,10 +82,11 @@ def create_app() -> FastAPI:
     engine = KnowledgeEngineService()
     runtime_state = RuntimeState(engine_available=engine.engine_available)
     corpus_service = CorpusService(
-        root=settings.data_files_path,
+        root=settings.corpus_root_path,
         session_factory=SessionLocal,
         hash_algorithm=settings.corpus_hash,
         batch_size=settings.metadata_batch_size,
+        repository_id=settings.corpus_repository_id,
     )
     startup_service = StartupService(
         engine=engine,
@@ -102,16 +103,18 @@ def create_app() -> FastAPI:
     app.state.corpus_service = corpus_service
     app.state.startup_service = startup_service
     app.state.indexing_worker = indexing_worker
-    app.state.document_service = DocumentService(root=settings.data_files_path)
+    app.state.document_service = DocumentService(root=settings.corpus_root_path)
     app.state.indexing_service = IndexingService(engine, runtime_state)
     app.state.evaluation_service = EvaluationService()
     app.state.export_service = ExportService()
 
     app.include_router(health.router, prefix="/api", tags=["health"])
+    app.include_router(auth.router, prefix="/api", tags=["auth"])
     app.include_router(corpus.router, prefix="/api", tags=["corpus"])
     app.include_router(chat.router, prefix="/api", tags=["chat"])
     app.include_router(documents.router, prefix="/api", tags=["documents"])
     app.include_router(indexing.router, prefix="/api", tags=["indexing"])
+    app.include_router(settings_routes.router, prefix="/api", tags=["settings"])
     app.include_router(evaluation.router, prefix="/api", tags=["evaluation"])
     app.include_router(exports.router, prefix="/api", tags=["exports"])
     return app
