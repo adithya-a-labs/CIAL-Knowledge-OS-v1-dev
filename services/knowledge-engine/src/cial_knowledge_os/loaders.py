@@ -218,6 +218,97 @@ def _load_pdf_with_docling(path: Path, corpus_root: Path) -> list[Document]:
     return _load_with_docling(path, corpus_root)
 
 
+def _spreadsheet_row_text(values: list[object]) -> str:
+    cells = [str(value).strip() for value in values if value not in {None, ""}]
+    return " | ".join(cell for cell in cells if cell)
+
+
+def _load_xlsx_document(path: Path, corpus_root: Path) -> list[Document]:
+    try:
+        from openpyxl import load_workbook
+    except ImportError as exc:
+        raise ImportError("openpyxl is required for XLSX ingestion.") from exc
+
+    documents: list[Document] = []
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    try:
+        for sheet_index, worksheet in enumerate(workbook.worksheets, start=1):
+            lines: list[str] = []
+            for row in worksheet.iter_rows(values_only=True):
+                row_text = _spreadsheet_row_text(list(row))
+                if row_text:
+                    lines.append(row_text)
+            text = "\n".join(lines).strip()
+            if not text:
+                continue
+            metadata = _base_metadata(path, "xlsx", corpus_root=corpus_root)
+            metadata["sheet_name"] = worksheet.title
+            metadata["sheet_index"] = sheet_index
+            metadata["anchor"] = f"sheet:{worksheet.title}"
+            documents.append(Document(page_content=text, metadata=metadata))
+    finally:
+        workbook.close()
+    return documents
+
+
+def _load_xls_document(path: Path, corpus_root: Path) -> list[Document]:
+    try:
+        import xlrd
+    except ImportError as exc:
+        raise ImportError("xlrd is required for XLS ingestion.") from exc
+
+    documents: list[Document] = []
+    workbook = xlrd.open_workbook(path.as_posix(), on_demand=True)
+    try:
+        for sheet_index, sheet_name in enumerate(workbook.sheet_names(), start=1):
+            sheet = workbook.sheet_by_index(sheet_index - 1)
+            lines: list[str] = []
+            for row_index in range(sheet.nrows):
+                row_text = _spreadsheet_row_text(
+                    [sheet.cell_value(row_index, col_index) for col_index in range(sheet.ncols)]
+                )
+                if row_text:
+                    lines.append(row_text)
+            text = "\n".join(lines).strip()
+            if not text:
+                continue
+            metadata = _base_metadata(path, "xls", corpus_root=corpus_root)
+            metadata["sheet_name"] = sheet_name
+            metadata["sheet_index"] = sheet_index
+            metadata["anchor"] = f"sheet:{sheet_name}"
+            documents.append(Document(page_content=text, metadata=metadata))
+    finally:
+        workbook.release_resources()
+    return documents
+
+
+def _load_pptx_document(path: Path, corpus_root: Path) -> list[Document]:
+    try:
+        from pptx import Presentation
+    except ImportError as exc:
+        raise ImportError("python-pptx is required for PPTX ingestion.") from exc
+
+    documents: list[Document] = []
+    presentation = Presentation(path)
+    for slide_number, slide in enumerate(presentation.slides, start=1):
+        parts: list[str] = []
+        for shape in slide.shapes:
+            if not getattr(shape, "has_text_frame", False):
+                continue
+            for paragraph in shape.text_frame.paragraphs:
+                text = paragraph.text.strip()
+                if text:
+                    parts.append(text)
+        slide_text = "\n".join(parts).strip()
+        if not slide_text:
+            continue
+        metadata = _base_metadata(path, "pptx", corpus_root=corpus_root)
+        metadata["slide_number"] = slide_number
+        metadata["anchor"] = f"slide:{slide_number}"
+        documents.append(Document(page_content=slide_text, metadata=metadata))
+    return documents
+
+
 def _load_pdf_with_pymupdf(path: Path, corpus_root: Path) -> list[Document]:
     import fitz
 
@@ -332,6 +423,48 @@ def _load_supported_path(path: Path, config: KnowledgeOSConfig, corpus_root: Pat
         return _load_text_like_document(path, corpus_root)
     if suffix == ".pdf":
         return _load_pdf_path(path, corpus_root)
+    if suffix == ".xlsx":
+        try:
+            documents = _load_xlsx_document(path, corpus_root)
+            if documents:
+                return documents
+        except Exception as exc:
+            logger.warning(
+                "xlsx_document_load_failed",
+                extra={
+                    "event": "document_loading",
+                    "source": str(path.resolve()),
+                    "error": str(exc),
+                },
+            )
+    if suffix == ".xls":
+        try:
+            documents = _load_xls_document(path, corpus_root)
+            if documents:
+                return documents
+        except Exception as exc:
+            logger.warning(
+                "xls_document_load_failed",
+                extra={
+                    "event": "document_loading",
+                    "source": str(path.resolve()),
+                    "error": str(exc),
+                },
+            )
+    if suffix == ".pptx":
+        try:
+            documents = _load_pptx_document(path, corpus_root)
+            if documents:
+                return documents
+        except Exception as exc:
+            logger.warning(
+                "pptx_document_load_failed",
+                extra={
+                    "event": "document_loading",
+                    "source": str(path.resolve()),
+                    "error": str(exc),
+                },
+            )
     if suffix in DOCLING_EXTENSIONS:
         try:
             return _load_with_docling(path, corpus_root)
