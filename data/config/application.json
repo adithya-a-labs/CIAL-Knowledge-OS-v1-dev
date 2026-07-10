@@ -1,0 +1,13 @@
+{
+  "repositories": [
+    {
+      "enabled": true,
+      "id": "enterprise",
+      "name": "Enterprise Knowledge Repository",
+      "path": "E:\\Adithya A\\CIAL-Project\\CIAL-Knowledge-OS-v1-dev\\outputs\\deployment-readiness\\corpus-root-verification\\Knowledge Repository B With Spaces",
+      "role": "primary",
+      "type": "filesystem"
+    }
+  ],
+  "version": 1
+}
