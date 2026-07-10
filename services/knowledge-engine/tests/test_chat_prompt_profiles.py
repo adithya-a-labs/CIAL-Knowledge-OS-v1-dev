@@ -126,9 +126,19 @@ def test_selected_context_filter_restricts_retrieval_candidates() -> None:
                 reranker_candidate_top_k=3,
             )
             self.changed = 0
+            self.allowed_relative_paths = None
 
         def _search(self, query: str) -> list[dict[str, Any]]:
+            if self.allowed_relative_paths:
+                return [
+                    item
+                    for item in [allowed, blocked]
+                    if item["metadata"]["relative_path"] in self.allowed_relative_paths
+                ]
             return [allowed, blocked]
+
+        def set_retrieval_relative_paths(self, allowed_relative_paths) -> None:
+            self.allowed_relative_paths = allowed_relative_paths
 
         def on_config_changed(self) -> None:
             self.changed += 1
@@ -147,16 +157,21 @@ def test_selected_context_filter_restricts_retrieval_candidates() -> None:
     scope = SelectedContextScope(
         applied=True,
         allowed_relative_paths=frozenset({"CERT-In/allowed.pdf"}),
+        effective_document_ids=("11111111-1111-4111-8111-111111111111",),
         selected_document_count=1,
         effective_document_count=1,
-        filter_mode="post_retrieval_relative_path",
+        filter_mode="hard_relative_path_filter",
     )
 
     response = service._run_with_selected_context(pipeline, "Question?", scope)
 
     assert [item["chunk_id"] for item in response["retrieved"]] == ["allowed"]
+    assert pipeline.allowed_relative_paths is None
     assert pipeline.config.retrieval_top_k == 3
     assert pipeline.changed == 2
+    assert response["selected_context_filter"]["final_retrieved_relative_paths"] == [
+        "CERT-In/allowed.pdf"
+    ]
 
 
 def test_selected_context_metadata_is_reflected() -> None:
@@ -172,10 +187,11 @@ def test_selected_context_metadata_is_reflected() -> None:
     scope = SelectedContextScope(
         applied=True,
         allowed_relative_paths=frozenset({"CERT-In/allowed.pdf"}),
+        effective_document_ids=("11111111-1111-4111-8111-111111111111",),
         selected_document_count=1,
         selected_folder_count=1,
         effective_document_count=3,
-        filter_mode="post_retrieval_relative_path",
+        filter_mode="hard_relative_path_filter",
     )
 
     response = service._to_chat_response(
@@ -200,6 +216,156 @@ def test_selected_context_metadata_is_reflected() -> None:
     assert response.metadata.selected_document_count == 1
     assert response.metadata.selected_folder_count == 1
     assert response.metadata.effective_document_count == 3
+
+
+def test_selected_context_no_match_does_not_fall_back_to_global_results() -> None:
+    service = KnowledgeEngineService()
+
+    class FakePipeline:
+        def __init__(self) -> None:
+            self.config = SimpleNamespace(
+                retrieval_top_k=3,
+                dense_top_k=3,
+                bm25_top_k=3,
+                reranker_candidate_top_k=3,
+            )
+            self.allowed_relative_paths = None
+
+        def _search(self, query: str) -> list[dict[str, Any]]:
+            return []
+
+        def set_retrieval_relative_paths(self, allowed_relative_paths) -> None:
+            self.allowed_relative_paths = allowed_relative_paths
+
+        def on_config_changed(self) -> None:
+            return None
+
+        def run(self, question: str) -> dict[str, Any]:
+            return {
+                "answer": "global fallback would be wrong",
+                "retrieved": [],
+                "context_stages": {"compressed": []},
+                "selected_evidence": [],
+                "citations": [],
+            }
+
+    response = service._run_with_relative_path_filter(
+        FakePipeline(),
+        "Question?",
+        frozenset({"CERT-In/allowed.pdf"}),
+        response_key="selected_context_filter",
+        filter_payload={
+            "applied": True,
+            "mode": "hard_relative_path_filter",
+            "selected_document_ids": ["11111111-1111-4111-8111-111111111111"],
+            "selected_folder_ids": [],
+            "effective_document_ids": ["11111111-1111-4111-8111-111111111111"],
+            "effective_scope": {
+                "document_count": 1,
+                "relative_paths": ["CERT-In/allowed.pdf"],
+            },
+        },
+    )
+
+    assert response["answer"] == "No relevant evidence found in the selected context."
+    assert response["retrieved"] == []
+    assert response["citations"] == []
+
+
+def test_selected_context_insufficient_evidence_is_normalized_to_no_match() -> None:
+    service = KnowledgeEngineService()
+    allowed = _candidate(
+        "allowed",
+        "Weak in-scope evidence.",
+        relative_path="CERT-In/allowed.pdf",
+    )
+
+    class FakePipeline:
+        def __init__(self) -> None:
+            self.config = SimpleNamespace(
+                retrieval_top_k=3,
+                dense_top_k=3,
+                bm25_top_k=3,
+                reranker_candidate_top_k=3,
+            )
+            self.allowed_relative_paths = None
+
+        def _search(self, query: str) -> list[dict[str, Any]]:
+            return [allowed]
+
+        def set_retrieval_relative_paths(self, allowed_relative_paths) -> None:
+            self.allowed_relative_paths = allowed_relative_paths
+
+        def run(self, question: str) -> dict[str, Any]:
+            return {
+                "answer": "The retrieved documents do not contain sufficient evidence to answer this question.",
+                "raw_answer": "The retrieved documents do not contain sufficient evidence to answer this question.",
+                "answer_status": "insufficient_evidence",
+                "retrieved": [allowed],
+                "context_stages": {"compressed": [allowed]},
+                "selected_evidence": [allowed],
+                "sources": [{"id": "S1"}],
+                "citations": [],
+            }
+
+    pipeline = FakePipeline()
+    response = service._run_with_relative_path_filter(
+        pipeline,
+        "Question?",
+        frozenset({"CERT-In/allowed.pdf"}),
+        response_key="selected_context_filter",
+        filter_payload={
+            "applied": True,
+            "mode": "hard_relative_path_filter",
+            "selected_document_ids": [],
+            "selected_folder_ids": ["folder-1"],
+            "effective_document_ids": ["doc-1"],
+            "effective_scope": {
+                "document_count": 1,
+                "relative_paths": ["CERT-In/allowed.pdf"],
+            },
+        },
+    )
+
+    assert response["answer"] == "No relevant evidence found in the selected context."
+    assert response["raw_answer"] == "No relevant evidence found in the selected context."
+    assert response["sources"] == []
+    assert response["retrieved"] == []
+    assert response["citations"] == []
+
+
+def test_citations_fall_back_to_source_page_when_citation_page_is_missing() -> None:
+    service = KnowledgeEngineService()
+
+    citations = service._citations(
+        {
+            "citations": [
+                {
+                    "reference_id": 1,
+                    "source_file": "manual.pdf",
+                }
+            ],
+            "context_stages": {
+                "compressed": [
+                    {
+                        "page_number": 7,
+                        "chunk_id": "chunk-1",
+                        "text": "Quoted context for the viewer.",
+                        "metadata": {
+                            "document_id": "11111111-1111-4111-8111-111111111111",
+                            "relative_path": "Policies/manual.pdf",
+                            "file_name": "manual.pdf",
+                            "file_type": "pdf",
+                            "page_count": 18,
+                        },
+                    }
+                ]
+            },
+        }
+    )
+
+    assert len(citations) == 1
+    assert citations[0].page == 7
 
 
 def test_golden_phase45_prompt_for_operational_profile(tmp_path: Path) -> None:
