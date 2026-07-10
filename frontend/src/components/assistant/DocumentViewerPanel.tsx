@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { FileSearch } from 'lucide-react';
 import { Link } from 'wouter';
-import { apiUrl, getDocumentPreview } from '@/api/client';
+import { getDocumentPreview } from '@/api/client';
+import DocumentPreviewRenderer from './DocumentPreviewRenderer';
 import DocumentToolbar from './DocumentToolbar';
 import type { ChatSource } from '@/types/assistant';
 
@@ -23,15 +24,40 @@ function excerptFor(source: ChatSource | null, previewText?: string | null) {
   );
 }
 
-function PdfFallback({
+function viewerSearchQuery(source: ChatSource | null, previewText?: string | null) {
+  const candidate = source?.highlightText || source?.excerpt || previewText || '';
+  return candidate.replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+
+function SourceFallback({
   documentId,
   excerpt,
   pageNumber,
+  sheetName,
+  sheetIndex,
+  slideNumber,
+  anchor,
 }: {
   documentId?: string | null;
   excerpt: string;
   pageNumber?: number | null;
+  sheetName?: string | null;
+  sheetIndex?: number | null;
+  slideNumber?: number | null;
+  anchor?: string | null;
 }) {
+  const workspaceHref = (() => {
+    if (!documentId) return null;
+    const params = new URLSearchParams();
+    if (pageNumber) params.set('page', String(pageNumber));
+    if (slideNumber) params.set('slide', String(slideNumber));
+    if (sheetName) params.set('sheet', sheetName);
+    if (sheetIndex) params.set('sheetIndex', String(sheetIndex));
+    if (anchor) params.set('chunk', anchor);
+    const query = params.toString();
+    return `/knowledge/document/${documentId}${query ? `?${query}` : ''}`;
+  })();
+
   return (
     <div className="flex h-full min-h-0 items-center justify-center bg-[#f7f9f6] px-6 py-8">
       <div className="w-full max-w-xl rounded-xl border border-[#dce4d8] bg-white p-5">
@@ -40,9 +66,9 @@ function PdfFallback({
             <FileSearch size={18} />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-semibold text-slate-950">Inline PDF preview unavailable</h3>
+            <h3 className="text-sm font-semibold text-slate-950">Exact inline navigation unavailable</h3>
             <p className="mt-1 text-xs leading-5 text-slate-600">
-              The cited content is still available below, and the full document workspace opens at the cited page.
+              The cited excerpt is still available below, and the full document workspace opens at the referenced location.
             </p>
           </div>
         </div>
@@ -52,9 +78,9 @@ function PdfFallback({
           <p className="safe-text mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">{excerpt}</p>
         </div>
 
-        {documentId ? (
+        {workspaceHref ? (
           <Link
-            href={`/knowledge/document/${documentId}?page=${pageNumber ?? 1}`}
+            href={workspaceHref}
             className="mt-4 inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition hover:opacity-95"
           >
             Open Full Workspace
@@ -62,17 +88,6 @@ function PdfFallback({
         ) : null}
       </div>
     </div>
-  );
-}
-
-function NativePdfFrame({ src, title }: { src: string; title: string }) {
-  return (
-    <iframe
-      src={src}
-      title={title}
-      className="h-full w-full border-0 bg-white"
-      referrerPolicy="no-referrer"
-    />
   );
 }
 
@@ -85,35 +100,50 @@ export default function DocumentViewerPanel({
   const currentIndex = source ? sources.findIndex((candidate) => candidate.id === source.id) : -1;
   const previousSource = currentIndex > 0 ? sources[currentIndex - 1] : null;
   const nextSource = currentIndex >= 0 && currentIndex < sources.length - 1 ? sources[currentIndex + 1] : null;
+  const [zoomLevel] = useState(1);
+  const [activePage, setActivePage] = useState(1);
+  const [requestedPage, setRequestedPage] = useState(1);
+  const [pageCount, setPageCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    const nextPage = source?.slideNumber ?? source?.pageNumber ?? 1;
+    setActivePage(nextPage);
+    setRequestedPage(nextPage);
+    setPageCount(source?.pageCount ?? null);
+  }, [source?.id, source?.pageCount, source?.pageNumber, source?.slideNumber]);
 
   const previewQuery = useQuery({
-    queryKey: ['assistant-source-preview', source?.documentId, source?.chunkId, source?.pageNumber],
-    queryFn: () => getDocumentPreview(source!.documentId, source?.chunkId, source?.pageNumber),
+    queryKey: [
+      'assistant-source-preview',
+      source?.documentId,
+      source?.chunkId ?? source?.anchor,
+      source?.pageNumber,
+      source?.sheetName,
+      source?.sheetIndex,
+      source?.slideNumber,
+    ],
+    queryFn: () =>
+      getDocumentPreview(source!.documentId, {
+        chunkId: source?.chunkId ?? source?.anchor,
+        page: source?.pageNumber,
+        sheetName: source?.sheetName,
+        sheetIndex: source?.sheetIndex,
+        slideNumber: source?.slideNumber,
+      }),
     enabled: Boolean(source?.documentId),
     retry: false,
   });
 
   const preview = previewQuery.data ?? null;
   const title = preview?.name || source?.documentTitle || 'Source';
-  const pageNumber = source?.pageNumber ?? preview?.page ?? 1;
-  const pdfViewerUrl = useMemo(() => {
-    if (source?.fileUrl && source.fileType?.toLowerCase() === 'pdf') {
-      return `${apiUrl(source.fileUrl)}#page=${pageNumber}`;
-    }
-
-    if (!preview) return null;
-
-    if (preview.viewer_ready && preview.viewer_format === 'pdf' && preview.viewer_url) {
-      return `${apiUrl(preview.viewer_url)}#page=${pageNumber}`;
-    }
-
-    if (preview.render_kind === 'pdf') {
-      const directUrl = preview.file_url || preview.open_url;
-      return directUrl ? `${apiUrl(directUrl)}#page=${pageNumber}` : null;
-    }
-
-    return null;
-  }, [pageNumber, preview, source?.fileType, source?.fileUrl]);
+  const effectivePageNumber = source?.pageNumber ?? preview?.page ?? null;
+  const effectiveSheetName = source?.sheetName ?? preview?.active_sheet ?? null;
+  const effectiveSheetIndex = source?.sheetIndex ?? preview?.active_sheet_index ?? null;
+  const effectiveSlideNumber = source?.slideNumber ?? preview?.active_slide_number ?? null;
+  const searchQuery = useMemo(
+    () => viewerSearchQuery(source, preview?.highlight_text || preview?.preview_text),
+    [preview?.highlight_text, preview?.preview_text, source],
+  );
   const fallbackExcerpt = excerptFor(source, preview?.preview_text);
 
   if (!source) {
@@ -129,12 +159,14 @@ export default function DocumentViewerPanel({
     );
   }
 
-  const fallback = (
-    <PdfFallback
-      documentId={source.documentId}
-      excerpt={fallbackExcerpt}
-      pageNumber={pageNumber}
-    />
+  const showRenderablePreview = Boolean(
+    preview
+    && (
+      preview.viewer_ready
+      || preview.render_kind !== 'card'
+      || preview.preview_text
+      || preview.rendered_html
+    ),
   );
 
   return (
@@ -143,7 +175,11 @@ export default function DocumentViewerPanel({
         title={title}
         documentId={source.documentId}
         citationIndex={source.citationIndex}
-        pageNumber={pageNumber}
+        pageNumber={effectivePageNumber}
+        sheetName={effectiveSheetName}
+        sheetIndex={effectiveSheetIndex}
+        slideNumber={effectiveSlideNumber}
+        anchor={source.anchor ?? source.chunkId}
         currentIndex={Math.max(0, currentIndex)}
         total={sources.length}
         previousSource={previousSource}
@@ -153,15 +189,33 @@ export default function DocumentViewerPanel({
         onClose={onClose}
       />
 
-      <div className="min-h-0 flex-1 overflow-hidden bg-[#f7f9f6]">
-        {pdfViewerUrl ? (
-          <NativePdfFrame src={pdfViewerUrl} title={title} />
-        ) : previewQuery.isLoading ? (
+      <div className="min-h-0 flex-1 overflow-hidden bg-[#f7f9f6] p-3">
+        {previewQuery.isLoading ? (
           <div className="flex h-full items-center justify-center px-6 text-sm text-slate-500">
-            Loading PDF...
+            Loading source preview...
           </div>
+        ) : showRenderablePreview ? (
+          <DocumentPreviewRenderer
+            preview={preview}
+            title={title}
+            searchQuery={searchQuery}
+            zoomLevel={zoomLevel}
+            activePage={activePage}
+            requestedPage={requestedPage}
+            onPageCountChange={setPageCount}
+            onActivePageChange={setActivePage}
+            useNativePdf
+          />
         ) : (
-          fallback
+          <SourceFallback
+            documentId={source.documentId}
+            excerpt={fallbackExcerpt}
+            pageNumber={effectivePageNumber}
+            sheetName={effectiveSheetName}
+            sheetIndex={effectiveSheetIndex}
+            slideNumber={effectiveSlideNumber}
+            anchor={source.anchor ?? source.chunkId}
+          />
         )}
       </div>
     </div>
