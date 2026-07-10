@@ -33,6 +33,10 @@ export interface ChatCitation {
   relative_path?: string | null;
   page: number | null;
   page_count?: number | null;
+  sheet_name?: string | null;
+  sheet_index?: number | null;
+  slide_number?: number | null;
+  anchor?: string | null;
   chunk_id?: string | null;
   snippet: string;
   highlight_text?: string | null;
@@ -50,6 +54,10 @@ export interface ChatSource {
   relative_path?: string | null;
   page: number | null;
   page_count?: number | null;
+  sheet_name?: string | null;
+  sheet_index?: number | null;
+  slide_number?: number | null;
+  anchor?: string | null;
   chunk_id: string;
   text: string;
   highlight_text?: string | null;
@@ -296,6 +304,8 @@ export interface DocumentPreview extends CorpusDocument {
   sheet_count?: number;
   sheet_names?: string[];
   active_sheet?: string | null;
+  active_sheet_index?: number | null;
+  active_slide_number?: number | null;
   slides?: Array<{ index: string; title: string; body: string }>;
 }
 
