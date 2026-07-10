@@ -10,7 +10,7 @@ React/Vite frontend
   -> services/knowledge-engine/backend/app
   -> services/knowledge-engine/backend/app/services/*
   -> services/knowledge-engine/src/cial_knowledge_os Phase 4.5 engine
-  -> local data/files, data/indexes, Qdrant vectors, PostgreSQL metadata, outputs
+  -> configured corpus repository, app data indexes/cache, Qdrant vectors, PostgreSQL metadata, outputs
 ```
 
 Routes stay thin and call services. Retrieval, reranking, evidence selection, context building, generation, citations, exports, OCR, and indexing remain in the migrated Phase 4.5 engine.
@@ -22,7 +22,7 @@ See `docs/architecture/METADATA_DATABASE.md`.
 
 The backend also owns the Corpus layer. The Knowledge Center and future
 document-picking UI should consume the Corpus API backed by PostgreSQL metadata
-instead of scanning `data/files`. See `docs/architecture/CORPUS_ARCHITECTURE.md`.
+instead of scanning the filesystem directly. See `docs/architecture/CORPUS_ARCHITECTURE.md`.
 Frontend wiring details are in `docs/architecture/FRONTEND_CORPUS_INTEGRATION.md`.
 
 The real FastAPI backend source is `services/knowledge-engine/backend/app`.
@@ -48,15 +48,55 @@ keep the initialized pipeline in KnowledgeEngineService
 
 The notebooks `04_Reranking_and_Evidence_Selection.ipynb` and `045_Multimodal_Test_Corpus_Evaluation.ipynb` remain architectural references only. The backend does not copy notebook cells and does not introduce Phase 5 planning or agent logic.
 
-Required folders are created if missing:
+Startup validates the configured corpus repository and fails readiness with a
+clear message if it does not exist or is not readable by the service. Generated
+application folders are created if missing:
 
-- `data/files`
 - `data/indexes`
 - `data/bm25`
 - `outputs`
 - `models`
 
 `CIAL_AUTO_INDEX_ON_STARTUP=true` enables automatic startup indexing. `CIAL_FORCE_REBUILD_ON_STARTUP=true` passes `force_rebuild_index=True` into `Phase4Config`. Manual rebuilds use the same service path via `POST /api/index/rebuild`. Backend environment examples live at `services/knowledge-engine/backend/.env.example`.
+
+## Corpus Repository Configuration
+
+The enterprise document repository is resolved in this order:
+
+1. `CIAL_CORPUS_ROOT` or `CORPUS_ROOT`.
+2. The primary `enterprise` repository in `data/config/application.json`.
+3. Compatibility alias `CIAL_DATA_DIR`.
+4. Development fallback `data/files`.
+
+`data/config/application.json` is future-ready for multiple repositories:
+
+```json
+{
+  "version": 1,
+  "repositories": [
+    {
+      "id": "enterprise",
+      "name": "Enterprise Knowledge Repository",
+      "type": "filesystem",
+      "path": "D:\\CIAL\\KnowledgeRepository",
+      "enabled": true,
+      "role": "primary"
+    }
+  ]
+}
+```
+
+Admin / Settings exposes `Enterprise Knowledge Repository` with Folder,
+Browse, Validate, and Save controls. Saving updates configuration and the
+running backend services only; Corpus Sync or Rebuild Index remains an explicit
+action unless a later deployment enables automatic sync. A first-run installer
+should write the selected folder to the same JSON configuration or set
+`CIAL_CORPUS_ROOT`; it must not copy enterprise documents into the application
+folder. The reusable helper is:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\configure_corpus_repository.ps1 -RepositoryPath "D:\CIAL\KnowledgeRepository"
+```
 
 Startup readiness is updated at each wrapper stage: load, chunk, embed, index,
 and reranker load. `documents_indexed` is updated immediately after
@@ -92,10 +132,10 @@ unavailability does not block current chat or retrieval behavior.
 - `GET /api/corpus/tree` returns the hierarchical Corpus Tree from PostgreSQL metadata.
 - `GET /api/corpus/folder?path=<relative>` returns folder contents from PostgreSQL metadata.
 - `GET /api/corpus/document/{id}` returns document metadata from PostgreSQL metadata.
-- `POST /api/corpus/sync` scans `data/files`, synchronizes PostgreSQL metadata, and queues indexing jobs for new/content-changed documents.
+- `POST /api/corpus/sync` scans the configured corpus repository, synchronizes PostgreSQL metadata, and queues indexing jobs for new/content-changed documents.
 - `POST /api/chat` first checks `runtime_state.engine_ready`. If false, it returns HTTP 503 with structured detail such as `no_documents_found`, `indexing_in_progress`, `qdrant_unavailable`, `model_unavailable`, or `startup_failed`. If ready, it calls `KnowledgeEngineService.answer_question()` and adapts the Phase 4 response into answer, citations, source chunks, and metadata.
-- `GET /api/documents` lists files discovered under `data/files`.
-- `POST /api/documents/upload` saves uploaded files to `data/files`.
+- `GET /api/documents` lists files discovered under the configured corpus repository.
+- `POST /api/documents/upload` saves uploaded files to the configured corpus repository.
 - `POST /api/index/rebuild` runs the same deterministic Phase 4.5 initialization/indexing path used by startup.
 - `GET /api/index/status` returns the shared runtime state.
 - `POST /api/evaluation/run` records an evaluation request. Full Phase 4 evaluation remains a manual runner workflow.
@@ -122,7 +162,7 @@ If Qdrant, Ollama, embeddings, reranker weights, Python packages, or an index ar
 
 - `qdrant_ready=false`: confirm `CIAL_QDRANT_MODE`, `CIAL_QDRANT_URL`, and `CIAL_QDRANT_API_KEY`. For server mode, start Qdrant before expecting chat readiness. The backend does not silently fall back to embedded Qdrant.
 - `models_ready=false`: confirm Ollama is running and `CIAL_OLLAMA_MODEL_NAME` is installed. Embedding and reranker failures during startup indexing also prevent `engine_ready`.
-- `no_documents`: add supported files under the configured `CIAL_DATA_DIR` and restart or call `POST /api/index/rebuild`.
+- `no_documents`: add supported files under the configured corpus repository and restart or call `POST /api/index/rebuild`.
 - `indexing`: wait for `GET /api/health` or `GET /api/index/status` to return `ready`.
 
 ## Mock Data Still In Use

@@ -11,13 +11,14 @@ import DocumentRow from '@/components/documents/DocumentRow';
 import DocumentCard from '@/components/documents/DocumentCard';
 import UploadModal from '@/components/documents/UploadModal';
 import { DOCUMENTS, DOC_CATEGORIES, DOC_DEPARTMENTS, DOC_TYPES } from '@/data/documentsData';
-import { CURRENT_USER } from '@/config/userConfig';
+import { useAuth } from '@/auth/AuthContext';
 import { hasPermission } from '@/config/securityConfig';
 import { Role } from '@/types';
 
 const SORT_OPTIONS = [{ label: 'Latest', value: 'latest' }, { label: 'Name A–Z', value: 'name_asc' }];
 
 export default function DocumentsPage() {
+  const { userView } = useAuth();
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState({ category: '', department: '', type: '', sort: '' });
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -45,7 +46,7 @@ export default function DocumentsPage() {
 
   const usingMockFallback = documentsQuery.isError || !documentsQuery.data;
 
-  const userRole = CURRENT_USER.role as Role;
+  const userRole = (userView?.role ?? 'viewer') as Role;
   const canUpload = hasPermission(userRole, 'canUpload');
   const canEdit = hasPermission(userRole, 'canEdit');
   const canDelete = hasPermission(userRole, 'canDelete');
@@ -115,7 +116,7 @@ export default function DocumentsPage() {
           <span>
             Documents source:{' '}
             <strong className="text-[#1a2e14]">
-              {documentsQuery.isLoading ? 'Loading backend...' : usingMockFallback ? 'Mock fallback' : 'Backend data/files'}
+              {documentsQuery.isLoading ? 'Loading backend...' : usingMockFallback ? 'Mock fallback' : 'Backend repository'}
             </strong>
           </span>
           <span>

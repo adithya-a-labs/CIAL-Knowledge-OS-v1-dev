@@ -53,8 +53,10 @@ export interface ChatRequestPayload {
 
 export interface ChatSource {
   id: string;
+  citationId?: string;
   citationIndex: number;
   documentId: string;
+  repositoryId?: string;
   relativePath?: string;
   documentTitle: string;
   sourceType: ContextSourceType;
@@ -79,13 +81,21 @@ export interface ChatCitation {
   id: string;
   citationIndex: number;
   documentTitle: string;
+  documentId?: string;
+  repositoryId?: string;
+  relativePath?: string;
   pageNumber?: number;
+  pageCount?: number;
   sheetName?: string;
   sheetIndex?: number;
   slideNumber?: number;
   anchor?: string;
-  documentId?: string;
+  chunkId?: string;
   snippet?: string;
+  highlightText?: string;
+  previewText?: string;
+  fileType?: string;
+  fileUrl?: string;
   score?: number;
 }
 

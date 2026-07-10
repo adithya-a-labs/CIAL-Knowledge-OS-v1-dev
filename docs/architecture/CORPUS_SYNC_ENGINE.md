@@ -30,7 +30,7 @@ authoritative vector store.
 
 ## Workflow
 
-1. Recursively scan `data/files`.
+1. Recursively scan the configured corpus repository.
 2. Compute deterministic file hashes with `CIAL_CORPUS_HASH` (`sha256` by
    default).
 3. Build a Corpus Tree with folder hierarchy and parent-child relationships.

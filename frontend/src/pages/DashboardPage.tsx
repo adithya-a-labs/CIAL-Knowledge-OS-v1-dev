@@ -17,7 +17,7 @@ import {
   recentDocuments,
   recommendedDocuments,
 } from '@/data/homePageData';
-import { CURRENT_USER } from '@/config/userConfig';
+import { useAuth } from '@/auth/AuthContext';
 
 const toneClass: Record<string, string> = {
   green: 'bg-emerald-50 text-emerald-700 border-emerald-100',
@@ -50,11 +50,13 @@ function Section({
 
 export default function DashboardPage() {
   const [, navigate] = useLocation();
+  const { userView } = useAuth();
+  const firstName = userView?.name.split(' ')[0] ?? 'there';
 
   return (
     <div className="mx-auto flex w-full max-w-[86rem] flex-col gap-7" data-testid="dashboard-page">
       <section className="pt-2">
-        <p className="text-sm text-slate-500">Good morning, {CURRENT_USER.name.split(' ')[0]}</p>
+        <p className="text-sm text-slate-500">Good morning, {firstName}</p>
         <h1 className="mt-2 text-[clamp(2rem,4vw,3.75rem)] font-semibold leading-tight text-slate-950">
           What would you like to work on today?
         </h1>

@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
-import { Bell, HelpCircle, MessageSquarePlus, Settings2, X, Search } from 'lucide-react';
+import { Bell, HelpCircle, LogOut, MessageSquarePlus, Settings2, X, Search } from 'lucide-react';
 import { THEME } from '@/config/themeConfig';
-import { CURRENT_USER } from '@/config/userConfig';
+import { useAuth } from '@/auth/AuthContext';
 import { homeNavItems } from '@/data/homePageData';
 import { useCommandPalette } from '@/components/common/CommandPalette';
 
@@ -19,6 +19,7 @@ const NEW_CONVERSATION_EVENT = 'cial-new-conversation';
 export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDrawerProps) {
   const [location] = useLocation();
   const { setOpen } = useCommandPalette();
+  const { logout, userView } = useAuth();
 
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : '';
@@ -119,8 +120,8 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
           <button className="relative flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5]">
             <Bell size={18} className="text-slate-500" />
             <span>Notifications</span>
-            {(CURRENT_USER.notificationsCount ?? 0) > 0 && (
-              <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#b76a09] px-1 text-[10px] font-bold text-white">{CURRENT_USER.notificationsCount}</span>
+            {(userView?.notificationsCount ?? 0) > 0 && (
+              <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#b76a09] px-1 text-[10px] font-bold text-white">{userView?.notificationsCount}</span>
             )}
           </button>
           <button className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5]">
@@ -132,12 +133,20 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
             <span>Theme & Settings</span>
           </button>
           <div className="flex min-w-0 items-center gap-3 rounded-xl px-3 py-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#25611f] text-sm font-bold text-white">{CURRENT_USER.initials}</div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#25611f] text-sm font-bold text-white">{userView?.initials ?? 'CU'}</div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-semibold text-slate-950">{CURRENT_USER.name}</div>
-              <div className="truncate text-xs text-slate-500">{CURRENT_USER.department}</div>
+              <div className="truncate text-sm font-semibold text-slate-950">{userView?.name ?? 'CIAL User'}</div>
+              <div className="truncate text-xs text-slate-500">{userView?.department ?? 'CIAL'}</div>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => void logout()}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5]"
+          >
+            <LogOut size={18} className="text-slate-500" />
+            <span>Log Out</span>
+          </button>
         </div>
       </aside>
     </div>

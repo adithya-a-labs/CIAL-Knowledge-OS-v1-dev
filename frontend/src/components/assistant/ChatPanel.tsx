@@ -212,6 +212,14 @@ export default function ChatPanel() {
   }, []);
 
   const openSource = (source: ChatSource) => {
+    console.debug('[citation-click]', {
+      citationId: source.citationId ?? source.id,
+      documentId: source.documentId,
+      repositoryId: source.repositoryId,
+      extractedPage: source.pageNumber ?? null,
+      normalizedPage: source.pageNumber && source.pageNumber > 0 ? Math.trunc(source.pageNumber) : null,
+      pdfEndpointUrl: source.fileUrl ?? null,
+    });
     if (toUuidDocumentId(source.documentId)) {
       setSelectedSource(source);
       setSourceViewerOpen(true);
@@ -220,7 +228,7 @@ export default function ChatPanel() {
     const matchedDocument =
       corpusLookup.documentsById.get(source.documentId) ??
       corpusLookup.documents.find((document) => document.relative_path === source.relativePath || document.relative_path === source.documentId) ??
-      corpusLookup.documents.find((document) => document.name === source.documentTitle || source.documentTitle.endsWith(source.documentTitle));
+      corpusLookup.documents.find((document) => document.name === source.documentTitle || document.relative_path.endsWith(`/${source.documentTitle}`));
     setSelectedSource(
       matchedDocument
         ? {
@@ -229,6 +237,7 @@ export default function ChatPanel() {
             relativePath: matchedDocument.relative_path,
             documentTitle: matchedDocument.name,
             fileType: matchedDocument.file_type,
+            fileUrl: source.fileUrl ?? `/api/corpus/document/${matchedDocument.id}/file`,
             pageCount: matchedDocument.page_count ?? undefined,
           }
         : source,
@@ -503,6 +512,10 @@ export default function ChatPanel() {
           }
           onClearAll={clearActiveContext}
         />
+
+        <div className="border-t border-[#f0f3ee] px-3 py-1.5 text-[11px] leading-5 text-slate-500 sm:px-4">
+          CIAL Knowledge OS uses AI to assist with enterprise knowledge. Responses may contain mistakes. Verify critical information against the cited source documents.
+        </div>
 
         <div className="flex min-w-0 items-end gap-1.5 px-3 py-2 sm:px-4">
           <input

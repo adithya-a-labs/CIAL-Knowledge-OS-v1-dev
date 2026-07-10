@@ -58,7 +58,9 @@ package exists at `cial_knowledge_os.corpus_sync`, but new code should use
 
 ## Storage Abstraction
 
-Today the storage provider is the local filesystem under `data/files`.
+Today the storage provider is the configured local filesystem repository.
+`data/files` is only the development fallback when no environment setting or
+application configuration exists.
 
 Future providers can feed the same scanner/tree contract without frontend
 changes:

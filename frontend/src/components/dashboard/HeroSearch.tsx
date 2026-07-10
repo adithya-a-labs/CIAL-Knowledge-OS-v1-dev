@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { Search, Mic, Send } from 'lucide-react';
 import { useLocation } from 'wouter';
-import { CURRENT_USER } from '@/config/userConfig';
+import { useAuth } from '@/auth/AuthContext';
 import { HERO_QUICK_SEARCHES } from '@/data/dashboardData';
 
 export default function HeroSearch() {
   const [searchQuery, setSearchQuery] = useState('');
   const [, setLocation] = useLocation();
-  const firstName = CURRENT_USER.name.split(' ')[0];
+  const { userView } = useAuth();
+  const firstName = userView?.name.split(' ')[0] ?? 'there';
 
   const handleSearch = () => {
     if (searchQuery.trim()) setLocation('/assistant');

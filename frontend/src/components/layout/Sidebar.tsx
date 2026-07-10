@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { Link, useLocation } from 'wouter';
-import { Bell, ChevronDown, HelpCircle, History, MessageSquarePlus, Settings2, Search } from 'lucide-react';
+import { Bell, ChevronDown, HelpCircle, History, LogOut, MessageSquarePlus, Settings2, Search } from 'lucide-react';
 import { THEME } from '@/config/themeConfig';
-import { CURRENT_USER } from '@/config/userConfig';
+import { useAuth } from '@/auth/AuthContext';
 import { homeNavItems } from '@/data/homePageData';
 import { useCommandPalette } from '@/components/common/CommandPalette';
 import { Kbd } from '@/components/ui/kbd';
@@ -19,6 +19,7 @@ const NEW_CONVERSATION_EVENT = 'cial-new-conversation';
 export default function Sidebar() {
   const [location] = useLocation();
   const { setOpen } = useCommandPalette();
+  const { logout, userView } = useAuth();
   const [assistantHistoryOpen, setAssistantHistoryOpen] = React.useState(readAssistantHistorySidebarOpen);
 
   React.useEffect(() => {
@@ -136,8 +137,8 @@ export default function Sidebar() {
         <button className="relative flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5] hover:text-slate-950" aria-label="Notifications" title="Notifications" data-testid="button-notifications">
           <Bell size={18} className="text-slate-500" />
           <span>Notifications</span>
-          {(CURRENT_USER.notificationsCount ?? 0) > 0 && (
-            <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#b76a09] px-1 text-[10px] font-bold text-white" data-testid="notification-badge">{CURRENT_USER.notificationsCount}</span>
+          {(userView?.notificationsCount ?? 0) > 0 && (
+            <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#b76a09] px-1 text-[10px] font-bold text-white" data-testid="notification-badge">{userView?.notificationsCount}</span>
           )}
         </button>
         <button className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5] hover:text-slate-950" aria-label="Help" title="Help" data-testid="button-help">
@@ -155,13 +156,22 @@ export default function Sidebar() {
           title="User menu"
         >
           <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#25611f] text-sm font-bold text-white shadow-sm">
-            {CURRENT_USER.initials}
+            {userView?.initials ?? 'CU'}
           </div>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold leading-tight text-slate-950" data-testid="text-username">{CURRENT_USER.name}</div>
-            <div className="truncate text-xs leading-tight text-slate-500" data-testid="text-department">{CURRENT_USER.department}</div>
+            <div className="truncate text-sm font-semibold leading-tight text-slate-950" data-testid="text-username">{userView?.name ?? 'CIAL User'}</div>
+            <div className="truncate text-xs leading-tight text-slate-500" data-testid="text-department">{userView?.department ?? 'CIAL'}</div>
           </div>
           <ChevronDown size={14} className="text-muted-foreground" />
+        </button>
+        <button
+          type="button"
+          onClick={() => void logout()}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5] hover:text-slate-950"
+          data-testid="button-logout"
+        >
+          <LogOut size={18} className="text-slate-500" />
+          <span>Log Out</span>
         </button>
       </div>
     </aside>
