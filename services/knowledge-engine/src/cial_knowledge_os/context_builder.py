@@ -15,6 +15,9 @@ from .metadata import (
     chunk_index,
     normalize_result,
     page_number,
+    sheet_index,
+    sheet_name,
+    slide_number,
     source_label,
     source_path,
 )
@@ -137,7 +140,10 @@ def _merge_group(group: Sequence[RetrievalResult]) -> RetrievalResult:
             "chunk_ids": chunk_ids,
             "chunk_id": merged_chunk_id,
             "page_numbers": pages,
-            "page_number": pages[0] if len(pages) == 1 else ", ".join(map(str, pages)),
+            "page_number": pages[0] if pages else None,
+            "sheet_name": sheet_name(ordered[0]),
+            "sheet_index": sheet_index(ordered[0]),
+            "slide_number": slide_number(ordered[0]),
             "score": max(scores) if scores else None,
             "matched_queries": matched_queries,
             "merged_chunk_count": len(ordered),
@@ -174,12 +180,22 @@ def merge_overlapping_chunks(
         ordered = sorted(source_items, key=lambda pair: chunk_index(pair[1]) or 0)
         current_group: list[tuple[int, RetrievalResult]] = []
         previous_index: int | None = None
+        previous_location: tuple[Any, str | None, int | None, int | None] | None = None
         for position, item in ordered:
             item_index = chunk_index(item)
+            location = (
+                page_number(item),
+                sheet_name(item),
+                sheet_index(item),
+                slide_number(item),
+            )
             if (
                 current_group
                 and previous_index is not None
-                and item_index != previous_index + 1
+                and (
+                    item_index != previous_index + 1
+                    or location != previous_location
+                )
             ):
                 grouped.append(
                     (
@@ -190,6 +206,7 @@ def merge_overlapping_chunks(
                 current_group = []
             current_group.append((position, item))
             previous_index = item_index
+            previous_location = location
         if current_group:
             grouped.append(
                 (
