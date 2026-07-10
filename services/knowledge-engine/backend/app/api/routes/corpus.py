@@ -116,9 +116,19 @@ def corpus_document_preview(
     request: Request,
     chunk_id: str | None = Query(default=None),
     page: int | None = Query(default=None, ge=1),
+    sheet_name: str | None = Query(default=None),
+    sheet_index: int | None = Query(default=None, ge=1),
+    slide_number: int | None = Query(default=None, ge=1),
 ) -> dict[str, object]:
     document = _get_corpus_document_or_404(document_id, request)
-    return preview_payload(resolve_document(document), page=page, chunk_id=chunk_id)
+    return preview_payload(
+        resolve_document(document),
+        page=page,
+        chunk_id=chunk_id,
+        sheet_name=sheet_name,
+        sheet_index=sheet_index,
+        slide_number=slide_number,
+    )
 
 
 @router.get("/corpus/document/{document_id}")
