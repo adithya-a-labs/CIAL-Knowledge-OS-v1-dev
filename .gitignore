@@ -1,6 +1,7 @@
 # Local tool state
 .agents/
 .local/
+.playwright-mcp/
 
 # Environment files
 .env
