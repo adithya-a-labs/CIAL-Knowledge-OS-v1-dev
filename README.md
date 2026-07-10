@@ -10,13 +10,16 @@ Current structure:
 - `data/` - benchmark/manual QA assets and optional test corpus; runtime stores and enterprise corpus mounts must remain uncommitted.
 
 Metadata/control-plane storage uses PostgreSQL through SQLAlchemy and Alembic.
-Original source files remain in `data/files`, and vectors/chunk embeddings
-remain in Qdrant. See `docs/architecture/METADATA_DATABASE.md`.
+Original source files remain in the configured enterprise repository
+(`CIAL_CORPUS_ROOT`, `CORPUS_ROOT`, or `data/config/application.json`), and
+vectors/chunk embeddings remain in Qdrant. If no repository configuration
+exists, the backend falls back to the development path `data/files`. See
+`docs/architecture/METADATA_DATABASE.md`.
 
-The backend Corpus layer synchronizes `data/files` into PostgreSQL metadata and
-exposes `GET /api/corpus/*` endpoints for Knowledge Center-style browsing. The
-frontend should consume the Corpus API rather than scanning the filesystem.
-See `docs/architecture/CORPUS_ARCHITECTURE.md`.
+The backend Corpus layer synchronizes the configured repository into PostgreSQL
+metadata and exposes `GET /api/corpus/*` endpoints for Knowledge Center-style
+browsing. The frontend should consume the Corpus API rather than scanning the
+filesystem. See `docs/architecture/CORPUS_ARCHITECTURE.md`.
 
 See `MIGRATION_VERIFICATION_REPORT.md` for the latest migration audit status before backend/frontend integration.
 

@@ -1,0 +1,115 @@
+# CIAL Knowledge OS Windows Installer
+
+This repository includes a production-oriented Windows installer and daily
+launcher:
+
+- `Install-CIAL-Knowledge-OS.bat`
+- `Install-CIAL-Knowledge-OS.ps1`
+- `Launch-CIAL-Knowledge-OS.bat`
+- `Launch-CIAL-Knowledge-OS.ps1`
+
+## Install
+
+Run from the repository root:
+
+```bat
+Install-CIAL-Knowledge-OS.bat
+```
+
+Run the installer as Administrator. It writes timestamped logs under:
+
+```text
+outputs\installer\logs
+```
+
+The installer verifies or installs prerequisites with `winget`, creates the
+Python 3.11 virtual environment, installs CUDA-enabled PyTorch, installs backend
+dependencies from `services\knowledge-engine\requirements.txt`, resolves Node,
+npm, Corepack, and pnpm from the verified Node.js installation, installs
+frontend dependencies with `pnpm install --frozen-lockfile`, builds and
+typechecks the frontend, starts PostgreSQL/Qdrant/Ollama, runs Alembic,
+validates CUDA, and then launches the application.
+
+To verify a true clean frontend dependency installation:
+
+```bat
+Install-CIAL-Knowledge-OS.bat -VerifyCleanFrontendInstall
+```
+
+That mode temporarily moves `frontend\node_modules`, performs a locked install
+with the installer-resolved pnpm executable, runs the production build and
+typecheck, then restores the original `node_modules` directory.
+
+If the first detected Node.js installation is NVM-managed and both npm and
+Corepack fail validation, the installer does not repair NVM. It prompts the
+administrator to install official Node.js LTS side-by-side through `winget`,
+refreshes PATH, and retries with `C:\Program Files\nodejs`.
+
+To pass the first-run enterprise repository non-interactively:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\Install-CIAL-Knowledge-OS.ps1 -CorpusRepositoryPath "D:\CIAL\KnowledgeRepository"
+```
+
+If `data\config\application.json` already contains a valid enabled
+`enterprise` repository, the installer preserves it. The installer does not set
+`CIAL_CORPUS_ROOT`, so saved app config remains in the verified precedence:
+
+1. `CIAL_CORPUS_ROOT` / `CORPUS_ROOT`
+2. saved app config
+3. deprecated `CIAL_DATA_DIR`
+4. `data/files` development fallback
+
+Enterprise documents are indexed in place. They are not copied into this
+application directory.
+
+## Daily Launch
+
+Run:
+
+```bat
+Launch-CIAL-Knowledge-OS.bat
+```
+
+The launcher does not reinstall dependencies. It verifies the configured
+repository, starts Docker/PostgreSQL/Qdrant/Ollama only when needed, starts the
+backend and frontend only when their ports are not already serving the expected
+app, waits for readiness, and opens:
+
+```text
+http://127.0.0.1:5173/login
+```
+
+Runtime logs are written under:
+
+```text
+outputs\launcher\logs
+```
+
+## Default Ports
+
+- Backend: `8000`
+- Frontend: `5173`
+- PostgreSQL: from `DATABASE_URL`, installer default `5432`
+- Qdrant: `6335`
+- Ollama: `11434`
+
+Use PowerShell parameters to override backend/frontend ports:
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\Launch-CIAL-Knowledge-OS.ps1 -BackendPort 8000 -FrontendPort 5173
+```
+
+## Safety
+
+The scripts are designed to be rerunnable. They preserve:
+
+- PostgreSQL Docker volume `cial_postgres_data`
+- Qdrant Docker volume `cial_qdrant_storage`
+- existing valid `data\config\application.json`
+- Ollama model cache
+- Hugging Face model cache
+- existing enterprise repository files
+
+The installer stops if CUDA is unavailable to PyTorch. It never intentionally
+continues in CPU-only mode.
