@@ -98,12 +98,14 @@ function documentTitleFromSource(source: ChatSource): string {
 
 export function toUiChatCitations(response: ChatResponse): UiChatCitation[] {
   const citations = Array.isArray(response.citations) ? response.citations : [];
+  const sources = Array.isArray(response.sources) ? response.sources : [];
+  const sourceById = new Map(sources.map((source) => [source.id, source]));
   return citations.map((citation, index) => ({
     id: citation.id || `citation-${index + 1}`,
     citationIndex: index + 1,
     documentTitle: citation.document_name || 'Unknown document',
     documentId: citation.document_id || undefined,
-    pageNumber: citation.page ?? undefined,
+    pageNumber: citation.page ?? sourceById.get(citation.id || `S${index + 1}`)?.page ?? undefined,
     sheetName: citation.sheet_name ?? undefined,
     sheetIndex: citation.sheet_index ?? undefined,
     slideNumber: citation.slide_number ?? undefined,
