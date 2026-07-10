@@ -36,6 +36,10 @@ class ChatCitation(BaseModel):
     relative_path: str | None = None
     page: int | None = None
     page_count: int | None = None
+    sheet_name: str | None = None
+    sheet_index: int | None = None
+    slide_number: int | None = None
+    anchor: str | None = None
     chunk_id: str | None = None
     snippet: str = ""
     highlight_text: str | None = None
@@ -53,6 +57,10 @@ class ChatSource(BaseModel):
     relative_path: str | None = None
     page: int | None = None
     page_count: int | None = None
+    sheet_name: str | None = None
+    sheet_index: int | None = None
+    slide_number: int | None = None
+    anchor: str | None = None
     chunk_id: str = ""
     text: str = ""
     highlight_text: str | None = None
