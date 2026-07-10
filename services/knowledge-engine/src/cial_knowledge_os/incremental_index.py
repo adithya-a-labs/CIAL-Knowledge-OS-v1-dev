@@ -20,10 +20,11 @@ def _now_iso() -> str:
     return datetime.now().astimezone().isoformat()
 
 
-def document_id(relative_path: str) -> str:
+def document_id(relative_path: str, repository_id: str | None = None) -> str:
     """Return a stable identifier that survives document content changes."""
 
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, relative_path))
+    identity = f"{repository_id or 'default'}:{relative_path}"
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, identity))
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +70,7 @@ class IndexingPlan:
     previous: dict[str, DocumentManifestEntry] = field(default_factory=dict)
     force_rebuild: bool = False
     incremental_enabled: bool = True
+    repository_id: str | None = None
 
     @property
     def files_to_process(self) -> tuple[DocumentManifestEntry, ...]:
@@ -79,7 +81,7 @@ class IndexingPlan:
         return bool(self.new or self.changed or self.deleted or self.force_rebuild)
 
 
-def _fingerprint(path: Path, root: Path) -> DocumentManifestEntry:
+def _fingerprint(path: Path, root: Path, *, repository_id: str | None = None) -> DocumentManifestEntry:
     relative = path.resolve().relative_to(root.resolve()).as_posix()
     parts = Path(relative).parts[:-1]
     digest = hashlib.sha256()
@@ -95,17 +97,17 @@ def _fingerprint(path: Path, root: Path) -> DocumentManifestEntry:
         document_type=path.suffix.lstrip(".").lower(),
         category=parts[0] if parts else None,
         collection=parts[1] if len(parts) > 1 else None,
-        document_id=document_id(relative),
+        document_id=document_id(relative, repository_id),
     )
 
 
-def scan_corpus(root: Path) -> dict[str, DocumentManifestEntry]:
+def scan_corpus(root: Path, *, repository_id: str | None = None) -> dict[str, DocumentManifestEntry]:
     """Hash every implemented document below the canonical corpus root."""
 
     if not root.exists():
         return {}
     entries = (
-        _fingerprint(path, root)
+        _fingerprint(path, root, repository_id=repository_id)
         for path in sorted(root.rglob("*"))
         if path.is_file() and is_supported_file(path.name)
     )
@@ -157,8 +159,9 @@ def create_indexing_plan(
     collection_name: str,
     incremental_enabled: bool = True,
     force_rebuild: bool = False,
+    repository_id: str | None = None,
 ) -> IndexingPlan:
-    current = scan_corpus(corpus_root)
+    current = scan_corpus(corpus_root, repository_id=repository_id)
     previous = load_manifest(
         manifest_path,
         corpus_root=corpus_root,
@@ -174,6 +177,7 @@ def create_indexing_plan(
             previous=previous,
             force_rebuild=force_rebuild,
             incremental_enabled=incremental_enabled,
+            repository_id=repository_id,
         )
     new: list[DocumentManifestEntry] = []
     unchanged: list[DocumentManifestEntry] = []
@@ -206,6 +210,7 @@ def create_indexing_plan(
         deleted=tuple(deleted),
         previous=previous,
         incremental_enabled=True,
+        repository_id=repository_id,
     )
 
 
@@ -230,6 +235,7 @@ def write_manifest(
         "version": MANIFEST_VERSION,
         "corpus_root": str(plan.corpus_root.resolve()),
         "collection_name": collection_name,
+        "repository_id": plan.repository_id,
         "updated_at": now,
         "documents": [
             asdict(entries[key]) for key in sorted(entries, key=str.casefold)

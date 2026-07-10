@@ -101,6 +101,7 @@ class BasicRAGPipeline:
                 or self.config.reset_vectorstore
                 or manifest_without_vectorstore
             ),
+            repository_id=getattr(self.config, "repository_id", None),
         )
         if (
             self.config.incremental_indexing_enabled
@@ -204,8 +205,7 @@ class BasicRAGPipeline:
             raise RuntimeError("No local documents were available for the RAG pipeline.")
         return self.documents
 
-    @staticmethod
-    def _hydrate_document_access_metadata(documents: list[Document]) -> None:
+    def _hydrate_document_access_metadata(self, documents: list[Document]) -> None:
         relative_paths = sorted(
             {
                 str(document.metadata.get("relative_path") or "").strip()
@@ -228,6 +228,7 @@ class BasicRAGPipeline:
         with SessionLocal() as session:
             rows = session.scalars(
                 select(MetadataDocument).where(
+                    MetadataDocument.repository_id == getattr(self.config, "repository_id", None),
                     MetadataDocument.relative_path.in_(relative_paths)
                 )
             ).all()

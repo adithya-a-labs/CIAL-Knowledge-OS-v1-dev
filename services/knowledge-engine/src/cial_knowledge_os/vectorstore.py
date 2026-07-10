@@ -194,6 +194,7 @@ def _stable_point_id(chunk: Document) -> str:
     )
     identity = "|".join(
         (
+            str(metadata.get("repository_id", "")),
             str(metadata.get("source", "")),
             str(metadata.get("page_number", "")),
             *location_parts,
@@ -323,8 +324,17 @@ def _document_filter(
     *,
     document_id: str | None = None,
     relative_path: str | None = None,
+    repository_id: str | None = None,
 ) -> Filter:
     conditions = []
+    must_conditions = []
+    if repository_id:
+        must_conditions.append(
+            FieldCondition(
+                key="metadata.repository_id",
+                match=MatchValue(value=repository_id),
+            )
+        )
     if document_id:
         conditions.append(
             FieldCondition(
@@ -341,7 +351,7 @@ def _document_filter(
         )
     if not conditions:
         raise ValueError("document_id or relative_path is required.")
-    return Filter(should=conditions)
+    return Filter(must=must_conditions or None, should=conditions)
 
 
 def delete_document_chunks(
@@ -358,6 +368,7 @@ def delete_document_chunks(
     query_filter = _document_filter(
         document_id=document_id,
         relative_path=relative_path,
+        repository_id=getattr(config, "repository_id", None),
     )
     try:
         removed = int(
@@ -390,12 +401,24 @@ def load_indexed_chunks(
     offset: Any | None = None
     try:
         while True:
+            query_filter = None
+            repository_id = getattr(config, "repository_id", None)
+            if repository_id:
+                query_filter = Filter(
+                    must=[
+                        FieldCondition(
+                            key="metadata.repository_id",
+                            match=MatchValue(value=repository_id),
+                        )
+                    ]
+                )
             points, offset = client.scroll(
                 collection_name=config.qdrant_collection_name,
                 limit=256,
                 offset=offset,
                 with_payload=True,
                 with_vectors=False,
+                scroll_filter=query_filter,
             )
             for point in points:
                 payload = point.payload or {}
