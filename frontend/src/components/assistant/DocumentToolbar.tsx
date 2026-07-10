@@ -7,6 +7,10 @@ interface DocumentToolbarProps {
   documentId?: string | null;
   citationIndex?: number;
   pageNumber?: number | null;
+  sheetName?: string | null;
+  sheetIndex?: number | null;
+  slideNumber?: number | null;
+  anchor?: string | null;
   currentIndex: number;
   total: number;
   previousSource: ChatSource | null;
@@ -21,6 +25,10 @@ export default function DocumentToolbar({
   documentId,
   citationIndex,
   pageNumber,
+  sheetName,
+  sheetIndex,
+  slideNumber,
+  anchor,
   currentIndex,
   total,
   previousSource,
@@ -29,7 +37,24 @@ export default function DocumentToolbar({
   onNext,
   onClose,
 }: DocumentToolbarProps) {
-  const workspaceHref = documentId ? `/knowledge/document/${documentId}?page=${pageNumber ?? 1}` : null;
+  const workspaceHref = (() => {
+    if (!documentId) return null;
+    const params = new URLSearchParams();
+    if (pageNumber) params.set('page', String(pageNumber));
+    if (slideNumber) params.set('slide', String(slideNumber));
+    if (sheetName) params.set('sheet', sheetName);
+    if (sheetIndex) params.set('sheetIndex', String(sheetIndex));
+    if (anchor) params.set('chunk', anchor);
+    const query = params.toString();
+    return `/knowledge/document/${documentId}${query ? `?${query}` : ''}`;
+  })();
+  const locationLabel = sheetName
+    ? `Sheet ${sheetName}${sheetIndex ? ` (${sheetIndex})` : ''}`
+    : slideNumber
+      ? `Slide ${slideNumber}`
+      : pageNumber
+        ? `Page ${pageNumber}`
+        : 'Location unavailable';
 
   return (
     <div className="sticky top-0 z-10 border-b border-[#e3e9e1] bg-white/95 px-4 py-3 backdrop-blur">
@@ -39,7 +64,7 @@ export default function DocumentToolbar({
             {citationIndex ? (
               <span className="rounded-md bg-[#eef5e8] px-1.5 py-0.5 font-semibold text-primary">[{citationIndex}]</span>
             ) : null}
-            <span className="font-medium">{pageNumber ? `Page ${pageNumber}` : 'Page n/a'}</span>
+            <span className="font-medium">{locationLabel}</span>
             <span>{total > 0 ? `${currentIndex + 1} of ${total}` : 'Citation'}</span>
           </div>
           <div className="flex min-w-0 items-center gap-2">
