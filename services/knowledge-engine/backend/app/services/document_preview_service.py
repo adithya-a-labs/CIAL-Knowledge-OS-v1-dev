@@ -65,14 +65,38 @@ def _cache_dir(name: str) -> Path:
     return directory
 
 
-def _cache_key(document: ResolvedDocument, page: int | None = None) -> str:
+def _cache_key(
+    document: ResolvedDocument,
+    page: int | None = None,
+    *,
+    sheet_name: str | None = None,
+    sheet_index: int | None = None,
+    slide_number: int | None = None,
+) -> str:
     page_part = f"-p{max(page or 1, 1)}" if page is not None else ""
-    return f"{document.metadata['id']}-{_safe_name(document.content_hash)}{page_part}"
+    sheet_name_part = f"-sheet-{_safe_name(sheet_name)}" if sheet_name else ""
+    sheet_index_part = f"-sheet-index-{max(sheet_index or 1, 1)}" if sheet_index is not None else ""
+    slide_part = f"-slide-{max(slide_number or 1, 1)}" if slide_number is not None else ""
+    return (
+        f"{document.metadata['id']}-{_safe_name(document.content_hash)}"
+        f"{page_part}{sheet_name_part}{sheet_index_part}{slide_part}"
+    )
 
 
-def _preview_cache_path(document: ResolvedDocument, page: int | None, chunk_id: str | None) -> Path:
+def _preview_cache_path(
+    document: ResolvedDocument,
+    page: int | None,
+    chunk_id: str | None,
+    *,
+    sheet_name: str | None = None,
+    sheet_index: int | None = None,
+    slide_number: int | None = None,
+) -> Path:
     chunk_part = f"-c{_safe_name(chunk_id)}" if chunk_id else ""
-    return _cache_dir("previews") / f"{_cache_key(document, page)}{chunk_part}.json"
+    return _cache_dir("previews") / (
+        f"{_cache_key(document, page, sheet_name=sheet_name, sheet_index=sheet_index, slide_number=slide_number)}"
+        f"{chunk_part}.json"
+    )
 
 
 def _media_type(path: Path, fallback: str | None = None) -> str:
@@ -181,6 +205,9 @@ def _xlsx_rows(
     path: Path,
     max_rows: int = 12,
     max_cols: int = 6,
+    *,
+    sheet_name: str | None = None,
+    sheet_index: int | None = None,
 ) -> tuple[list[list[str]], int, list[str], str | None]:
     try:
         from openpyxl import load_workbook
@@ -188,12 +215,22 @@ def _xlsx_rows(
         return [], 0, [], None
     workbook = load_workbook(path, read_only=True, data_only=True)
     try:
-        worksheet = workbook.worksheets[0]
+        worksheets = list(workbook.worksheets)
+        if not worksheets:
+            return [], 0, [], None
+        selected_worksheet = worksheets[0]
+        if sheet_name:
+            selected_worksheet = next(
+                (worksheet for worksheet in worksheets if worksheet.title == sheet_name),
+                selected_worksheet,
+            )
+        elif sheet_index is not None and 1 <= sheet_index <= len(worksheets):
+            selected_worksheet = worksheets[sheet_index - 1]
         rows: list[list[str]] = []
-        for row in worksheet.iter_rows(max_row=max_rows, max_col=max_cols, values_only=True):
+        for row in selected_worksheet.iter_rows(max_row=max_rows, max_col=max_cols, values_only=True):
             rows.append(["" if cell is None else str(cell)[:80] for cell in row])
-        sheet_names = [worksheet.title for worksheet in workbook.worksheets]
-        return rows, len(workbook.worksheets), sheet_names, worksheet.title
+        sheet_names = [worksheet.title for worksheet in worksheets]
+        return rows, len(worksheets), sheet_names, selected_worksheet.title
     finally:
         workbook.close()
 
@@ -202,6 +239,9 @@ def _xls_rows(
     path: Path,
     max_rows: int = 12,
     max_cols: int = 6,
+    *,
+    sheet_name: str | None = None,
+    sheet_index: int | None = None,
 ) -> tuple[list[list[str]], int, list[str], str | None]:
     try:
         import xlrd
@@ -215,7 +255,12 @@ def _xls_rows(
         sheet_names = workbook.sheet_names()
         if not sheet_names:
             return [], 0, [], None
-        sheet = workbook.sheet_by_index(0)
+        selected_index = 0
+        if sheet_name and sheet_name in sheet_names:
+            selected_index = sheet_names.index(sheet_name)
+        elif sheet_index is not None and 1 <= sheet_index <= len(sheet_names):
+            selected_index = sheet_index - 1
+        sheet = workbook.sheet_by_index(selected_index)
         rows: list[list[str]] = []
         for row_index in range(min(sheet.nrows, max_rows)):
             row = [
@@ -223,7 +268,7 @@ def _xls_rows(
                 for col_index in range(min(sheet.ncols, max_cols))
             ]
             rows.append(row)
-        return rows, len(sheet_names), sheet_names, sheet_names[0]
+        return rows, len(sheet_names), sheet_names, sheet_names[selected_index]
     finally:
         workbook.release_resources()
 
@@ -470,8 +515,13 @@ def _chunk_context(document: ResolvedDocument, chunk_id: str | None) -> dict[str
         )
     if chunk is None:
         return {}
+    metadata = chunk.metadata_ if isinstance(chunk.metadata_, dict) else {}
     return {
         "page": chunk.page,
+        "sheet_name": metadata.get("sheet_name"),
+        "sheet_index": metadata.get("sheet_index"),
+        "slide_number": metadata.get("slide_number"),
+        "anchor": metadata.get("anchor") or chunk.chunk_id,
         "highlight_text": _decode_text(str(chunk.text_preview or "")),
     }
 
@@ -558,7 +608,14 @@ def thumbnail_response(document: ResolvedDocument, page: int | None = None) -> F
     return FileResponse(output_path, media_type="image/png")
 
 
-def _preview_content(document: ResolvedDocument, *, page: int | None = None) -> dict[str, Any]:
+def _preview_content(
+    document: ResolvedDocument,
+    *,
+    page: int | None = None,
+    sheet_name: str | None = None,
+    sheet_index: int | None = None,
+    slide_number: int | None = None,
+) -> dict[str, Any]:
     preview_text = ""
     rows: list[list[str]] = []
     slides: list[dict[str, str]] = []
@@ -568,6 +625,8 @@ def _preview_content(document: ResolvedDocument, *, page: int | None = None) -> 
         "rendered_html": None,
         "sheet_names": [],
         "active_sheet": None,
+        "active_sheet_index": None,
+        "active_slide_number": None,
         "slides": slides,
     }
 
@@ -597,21 +656,39 @@ def _preview_content(document: ResolvedDocument, *, page: int | None = None) -> 
         extraction_method = "csv_head"
         render_kind = "table"
     elif document.extension == ".xlsx":
-        rows, sheet_count, sheet_names, active_sheet = _xlsx_rows(document.path)
+        rows, sheet_count, sheet_names, active_sheet = _xlsx_rows(
+            document.path,
+            sheet_name=sheet_name,
+            sheet_index=sheet_index,
+        )
         preview_text = _trim_preview_text("\n".join(["\t".join(row) for row in rows]))
         extraction_method = "spreadsheet_head" if rows else "metadata"
         render_kind = "spreadsheet" if rows else "card"
         extra["sheet_count"] = sheet_count
         extra["sheet_names"] = sheet_names
         extra["active_sheet"] = active_sheet
+        extra["active_sheet_index"] = (
+            sheet_names.index(active_sheet) + 1
+            if active_sheet and active_sheet in sheet_names
+            else None
+        )
     elif document.extension == ".xls":
-        rows, sheet_count, sheet_names, active_sheet = _xls_rows(document.path)
+        rows, sheet_count, sheet_names, active_sheet = _xls_rows(
+            document.path,
+            sheet_name=sheet_name,
+            sheet_index=sheet_index,
+        )
         preview_text = _trim_preview_text("\n".join(["\t".join(row) for row in rows]))
         extraction_method = "spreadsheet_head" if rows else "metadata"
         render_kind = "spreadsheet" if rows else "card"
         extra["sheet_count"] = sheet_count
         extra["sheet_names"] = sheet_names
         extra["active_sheet"] = active_sheet
+        extra["active_sheet_index"] = (
+            sheet_names.index(active_sheet) + 1
+            if active_sheet and active_sheet in sheet_names
+            else None
+        )
     elif document.extension == ".docx":
         preview_text, rendered_html, first_table = _docx_preview(document.path)
         extraction_method = "docx_text" if preview_text else "metadata"
@@ -632,6 +709,18 @@ def _preview_content(document: ResolvedDocument, *, page: int | None = None) -> 
         extraction_method = "pptx_slides" if slides else "metadata"
         render_kind = "slides" if slides else "card"
         extra["slides"] = slides
+        resolved_slide_number = None
+        if slide_number is not None and slides:
+            resolved_slide_number = min(max(int(slide_number), 1), len(slides))
+            selected_slide = slides[resolved_slide_number - 1]
+            preview_text = _trim_preview_text(
+                "\n".join(
+                    value
+                    for value in [selected_slide.get("title"), selected_slide.get("body")]
+                    if value
+                )
+            )
+        extra["active_slide_number"] = resolved_slide_number or (1 if slides else None)
     elif document.extension in OFFICE_EXTENSIONS:
         render_kind = "card"
 
@@ -644,7 +733,15 @@ def _preview_content(document: ResolvedDocument, *, page: int | None = None) -> 
     }
 
 
-def preview_payload(document: ResolvedDocument, *, page: int | None = None, chunk_id: str | None = None) -> dict[str, Any]:
+def preview_payload(
+    document: ResolvedDocument,
+    *,
+    page: int | None = None,
+    chunk_id: str | None = None,
+    sheet_name: str | None = None,
+    sheet_index: int | None = None,
+    slide_number: int | None = None,
+) -> dict[str, Any]:
     chunk_context = _chunk_context(document, chunk_id)
     viewer_asset = viewer_asset_payload(document)
     preview_source = document
@@ -660,7 +757,21 @@ def preview_payload(document: ResolvedDocument, *, page: int | None = None, chun
     resolved_page = page or chunk_context.get("page")
     if resolved_page is not None:
         resolved_page = max(int(resolved_page), 1)
-    cache_path = _preview_cache_path(preview_source, resolved_page, chunk_id)
+    resolved_sheet_name = sheet_name or chunk_context.get("sheet_name")
+    resolved_sheet_index = sheet_index or chunk_context.get("sheet_index")
+    resolved_slide_number = slide_number or chunk_context.get("slide_number")
+    if resolved_slide_number is not None:
+        resolved_slide_number = max(int(resolved_slide_number), 1)
+    if resolved_sheet_index is not None:
+        resolved_sheet_index = max(int(resolved_sheet_index), 1)
+    cache_path = _preview_cache_path(
+        preview_source,
+        resolved_page,
+        chunk_id,
+        sheet_name=resolved_sheet_name,
+        sheet_index=resolved_sheet_index,
+        slide_number=resolved_slide_number,
+    )
     cached: dict[str, Any] | None = None
     if cache_path.is_file():
         try:
@@ -668,7 +779,13 @@ def preview_payload(document: ResolvedDocument, *, page: int | None = None, chun
         except (OSError, json.JSONDecodeError):
             cached = None
     if cached is None:
-        cached = _preview_content(preview_source, page=resolved_page)
+        cached = _preview_content(
+            preview_source,
+            page=resolved_page,
+            sheet_name=resolved_sheet_name,
+            sheet_index=resolved_sheet_index,
+            slide_number=resolved_slide_number,
+        )
         try:
             cache_path.write_text(json.dumps(cached, ensure_ascii=False), encoding="utf-8")
         except OSError:
@@ -688,6 +805,9 @@ def preview_payload(document: ResolvedDocument, *, page: int | None = None, chun
         "preview_text": preview_text,
         "highlight_text": _decode_text(highlight_text),
         "page": resolved_page,
+        "sheet_name": resolved_sheet_name,
+        "sheet_index": resolved_sheet_index,
+        "slide_number": resolved_slide_number,
         "chunk_id": chunk_id,
         "document_id": file_id,
         "relative_path": document.metadata.get("relative_path"),
