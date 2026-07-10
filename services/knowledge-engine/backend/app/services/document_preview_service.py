@@ -100,6 +100,8 @@ def _preview_cache_path(
 
 
 def _media_type(path: Path, fallback: str | None = None) -> str:
+    if path.suffix.casefold() == ".pdf":
+        return "application/pdf"
     guessed, _ = mimetypes.guess_type(path.name)
     return fallback or guessed or "application/octet-stream"
 
@@ -474,12 +476,14 @@ def resolve_document(metadata: dict[str, Any]) -> ResolvedDocument:
     if not relative_path or candidate.is_absolute() or ".." in candidate.parts:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid document path metadata.")
 
-    root = settings.data_files_path.resolve()
+    root = settings.corpus_root_path.resolve()
     path = (root / candidate).resolve()
     if not _is_within(path, root) or not path.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document file not found.")
 
     extension = str(metadata.get("extension") or path.suffix).casefold()
+    if extension and not extension.startswith("."):
+        extension = f".{extension}"
     content_hash = str(metadata.get("content_hash") or f"{path.stat().st_mtime_ns}-{path.stat().st_size}")
     return ResolvedDocument(metadata=metadata, path=path, extension=extension, content_hash=content_hash)
 

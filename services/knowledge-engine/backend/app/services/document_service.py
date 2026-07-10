@@ -11,7 +11,7 @@ import re
 import shutil
 from typing import Any, BinaryIO
 
-from backend.app.core.paths import DATA_FILES_ROOT, REPO_ROOT
+from backend.app.core.config import settings
 from backend.app.db.session import SessionLocal
 from backend.app.security.access import RequestAccessContext, list_accessible_documents
 from backend.app.schemas.documents import DocumentMetadata, DocumentType, UploadResponse
@@ -45,10 +45,10 @@ _TYPE_BY_SUFFIX: dict[str, DocumentType] = {
 
 
 class DocumentService:
-    """Work with local files under the canonical `data/files` root."""
+    """Work with files under the configured enterprise repository root."""
 
-    def __init__(self, root: Path = DATA_FILES_ROOT) -> None:
-        self.root = root
+    def __init__(self, root: Path | None = None) -> None:
+        self.root = root or settings.corpus_root_path
 
     def list_documents(
         self,
@@ -69,7 +69,8 @@ class DocumentService:
         return documents
 
     def save_upload(self, filename: str, stream: BinaryIO) -> DocumentMetadata:
-        self.root.mkdir(parents=True, exist_ok=True)
+        if not self.root.is_dir():
+            raise FileNotFoundError(f"Configured corpus directory does not exist: {self.root}")
         safe_name = self._safe_filename(filename)
         destination = self._available_path(self.root / safe_name)
         with destination.open("wb") as handle:
@@ -89,7 +90,8 @@ class DocumentService:
 
         Pipeline: Upload → Save → Hash → Dedup check → Corpus Sync → Indexing Job → Background Index
         """
-        self.root.mkdir(parents=True, exist_ok=True)
+        if not self.root.is_dir():
+            raise FileNotFoundError(f"Configured corpus directory does not exist: {self.root}")
         safe_name = self._safe_filename(filename)
 
         # Save to a temp file first for hashing
@@ -115,7 +117,7 @@ class DocumentService:
             raise
 
         stat = destination.stat()
-        relative = destination.relative_to(REPO_ROOT).as_posix()
+        relative = destination.relative_to(self.root).as_posix()
         file_type = _TYPE_BY_SUFFIX.get(destination.suffix.casefold(), "unknown")
         modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
 
@@ -215,7 +217,7 @@ class DocumentService:
         indexed_paths: set[str],
     ) -> DocumentMetadata:
         stat = path.stat()
-        relative = path.relative_to(REPO_ROOT).as_posix()
+        relative = path.relative_to(self.root).as_posix()
         return DocumentMetadata(
             id=hashlib.sha1(relative.encode("utf-8")).hexdigest()[:16],
             name=path.name,
@@ -230,7 +232,7 @@ class DocumentService:
         )
 
     def _indexed_paths(self) -> set[str]:
-        manifest_path = REPO_ROOT / "data" / "indexes" / "document_manifest.json"
+        manifest_path = settings.indexes_path / "document_manifest.json"
         if not manifest_path.is_file():
             return set()
         try:
@@ -290,6 +292,7 @@ class DocumentService:
             from backend.app.models.knowledge import Document
             with SessionLocal() as session:
                 statement = select(Document).where(
+                    Document.repository_id == settings.corpus_repository_id,
                     Document.content_hash == content_hash,
                     Document.indexing_status != "deleted",
                     Document.indexed == True,  # noqa: E712
@@ -361,6 +364,7 @@ class DocumentService:
                 job = session.scalar(
                     select(IndexingJob)
                     .where(
+                        IndexingJob.repository_id == settings.corpus_repository_id,
                         IndexingJob.content_hash == content_hash,
                         IndexingJob.status == "pending",
                     )
