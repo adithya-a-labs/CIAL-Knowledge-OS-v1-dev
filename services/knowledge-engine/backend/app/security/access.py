@@ -12,8 +12,10 @@ from sqlalchemy import and_, exists, false, literal, or_, select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import ColumnElement, Select
 
+from backend.app.core.config import settings
 from backend.app.db.session import SessionLocal
 from backend.app.models.identity import DepartmentRoleAssignment, GroupMembership, Permission, Role, User
+from backend.app.security.session_tokens import session_cookie_settings, verify_session_token
 from backend.app.models.knowledge import (
     Document,
     DocumentPermission,
@@ -54,24 +56,32 @@ def anonymous_access_context() -> RequestAccessContext:
 
 
 def resolve_access_context(request: Request) -> RequestAccessContext:
-    raw_user_id = request.headers.get("X-CIAL-User-Id") or request.headers.get("X-User-Id")
+    raw_user_id = None
+    cookie_name = session_cookie_settings()["key"]
+    session_token = request.cookies.get(cookie_name)
+    session_user_id = verify_session_token(session_token) if session_token else None
+    if session_user_id is None and settings.auth_allow_user_headers:
+        raw_user_id = request.headers.get("X-CIAL-User-Id") or request.headers.get("X-User-Id")
     raw_scope = (request.headers.get("X-CIAL-Access-Scope") or "").strip().casefold()
     scope = raw_scope if raw_scope in _VALID_ACCESS_SCOPES else None
-    if not raw_user_id or SessionLocal is None:
+    if session_user_id is None and (not raw_user_id or SessionLocal is None):
         return RequestAccessContext(
             principal=AccessPrincipal(),
             scope=scope or "enterprise",
             user_header=raw_user_id or None,
         )
 
-    try:
-        user_id = uuid.UUID(raw_user_id)
-    except ValueError:
-        return RequestAccessContext(
-            principal=AccessPrincipal(),
-            scope=scope or "enterprise",
-            user_header=raw_user_id,
-        )
+    if session_user_id is not None:
+        user_id = session_user_id
+    else:
+        try:
+            user_id = uuid.UUID(str(raw_user_id))
+        except ValueError:
+            return RequestAccessContext(
+                principal=AccessPrincipal(),
+                scope=scope or "enterprise",
+                user_header=raw_user_id,
+            )
 
     with SessionLocal() as session:
         user = session.scalar(
@@ -157,6 +167,13 @@ def can_sync_corpus(access_context: RequestAccessContext) -> bool:
     return not access_context.principal.is_authenticated
 
 
+def can_manage_settings(access_context: RequestAccessContext) -> bool:
+    permissions = access_context.principal.permission_names
+    if "manage_settings" in permissions or "manage_enterprise_documents" in permissions:
+        return True
+    return not access_context.principal.is_authenticated
+
+
 def has_enterprise_read_access(access_context: RequestAccessContext) -> bool:
     permissions = access_context.principal.permission_names
     return bool(permissions.intersection(_ENTERPRISE_READ_PERMISSIONS)) or not access_context.principal.is_authenticated
@@ -230,6 +247,10 @@ def apply_document_access_filter(
         or_(Document.lifecycle_status.is_(None), Document.lifecycle_status != "deleted"),
         or_(Document.indexing_status.is_(None), Document.indexing_status != "deleted"),
     )
+    repository_clause = or_(
+        Document.storage_scope != literal("enterprise"),
+        Document.repository_id == settings.corpus_repository_id,
+    )
 
     scope_clauses: list[ColumnElement[bool]] = []
     acl_clause = _document_acl_clause(principal, requested_permissions)
@@ -279,7 +300,7 @@ def apply_document_access_filter(
     if not scope_clauses:
         scope_clauses.append(false())
 
-    filtered = statement.where(deleted_clause, or_(*scope_clauses))
+    filtered = statement.where(deleted_clause, repository_clause, or_(*scope_clauses))
     normalized_paths = [
         str(value).replace("\\", "/").strip("/")
         for value in (allowed_relative_paths or [])
