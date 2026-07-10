@@ -61,6 +61,10 @@ export interface ChatSource {
   department?: string;
   pageNumber?: number;
   pageCount?: number;
+  sheetName?: string;
+  sheetIndex?: number;
+  slideNumber?: number;
+  anchor?: string;
   chunkId?: string;
   score?: number;
   reason?: string;
@@ -76,6 +80,11 @@ export interface ChatCitation {
   citationIndex: number;
   documentTitle: string;
   pageNumber?: number;
+  sheetName?: string;
+  sheetIndex?: number;
+  slideNumber?: number;
+  anchor?: string;
+  documentId?: string;
   snippet?: string;
   score?: number;
 }
