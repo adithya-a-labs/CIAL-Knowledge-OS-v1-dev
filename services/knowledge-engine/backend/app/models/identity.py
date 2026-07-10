@@ -119,6 +119,34 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="user",
         foreign_keys="GroupMembership.user_id",
     )
+    local_credential: Mapped[UserCredential | None] = relationship(
+        back_populates="user",
+        uselist=False,
+    )
+
+
+class UserCredential(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "user_credentials"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_user_credentials_user_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    password_algorithm: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default="scrypt",
+    )
+    password_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+    user: Mapped[User] = relationship(back_populates="local_credential")
 
 
 class Role(UUIDPrimaryKeyMixin, TimestampMixin, Base):
