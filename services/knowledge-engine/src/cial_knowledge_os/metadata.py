@@ -10,6 +10,18 @@ RetrievalResult: TypeAlias = dict[str, Any]
 ChunkIdentity: TypeAlias = tuple[str, Any, str]
 
 
+def _normalize_page_number(value: Any) -> Any:
+    if value in {None, ""}:
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return value
+    if number <= 0:
+        return 1 if number == 0 else None
+    return number
+
+
 def result_metadata(result: Mapping[str, Any]) -> dict[str, Any]:
     """Return a mutable copy of nested result metadata."""
 
@@ -41,7 +53,8 @@ def page_number(result: Mapping[str, Any]) -> Any:
     """Read a page value from either the public result or nested metadata."""
 
     metadata = result_metadata(result)
-    return result.get("page_number", metadata.get("page_number", metadata.get("page")))
+    value = result.get("page_number", metadata.get("page_number", metadata.get("page")))
+    return _normalize_page_number(value)
 
 
 def sheet_name(result: Mapping[str, Any]) -> str | None:
