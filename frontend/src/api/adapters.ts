@@ -102,7 +102,12 @@ export function toUiChatCitations(response: ChatResponse): UiChatCitation[] {
     id: citation.id || `citation-${index + 1}`,
     citationIndex: index + 1,
     documentTitle: citation.document_name || 'Unknown document',
+    documentId: citation.document_id || undefined,
     pageNumber: citation.page ?? undefined,
+    sheetName: citation.sheet_name ?? undefined,
+    sheetIndex: citation.sheet_index ?? undefined,
+    slideNumber: citation.slide_number ?? undefined,
+    anchor: citation.anchor ?? citation.chunk_id ?? undefined,
     snippet: citation.snippet || undefined,
     score: citation.score ?? undefined,
   }));
@@ -135,6 +140,10 @@ export function toUiChatSources(response: ChatResponse): UiChatSource[] {
       sourceType: 'enterprise',
       pageNumber: source.page ?? undefined,
       pageCount: source.page_count ?? undefined,
+      sheetName: source.sheet_name ?? undefined,
+      sheetIndex: source.sheet_index ?? undefined,
+      slideNumber: source.slide_number ?? undefined,
+      anchor: source.anchor ?? source.chunk_id ?? undefined,
       chunkId: source.chunk_id || undefined,
       score: source.score ?? undefined,
       excerpt: source.text || undefined,
@@ -207,7 +216,7 @@ function stripRawReferencesSection(value: string): string {
   }
 
   const looksInternal = trailingLines.every((line) =>
-    /^\s*\[\d+\]\s+/.test(line)
+    /^\s*\[(?:\d+(?:\([^)]+\))?(?:\s*-\s*\d+)?)(?:\s*,\s*\d+(?:\([^)]+\))?(?:\s*-\s*\d+)?)*\]\s+/.test(line)
     || /file:\/\//i.test(line)
     || /\bchunk(?:_id| id)?\b/i.test(line)
     || /\bscore\b/i.test(line)
