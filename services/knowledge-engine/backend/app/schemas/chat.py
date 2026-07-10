@@ -33,6 +33,7 @@ class ChatCitation(BaseModel):
     id: str
     document_name: str
     document_id: str | None = None
+    repository_id: str | None = None
     relative_path: str | None = None
     page: int | None = None
     page_count: int | None = None
@@ -54,6 +55,7 @@ class ChatSource(BaseModel):
     document_name: str
     path: str = ""
     document_id: str | None = None
+    repository_id: str | None = None
     relative_path: str | None = None
     page: int | None = None
     page_count: int | None = None

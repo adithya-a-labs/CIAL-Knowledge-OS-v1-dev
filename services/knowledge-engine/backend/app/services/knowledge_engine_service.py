@@ -379,7 +379,8 @@ class KnowledgeEngineService:
         config = self._phase4_config_cls(
             project_root=REPO_ROOT,
             data_dir=settings.data_root_path,
-            knowledge_root=settings.data_files_path,
+            knowledge_root=settings.corpus_root_path,
+            repository_id=settings.corpus_repository_id,
             document_manifest_path=settings.indexes_path / "document_manifest.json",
             bm25_cache_dir=settings.bm25_path / "cial_phase4",
             output_root=settings.outputs_path / "batch_answers",
@@ -563,9 +564,17 @@ class KnowledgeEngineService:
     @staticmethod
     def _folder_for_context_id(session: Any, value: str) -> Folder | None:
         try:
-            return session.get(Folder, uuid.UUID(value))
+            folder = session.get(Folder, uuid.UUID(value))
+            if folder is not None and folder.repository_id == settings.corpus_repository_id:
+                return folder
+            return None
         except ValueError:
-            return session.scalar(select(Folder).where(Folder.relative_path == value))
+            return session.scalar(
+                select(Folder).where(
+                    Folder.repository_id == settings.corpus_repository_id,
+                    Folder.relative_path == value,
+                )
+            )
 
     @staticmethod
     def _normalize_relative_path(value: Any) -> str:
@@ -629,6 +638,37 @@ class KnowledgeEngineService:
         response_key: str,
         filter_payload: dict[str, Any],
     ) -> Mapping[str, Any]:
+        if not allowed_relative_paths:
+            answer = (
+                "No relevant evidence found in the selected context."
+                if response_key == "selected_context_filter"
+                else "No accessible information found for the current access scope."
+            )
+            return {
+                "question": question,
+                "retrieved": [],
+                "context": "",
+                "raw_answer": answer,
+                "answer": answer,
+                "citations": [],
+                "sources": [],
+                "selected_evidence": [],
+                "context_stages": {"retrieved": [], "compressed": []},
+                "weak_evidence": True,
+                "answer_status": "insufficient_evidence",
+                response_key: {
+                    **filter_payload,
+                    "candidate_floor": 0,
+                    "query_count": 0,
+                    "before_filter_counts": [],
+                    "after_filter_counts": [],
+                    "before_filter_count": 0,
+                    "after_filter_count": 0,
+                    "filtered_count": 0,
+                    "final_retrieved_document_ids": [],
+                    "final_retrieved_relative_paths": [],
+                },
+            }
         original_search = pipeline._search
         config = pipeline.config
         saved_values = {
@@ -1008,6 +1048,23 @@ class KnowledgeEngineService:
             reference_id = int(citation.get("reference_id") or index)
             source_id = f"S{reference_id}"
             source = source_by_id.get(source_id)
+            normalized_page = (
+                self._optional_page(citation.get("page_number"))
+                if citation.get("page_number") not in {None, ""}
+                else (source.page if source else None)
+            )
+            logger.debug(
+                "citation_pdf_navigation_metadata",
+                extra={
+                    "citation_id": source_id,
+                    "document_id": source.document_id if source else None,
+                    "repository_id": source.repository_id if source else None,
+                    "extracted_page": citation.get("page_number"),
+                    "normalized_page": normalized_page,
+                    "pdf_endpoint_url": source.file_url if source else None,
+                    "fallback_reason": None if source and normalized_page else "missing_source_or_page_metadata",
+                },
+            )
             citations.append(
                 ChatCitation(
                     id=source_id,
@@ -1017,11 +1074,9 @@ class KnowledgeEngineService:
                         or "Unknown document"
                     ),
                     document_id=source.document_id if source else None,
+                    repository_id=source.repository_id if source else None,
                     relative_path=source.relative_path if source else None,
-                    page=(
-                        self._optional_int(citation.get("page_number"))
-                        or (source.page if source else None)
-                    ),
+                    page=normalized_page,
                     page_count=source.page_count if source else None,
                     sheet_name=self._optional_str(
                         citation.get("sheet_name")
@@ -1099,11 +1154,16 @@ class KnowledgeEngineService:
                     document_name=document_name,
                     path=path,
                     document_id=str(file_id) if file_id else None,
+                    repository_id=self._optional_str(
+                        context.get("repository_id") or metadata.get("repository_id")
+                    ),
                     relative_path=relative_path or None,
-                    page=self._optional_int(
-                        chunk.get("page_number")
-                        or metadata.get("page_number")
-                        or context.get("page")
+                    page=self._optional_page(
+                        self._first_present(
+                            chunk.get("page_number"),
+                            metadata.get("page_number"),
+                            context.get("page"),
+                        )
                     ),
                     page_count=self._optional_int(context.get("page_count")),
                     sheet_name=self._optional_str(
@@ -1192,6 +1252,7 @@ class KnowledgeEngineService:
                 )
             elif relative_paths:
                 statement = statement.where(Document.relative_path.in_(sorted(relative_paths)))
+            statement = statement.where(Document.repository_id == settings.corpus_repository_id)
             if access_context is not None:
                 statement = apply_document_access_filter(
                     statement,
@@ -1276,6 +1337,7 @@ class KnowledgeEngineService:
     def _serialize_document_context(document: Document) -> dict[str, Any]:
         return {
             "document_id": str(document.id),
+            "repository_id": document.repository_id,
             "name": document.name,
             "relative_path": document.relative_path,
             "page_count": document.page_count,
@@ -1329,6 +1391,8 @@ class KnowledgeEngineService:
             context["relative_path"] = relative_path
         if not context.get("document_id") and raw_document_id:
             context["document_id"] = str(raw_document_id)
+        if not context.get("repository_id") and metadata.get("repository_id"):
+            context["repository_id"] = str(metadata.get("repository_id"))
         return context
 
     @staticmethod
@@ -1339,6 +1403,13 @@ class KnowledgeEngineService:
             return int(value)
         except (TypeError, ValueError):
             return None
+
+    @classmethod
+    def _optional_page(cls, value: Any) -> int | None:
+        parsed = cls._optional_int(value)
+        if parsed is None or parsed <= 0:
+            return None
+        return parsed
 
     @staticmethod
     def _optional_float(value: Any) -> float | None:
@@ -1355,3 +1426,10 @@ class KnowledgeEngineService:
             return None
         text = str(value).strip()
         return text or None
+
+    @staticmethod
+    def _first_present(*values: Any) -> Any:
+        for value in values:
+            if value is not None and value != "":
+                return value
+        return None
