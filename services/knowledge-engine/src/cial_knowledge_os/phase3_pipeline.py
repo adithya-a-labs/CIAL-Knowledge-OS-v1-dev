@@ -53,6 +53,7 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
         self._retrievers: dict[str, Retriever] = {}
         self.bm25_retriever: BM25Retriever | None = None
         self.hybrid_retriever: HybridRetriever | None = None
+        self._active_relative_path_filter: frozenset[str] | None = None
         self.last_modality_results_by_query: dict[
             str,
             dict[str, list[dict[str, Any]]],
@@ -115,7 +116,16 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
             self.embedding_model,
             self.config,
             top_k=top_k,
+            allowed_relative_paths=self._active_relative_path_filter,
         )
+
+    def set_retrieval_relative_paths(
+        self,
+        allowed_relative_paths: frozenset[str] | None,
+    ) -> None:
+        self._active_relative_path_filter = allowed_relative_paths
+        if self.bm25_retriever is not None:
+            self.bm25_retriever.set_allowed_relative_paths(allowed_relative_paths)
 
     def _ensure_retrievers(self) -> None:
         if self._retrievers:
@@ -267,6 +277,8 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
         mode = self.config.retrieval_mode
         if mode in {"bm25", "hybrid"}:
             lexical = self._retrievers["bm25"]
+            if isinstance(lexical, BM25Retriever):
+                lexical.set_allowed_relative_paths(self._active_relative_path_filter)
             if not bool(getattr(lexical, "is_indexed", True)):
                 self.build_lexical_index()
         if mode == "hybrid":
