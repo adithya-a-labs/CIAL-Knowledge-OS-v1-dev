@@ -44,6 +44,36 @@ def page_number(result: Mapping[str, Any]) -> Any:
     return result.get("page_number", metadata.get("page_number", metadata.get("page")))
 
 
+def sheet_name(result: Mapping[str, Any]) -> str | None:
+    metadata = result_metadata(result)
+    value = result.get("sheet_name", metadata.get("sheet_name"))
+    return str(value) if value not in {None, ""} else None
+
+
+def sheet_index(result: Mapping[str, Any]) -> int | None:
+    metadata = result_metadata(result)
+    value = result.get("sheet_index", metadata.get("sheet_index"))
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def slide_number(result: Mapping[str, Any]) -> int | None:
+    metadata = result_metadata(result)
+    value = result.get("slide_number", metadata.get("slide_number"))
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def anchor(result: Mapping[str, Any]) -> str | None:
+    metadata = result_metadata(result)
+    value = result.get("anchor", metadata.get("anchor"))
+    return str(value) if value not in {None, ""} else None
+
+
 def chunk_id(result: Mapping[str, Any]) -> str:
     """Read a stable chunk identifier."""
 
@@ -80,6 +110,10 @@ def normalize_result(result: Mapping[str, Any]) -> RetrievalResult:
             "source": source_label(result),
             "source_path": source_path(result),
             "page_number": page_number(result),
+            "sheet_name": sheet_name(result),
+            "sheet_index": sheet_index(result),
+            "slide_number": slide_number(result),
+            "anchor": anchor(result),
             "chunk_id": chunk_id(result),
             "chunk_index": chunk_index(result),
             "text": str(result.get("text", "")),
