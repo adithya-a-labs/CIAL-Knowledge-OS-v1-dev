@@ -24,6 +24,7 @@ export default function ChatControlBar({
   onClearContext,
 }: ChatControlBarProps) {
   const totalContextCount = selectedContextCount + uploadedFileCount;
+  const scopeLocked = totalContextCount > 0;
 
   return (
     <div className="flex flex-wrap items-center gap-1.5" data-testid="assistant-composer-controls">
@@ -40,8 +41,13 @@ export default function ChatControlBar({
         </span>
       </button>
 
-      <div data-testid="select-search-scope">
-        <SearchModePopover value={searchScope} onChange={onSearchScopeChange} />
+      <div className="flex items-center gap-1.5" data-testid="select-search-scope">
+        <SearchModePopover value={searchScope} onChange={onSearchScopeChange} disabled={scopeLocked} />
+        {scopeLocked ? (
+          <span className="text-[10px] font-medium text-muted-foreground">
+            Scope limited to selected context.
+          </span>
+        ) : null}
       </div>
 
       <div data-testid="select-response-length">
