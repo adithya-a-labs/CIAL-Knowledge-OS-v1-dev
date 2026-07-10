@@ -946,6 +946,23 @@ class KnowledgeEngineService:
                     relative_path=source.relative_path if source else None,
                     page=self._optional_int(citation.get("page_number")),
                     page_count=source.page_count if source else None,
+                    sheet_name=self._optional_str(
+                        citation.get("sheet_name")
+                        or (source.sheet_name if source else None)
+                    ),
+                    sheet_index=self._optional_int(
+                        citation.get("sheet_index")
+                        or (source.sheet_index if source else None)
+                    ),
+                    slide_number=self._optional_int(
+                        citation.get("slide_number")
+                        or (source.slide_number if source else None)
+                    ),
+                    anchor=self._optional_str(
+                        citation.get("anchor")
+                        or (source.anchor if source else None)
+                        or (source.chunk_id if source else None)
+                    ),
                     chunk_id=source.chunk_id if source else None,
                     snippet=(source.text[:400] if source else ""),
                     highlight_text=source.highlight_text if source else None,
@@ -1012,6 +1029,28 @@ class KnowledgeEngineService:
                         or context.get("page")
                     ),
                     page_count=self._optional_int(context.get("page_count")),
+                    sheet_name=self._optional_str(
+                        chunk.get("sheet_name")
+                        or metadata.get("sheet_name")
+                        or context.get("active_sheet")
+                    ),
+                    sheet_index=self._optional_int(
+                        chunk.get("sheet_index")
+                        or metadata.get("sheet_index")
+                        or context.get("active_sheet_index")
+                    ),
+                    slide_number=self._optional_int(
+                        chunk.get("slide_number")
+                        or metadata.get("slide_number")
+                        or context.get("slide_number")
+                    ),
+                    anchor=self._optional_str(
+                        chunk.get("anchor")
+                        or metadata.get("anchor")
+                        or context.get("anchor")
+                        or chunk.get("chunk_id")
+                        or metadata.get("chunk_id")
+                    ),
                     chunk_id=str(chunk.get("chunk_id") or metadata.get("chunk_id") or ""),
                     text=preview_text,
                     highlight_text=str(context.get("highlight_text") or preview_text[:1000] or ""),
@@ -1101,6 +1140,26 @@ class KnowledgeEngineService:
                     row.chunk_id: {
                         "page": row.page,
                         "text_preview": row.text_preview,
+                        "sheet_name": (
+                            row.metadata_.get("sheet_name")
+                            if isinstance(row.metadata_, dict)
+                            else None
+                        ),
+                        "sheet_index": (
+                            row.metadata_.get("sheet_index")
+                            if isinstance(row.metadata_, dict)
+                            else None
+                        ),
+                        "slide_number": (
+                            row.metadata_.get("slide_number")
+                            if isinstance(row.metadata_, dict)
+                            else None
+                        ),
+                        "anchor": (
+                            row.metadata_.get("anchor")
+                            if isinstance(row.metadata_, dict)
+                            else row.chunk_id
+                        ),
                     }
                     for row in chunk_rows
                 }
@@ -1168,6 +1227,14 @@ class KnowledgeEngineService:
         text_preview = str(chunk_context.get("text_preview") or "").strip()
         if chunk_context.get("page") is not None:
             context["page"] = chunk_context.get("page")
+        if chunk_context.get("sheet_name") is not None:
+            context["sheet_name"] = chunk_context.get("sheet_name")
+        if chunk_context.get("sheet_index") is not None:
+            context["active_sheet_index"] = chunk_context.get("sheet_index")
+        if chunk_context.get("slide_number") is not None:
+            context["slide_number"] = chunk_context.get("slide_number")
+        if chunk_context.get("anchor") is not None:
+            context["anchor"] = chunk_context.get("anchor")
         if text_preview:
             context["highlight_text"] = text_preview
         elif chunk.get("text") or chunk.get("page_content") or chunk.get("content"):
@@ -1204,3 +1271,10 @@ class KnowledgeEngineService:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _optional_str(value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
