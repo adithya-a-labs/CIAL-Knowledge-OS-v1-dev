@@ -36,6 +36,7 @@ interface SettingsPopoverProps<T extends string> {
   defaultNote: string;
   triggerIcon: IconType;
   onChange: (value: T) => void;
+  disabled?: boolean;
 }
 
 const searchModeOptions: SettingsOption<SearchScope>[] = [
@@ -172,6 +173,7 @@ function SettingsPopover<T extends string>({
   defaultNote,
   triggerIcon: TriggerIcon,
   onChange,
+  disabled = false,
 }: SettingsPopoverProps<T>) {
   const [open, setOpen] = useState(false);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -212,7 +214,8 @@ function SettingsPopover<T extends string>({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-[#dce4d8] bg-white px-2 text-left transition hover:bg-[#f8faf7]"
+          disabled={disabled}
+          className="flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-[#dce4d8] bg-white px-2 text-left transition hover:bg-[#f8faf7] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-white"
           aria-label={`Open ${title} selector`}
           aria-haspopup="dialog"
         >
@@ -273,9 +276,11 @@ function SettingsPopover<T extends string>({
 export function SearchModePopover({
   value,
   onChange,
+  disabled = false,
 }: {
   value: SearchScope;
   onChange: (value: SearchScope) => void;
+  disabled?: boolean;
 }) {
   return (
     <SettingsPopover
@@ -287,6 +292,7 @@ export function SearchModePopover({
       defaultNote="Hybrid is your default search mode."
       triggerIcon={Layers}
       onChange={onChange}
+      disabled={disabled}
     />
   );
 }
