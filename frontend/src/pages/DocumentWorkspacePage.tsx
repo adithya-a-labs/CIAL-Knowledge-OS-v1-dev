@@ -77,12 +77,23 @@ export default function DocumentWorkspacePage() {
 
   const queryParams = new URLSearchParams(window.location.search);
   const pageParam = queryParams.get('page');
+  const slideParam = queryParams.get('slide');
+  const sheetParam = queryParams.get('sheet');
+  const sheetIndexParam = queryParams.get('sheetIndex');
+  const chunkParam = queryParams.get('chunk');
+  const initialSlideNumber = slideParam ? parseInt(slideParam, 10) || 1 : null;
   const initialPage = pageParam ? parseInt(pageParam, 10) || 1 : 1;
 
   const [zoomLevel, setZoomLevel] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [activePage, setActivePage] = useState(initialPage);
   const [requestedPage, setRequestedPage] = useState(initialPage);
+  const [requestedSlideNumber, setRequestedSlideNumber] = useState<number | null>(initialSlideNumber);
+  const [requestedSheetName, setRequestedSheetName] = useState<string | null>(sheetParam);
+  const [requestedSheetIndex, setRequestedSheetIndex] = useState<number | null>(
+    sheetIndexParam ? parseInt(sheetIndexParam, 10) || 1 : null,
+  );
+  const [requestedChunkId, setRequestedChunkId] = useState<string | null>(chunkParam);
   const [pageCount, setPageCount] = useState<number | null>(null);
 
   const documentQuery = useQuery({
@@ -93,8 +104,14 @@ export default function DocumentWorkspacePage() {
   });
 
   const previewQuery = useQuery({
-    queryKey: ['document-workspace-preview', documentId, requestedPage],
-    queryFn: () => getDocumentPreview(documentId, undefined, requestedPage),
+    queryKey: ['document-workspace-preview', documentId, requestedPage, requestedSlideNumber, requestedSheetName, requestedSheetIndex, requestedChunkId],
+    queryFn: () => getDocumentPreview(documentId, {
+      chunkId: requestedChunkId ?? undefined,
+      page: requestedPage,
+      sheetName: requestedSheetName ?? undefined,
+      sheetIndex: requestedSheetIndex ?? undefined,
+      slideNumber: requestedSlideNumber ?? undefined,
+    }),
     enabled: Boolean(documentId) && !documentQuery.isError,
     retry: false,
   });
@@ -127,12 +144,34 @@ export default function DocumentWorkspacePage() {
   useEffect(() => {
     const qParams = new URLSearchParams(window.location.search);
     const pVal = qParams.get('page');
+    const slideVal = qParams.get('slide');
+    const sheetVal = qParams.get('sheet');
+    const sheetIndexVal = qParams.get('sheetIndex');
+    const chunkVal = qParams.get('chunk');
     if (pVal) {
       const page = parseInt(pVal, 10);
       if (page && page !== requestedPage) {
         setActivePage(page);
         setRequestedPage(page);
       }
+    }
+    const nextSlide = slideVal ? parseInt(slideVal, 10) || 1 : null;
+    if (nextSlide !== requestedSlideNumber) {
+      setRequestedSlideNumber(nextSlide);
+      if (nextSlide) {
+        setActivePage(nextSlide);
+        setRequestedPage(nextSlide);
+      }
+    }
+    if ((sheetVal || null) !== requestedSheetName) {
+      setRequestedSheetName(sheetVal || null);
+    }
+    const nextSheetIndex = sheetIndexVal ? parseInt(sheetIndexVal, 10) || 1 : null;
+    if (nextSheetIndex !== requestedSheetIndex) {
+      setRequestedSheetIndex(nextSheetIndex);
+    }
+    if ((chunkVal || null) !== requestedChunkId) {
+      setRequestedChunkId(chunkVal || null);
     }
   }, [window.location.search]);
 
