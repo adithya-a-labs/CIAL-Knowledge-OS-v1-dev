@@ -6,9 +6,16 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 
+from .application_config import (
+    application_config_path,
+    configured_corpus_root,
+    configured_repository_id,
+    repository_identity_for_path,
+)
 from .paths import (
     BACKEND_ROOT,
-    DATA_FILES_ROOT,
+    DATA_ROOT,
+    DEFAULT_CORPUS_ROOT,
     OUTPUTS_ROOT,
     REPO_ROOT,
     SERVICE_ROOT,
@@ -81,15 +88,19 @@ def _env_str(*names: str, default: str = "") -> str:
     return default
 
 
-@dataclass(frozen=True)
+@dataclass
 class Settings:
     app_name: str = "cial-knowledge-os"
     phase: str = "4.5"
+    environment: str = _env_str("CIAL_ENV", "ENV", default="development").casefold()
     repo_root: str = str(REPO_ROOT)
+    application_config_file: str = str(application_config_path())
     auto_index_on_startup: bool = _env_bool("CIAL_AUTO_INDEX_ON_STARTUP", True)
     force_rebuild_on_startup: bool = _env_bool("CIAL_FORCE_REBUILD_ON_STARTUP", False)
     startup_index_timeout_seconds: int = _env_int("CIAL_STARTUP_INDEX_TIMEOUT_SECONDS", 0)
-    data_files_root: str = str(resolve_repo_path(_env_str("CIAL_DATA_DIR", default=str(DATA_FILES_ROOT))))
+    app_data_root: str = str(resolve_repo_path(_env_str("CIAL_APP_DATA_DIR", default=str(DATA_ROOT))))
+    corpus_root: str = str(configured_corpus_root(DEFAULT_CORPUS_ROOT))
+    corpus_repository_id: str = configured_repository_id(DEFAULT_CORPUS_ROOT)
     outputs_root: str = str(resolve_repo_path(_env_str("CIAL_OUTPUTS_DIR", default=str(OUTPUTS_ROOT))))
     models_root: str = str(resolve_repo_path(_env_str("CIAL_MODELS_DIR", default="models")))
     cors_origins: tuple[str, ...] = (
@@ -127,18 +138,56 @@ class Settings:
     corpus_watch: bool = _env_bool("CIAL_CORPUS_WATCH", False)
     corpus_hash: str = _env_str("CIAL_CORPUS_HASH", default="sha256")
     metadata_batch_size: int = _env_int("CIAL_METADATA_BATCH_SIZE", 500)
+    auth_secret_key: str = _env_str(
+        "CIAL_AUTH_SECRET_KEY",
+        "AUTH_SECRET_KEY",
+        default="cial-dev-auth-secret-change-me",
+    )
+    auth_cookie_name: str = _env_str(
+        "CIAL_AUTH_COOKIE_NAME",
+        default="cial_auth_session",
+    )
+    auth_session_ttl_hours: int = _env_int("CIAL_AUTH_SESSION_TTL_HOURS", 168)
+    auth_cookie_secure: bool = _env_bool(
+        "CIAL_AUTH_COOKIE_SECURE",
+        _env_str("CIAL_ENV", "ENV", default="development").casefold() == "production",
+    )
+    auth_allow_user_headers: bool = _env_bool(
+        "CIAL_AUTH_ALLOW_USER_HEADERS",
+        _env_str("CIAL_ENV", "ENV", default="development").casefold() != "production",
+    )
+    auth_default_organization_code: str = _env_str(
+        "CIAL_AUTH_DEFAULT_ORGANIZATION_CODE",
+        default="CIAL",
+    )
+    auth_default_role_name: str = _env_str(
+        "CIAL_AUTH_DEFAULT_ROLE_NAME",
+        default="Viewer",
+    )
+    auth_default_department_code: str = _env_str(
+        "CIAL_AUTH_DEFAULT_DEPARTMENT_CODE",
+        default="shared-knowledge",
+    )
 
     @property
     def repo_path(self) -> Path:
         return Path(self.repo_root)
 
     @property
+    def corpus_root_path(self) -> Path:
+        return Path(self.corpus_root)
+
+    @property
     def data_files_path(self) -> Path:
-        return Path(self.data_files_root)
+        return self.corpus_root_path
+
+    @property
+    def data_files_root(self) -> str:
+        return self.corpus_root
 
     @property
     def data_root_path(self) -> Path:
-        return self.data_files_path.parent
+        return Path(self.app_data_root)
 
     @property
     def indexes_path(self) -> Path:
@@ -158,3 +207,11 @@ class Settings:
 
 
 settings = Settings()
+
+
+def set_runtime_corpus_root(path: str | Path) -> None:
+    """Apply a saved repository path to the running process."""
+
+    resolved = resolve_repo_path(path)
+    settings.corpus_root = str(resolved)
+    settings.corpus_repository_id = repository_identity_for_path(resolved)
