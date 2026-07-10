@@ -60,16 +60,19 @@ export default function DocumentPreviewRenderer({
 
   if (viewerIsPdf && viewerUrl && useNativePdf) {
     const pdfSearch = searchQuery.trim();
-    const pdfFragment = `#page=${requestedPage || activePage || 1}&zoom=${Math.round(zoomLevel * 100)}${pdfSearch ? `&search=${encodeURIComponent(pdfSearch)}` : ''}`;
+    const resolvedPage = requestedPage > 0 ? requestedPage : activePage > 0 ? activePage : 1;
+    const pdfFragment = `#page=${resolvedPage}&zoom=${Math.round(zoomLevel * 100)}${pdfSearch ? `&search=${encodeURIComponent(pdfSearch)}` : ''}`;
+    const iframeKey = `${preview.document_id || preview.file_url || viewerUrl}-page-${resolvedPage}`;
     return (
       <div className="flex h-full min-h-[28rem] flex-col overflow-hidden rounded-[1.5rem] border border-border bg-[hsl(210_20%_98%)]">
         <iframe
+          key={iframeKey}
           src={`${viewerUrl}${pdfFragment}`}
           title={title}
           className="min-h-0 flex-1 bg-white"
           onLoad={() => {
             if (preview.page_count) onPageCountChange(preview.page_count);
-            onActivePageChange(requestedPage || activePage || 1);
+            onActivePageChange(resolvedPage);
           }}
         />
         <div className="border-t border-border bg-white px-4 py-2 text-xs text-muted-foreground">
