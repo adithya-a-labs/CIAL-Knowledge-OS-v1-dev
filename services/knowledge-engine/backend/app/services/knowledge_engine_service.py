@@ -58,6 +58,7 @@ class SelectedContextScope:
     allowed_relative_paths: frozenset[str]
     selected_document_ids: tuple[str, ...] = ()
     selected_folder_ids: tuple[str, ...] = ()
+    effective_document_ids: tuple[str, ...] = ()
     selected_document_count: int = 0
     selected_folder_count: int = 0
     effective_document_count: int = 0
@@ -262,6 +263,7 @@ class KnowledgeEngineService:
                             "mode": selected_scope.filter_mode,
                             "selected_document_ids": list(selected_scope.selected_document_ids),
                             "selected_folder_ids": list(selected_scope.selected_folder_ids),
+                            "effective_document_ids": list(selected_scope.effective_document_ids),
                             "effective_scope": {
                                 "document_count": len(effective_relative_paths),
                                 "relative_paths": sorted(effective_relative_paths),
@@ -483,6 +485,7 @@ class KnowledgeEngineService:
             )
 
         relative_paths: set[str] = set()
+        effective_document_ids: set[str] = set()
         with SessionLocal() as session:
             for value in document_ids:
                 document = self._document_for_context_id(
@@ -495,6 +498,7 @@ class KnowledgeEngineService:
                         f"Selected document was not found: {value}"
                     )
                 relative_paths.add(self._normalize_relative_path(document.relative_path))
+                effective_document_ids.add(str(document.id))
 
             for value in folder_ids:
                 folder = self._folder_for_context_id(session, value)
@@ -515,6 +519,7 @@ class KnowledgeEngineService:
                     relative_paths.add(
                         self._normalize_relative_path(document.relative_path)
                     )
+                    effective_document_ids.add(str(document.id))
 
         if not relative_paths:
             raise KnowledgeEngineInvalidRequest(
@@ -525,10 +530,11 @@ class KnowledgeEngineService:
             allowed_relative_paths=frozenset(relative_paths),
             selected_document_ids=tuple(document_ids),
             selected_folder_ids=tuple(folder_ids),
+            effective_document_ids=tuple(sorted(effective_document_ids)),
             selected_document_count=len(document_ids),
             selected_folder_count=len(folder_ids),
             effective_document_count=len(relative_paths),
-            filter_mode="post_retrieval_relative_path",
+            filter_mode="hard_relative_path_filter",
         )
 
     @staticmethod
@@ -606,6 +612,7 @@ class KnowledgeEngineService:
                 "mode": selected_scope.filter_mode,
                 "selected_document_ids": list(selected_scope.selected_document_ids),
                 "selected_folder_ids": list(selected_scope.selected_folder_ids),
+                "effective_document_ids": list(selected_scope.effective_document_ids),
                 "effective_scope": {
                     "document_count": selected_scope.effective_document_count,
                     "relative_paths": sorted(selected_scope.allowed_relative_paths),
@@ -662,7 +669,15 @@ class KnowledgeEngineService:
             on_config_changed = getattr(pipeline, "on_config_changed", None)
             if callable(on_config_changed):
                 on_config_changed()
-            pipeline._search = selected_search
+            set_retrieval_relative_paths = getattr(
+                pipeline,
+                "set_retrieval_relative_paths",
+                None,
+            )
+            if callable(set_retrieval_relative_paths):
+                set_retrieval_relative_paths(allowed_relative_paths)
+            else:
+                pipeline._search = selected_search
             response = dict(pipeline.run(question))
             raw_total = sum(int(count) for count in search_stats["raw_counts"])
             filtered_total = sum(int(count) for count in search_stats["filtered_counts"])
@@ -676,6 +691,9 @@ class KnowledgeEngineService:
                 if isinstance(context_stages, Mapping)
                 else []
             )
+            answer_status = str(response.get("answer_status") or "").strip()
+            citations = response.get("citations")
+            citation_count = len(citations) if isinstance(citations, list) else 0
             has_matching_evidence = any(
                 (
                     filtered_total > 0,
@@ -684,13 +702,21 @@ class KnowledgeEngineService:
                     len(compressed_chunks) > 0,
                 )
             )
-            if not has_matching_evidence:
+            selected_context_no_relevant_evidence = (
+                response_key == "selected_context_filter"
+                and answer_status == "insufficient_evidence"
+                and citation_count == 0
+            )
+            if not has_matching_evidence or selected_context_no_relevant_evidence:
                 response["answer"] = (
-                    "No relevant information found in the selected context."
+                    "No relevant evidence found in the selected context."
                     if response_key == "selected_context_filter"
                     else "No accessible information found for the current access scope."
                 )
+                response["raw_answer"] = response["answer"]
+                response["answer_status"] = "insufficient_evidence"
                 response["citations"] = []
+                response["sources"] = []
                 response["retrieved"] = []
                 response["selected_evidence"] = []
                 response["context_stages"] = {"retrieved": [], "compressed": []}
@@ -707,10 +733,57 @@ class KnowledgeEngineService:
             payload = {
                 **filter_payload,
                 **response_filter_payload,
+                "final_retrieved_document_ids": sorted(
+                    {
+                        str(
+                            (item.get("metadata") or {}).get("document_id")
+                            or ""
+                        ).strip()
+                        for item in (response.get("retrieved") or [])
+                        if isinstance(item, Mapping)
+                        and str(
+                            ((item.get("metadata") or {}).get("document_id") or "")
+                        ).strip()
+                    }
+                ),
+                "final_retrieved_relative_paths": sorted(
+                    {
+                        self._normalize_relative_path(
+                            (item.get("metadata") or {}).get("relative_path")
+                            or item.get("relative_path")
+                        )
+                        for item in (response.get("retrieved") or [])
+                        if isinstance(item, Mapping)
+                    }
+                    - {""}
+                ),
             }
             response[response_key] = payload
+            logger.info(
+                "knowledge_engine_scope_filter_applied",
+                extra={
+                    "event": (
+                        "selected_context"
+                        if response_key == "selected_context_filter"
+                        else "access_scope"
+                    ),
+                    "requested_selected_document_ids": filter_payload.get("selected_document_ids", []),
+                    "requested_selected_folder_ids": filter_payload.get("selected_folder_ids", []),
+                    "resolved_authorized_document_ids": filter_payload.get("effective_document_ids", []),
+                    "resolved_authorized_relative_paths": filter_payload.get("effective_scope", {}).get("relative_paths", []),
+                    "final_retrieved_document_ids": payload["final_retrieved_document_ids"],
+                    "final_retrieved_relative_paths": payload["final_retrieved_relative_paths"],
+                },
+            )
             return response
         finally:
+            set_retrieval_relative_paths = getattr(
+                pipeline,
+                "set_retrieval_relative_paths",
+                None,
+            )
+            if callable(set_retrieval_relative_paths):
+                set_retrieval_relative_paths(None)
             pipeline._search = original_search
             for name, value in saved_values.items():
                 if value is not None:
@@ -906,6 +979,7 @@ class KnowledgeEngineService:
                 "mode": selected_scope.filter_mode,
                 "selected_document_ids": list(selected_scope.selected_document_ids),
                 "selected_folder_ids": list(selected_scope.selected_folder_ids),
+                "effective_document_ids": list(selected_scope.effective_document_ids),
                 "effective_scope": {
                     "document_count": selected_scope.effective_document_count,
                     "relative_paths": sorted(selected_scope.allowed_relative_paths),
@@ -944,7 +1018,10 @@ class KnowledgeEngineService:
                     ),
                     document_id=source.document_id if source else None,
                     relative_path=source.relative_path if source else None,
-                    page=self._optional_int(citation.get("page_number")),
+                    page=(
+                        self._optional_int(citation.get("page_number"))
+                        or (source.page if source else None)
+                    ),
                     page_count=source.page_count if source else None,
                     sheet_name=self._optional_str(
                         citation.get("sheet_name")
