@@ -8,6 +8,7 @@ from typing import Any
 from langchain_core.documents import Document
 
 from cial_knowledge_os.config import KnowledgeOSConfig, Phase2Config, Phase3Config
+from cial_knowledge_os.context_builder import merge_overlapping_chunks
 from cial_knowledge_os.fusion import ReciprocalRankFusion
 from cial_knowledge_os.phase3_pipeline import Phase3RAGPipeline
 from cial_knowledge_os.retrievers import BM25Retriever
@@ -132,6 +133,50 @@ class BM25AndFusionTests(unittest.TestCase):
         self.assertEqual(results[0]["chunk_id"], "agl-47")
         self.assertEqual(results[0]["retrieval_sources"], ["bm25"])
 
+    def test_bm25_restricts_results_to_allowed_relative_paths(self) -> None:
+        chunks = [
+            Document(
+                page_content="Allowed unique beacon evidence about runway lights",
+                metadata={
+                    "source": "C:/corpus/allowed.pdf",
+                    "file_name": "allowed.pdf",
+                    "relative_path": "Scoped/allowed.pdf",
+                    "page_number": 2,
+                    "chunk_id": "allowed",
+                    "chunk_index": 0,
+                },
+            ),
+            Document(
+                page_content="Blocked evidence about runway lights",
+                metadata={
+                    "source": "C:/corpus/blocked.pdf",
+                    "file_name": "blocked.pdf",
+                    "relative_path": "Other/blocked.pdf",
+                    "page_number": 3,
+                    "chunk_id": "blocked",
+                    "chunk_index": 0,
+                },
+            ),
+            Document(
+                page_content="Terminal maintenance checklist",
+                metadata={
+                    "source": "C:/corpus/neutral.pdf",
+                    "file_name": "neutral.pdf",
+                    "relative_path": "Other/neutral.pdf",
+                    "page_number": 1,
+                    "chunk_id": "neutral",
+                    "chunk_index": 0,
+                },
+            ),
+        ]
+        retriever = BM25Retriever()
+        self.assertTrue(retriever.index(chunks))
+        retriever.set_allowed_relative_paths(frozenset({"Scoped/allowed.pdf"}))
+
+        results = retriever.retrieve("unique beacon", top_k=5)
+
+        self.assertEqual([item["chunk_id"] for item in results], ["allowed"])
+
     def test_corrupted_bm25_cache_rebuilds(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             cache = Path(directory) / "index.pkl"
@@ -164,6 +209,25 @@ class BM25AndFusionTests(unittest.TestCase):
 
 
 class TokenBudgetAndPipelineTests(unittest.TestCase):
+    def test_merge_overlapping_chunks_preserves_page_boundaries(self) -> None:
+        merged = merge_overlapping_chunks(
+            [
+                _result(0, "Page one chunk", score=0.8),
+                {
+                    **_result(1, "Page two chunk", score=0.7),
+                    "page_number": 3,
+                    "metadata": {
+                        **_result(1, "Page two chunk", score=0.7)["metadata"],
+                        "page_number": 3,
+                    },
+                },
+            ]
+        )
+
+        self.assertEqual(len(merged), 2)
+        self.assertEqual(merged[0]["page_number"], 2)
+        self.assertEqual(merged[1]["page_number"], 3)
+
     def test_tiktoken_is_the_primary_exact_counter(self) -> None:
         manager = create_token_manager(encoding_name="cl100k_base")
 
