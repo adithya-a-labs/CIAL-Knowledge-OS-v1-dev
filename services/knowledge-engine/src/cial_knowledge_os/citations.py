@@ -57,6 +57,10 @@ def build_citations(
                     "page_number",
                     metadata.get("page_number"),
                 ),
+                "sheet_name": result.get("sheet_name", metadata.get("sheet_name")),
+                "sheet_index": result.get("sheet_index", metadata.get("sheet_index")),
+                "slide_number": result.get("slide_number", metadata.get("slide_number")),
+                "anchor": result.get("anchor", metadata.get("anchor")),
                 "chunk_id": result.get("chunk_id", metadata.get("chunk_id")),
                 "score": result.get("score"),
                 # Retain both human-readable and traceable source forms.
