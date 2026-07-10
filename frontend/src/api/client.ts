@@ -14,18 +14,27 @@ import type {
   ExportListResponse,
   HealthResponse,
   IndexStatusResponse,
+  EnterpriseRepositoryRequest,
+  EnterpriseRepositorySettings,
+  LoginRequest,
+  LogoutResponse,
   RebuildIndexResponse,
+  SignupRequest,
+  AuthResponse,
 } from './types';
 import { ApiError } from './types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '');
+export const AUTH_INVALIDATED_EVENT = 'cial-auth-invalidated';
 
 export function apiUrl(path: string) {
+  if (/^https?:\/\//i.test(path)) return path;
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: 'include',
     ...init,
     headers: {
       ...(init.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
@@ -50,6 +59,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
         : typeof rawDetail === 'string'
           ? rawDetail
           : `Request failed with status ${response.status}`;
+    if (response.status === 401 && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(AUTH_INVALIDATED_EVENT));
+    }
     throw new ApiError(message, response.status, detail);
   }
 
@@ -58,6 +70,30 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export function getHealth() {
   return request<HealthResponse>('/api/health');
+}
+
+export function signUp(payload: SignupRequest) {
+  return request<AuthResponse>('/api/auth/signup', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function logIn(payload: LoginRequest) {
+  return request<AuthResponse>('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getCurrentUser() {
+  return request<AuthResponse>('/api/auth/me');
+}
+
+export function logOut() {
+  return request<LogoutResponse>('/api/auth/logout', {
+    method: 'POST',
+  });
 }
 
 export function askQuestion(payload: ChatRequest) {
@@ -144,6 +180,24 @@ export function rebuildIndex(force: boolean) {
 
 export function getIndexStatus() {
   return request<IndexStatusResponse>('/api/index/status');
+}
+
+export function getEnterpriseRepositorySettings() {
+  return request<EnterpriseRepositorySettings>('/api/settings/enterprise-repository');
+}
+
+export function validateEnterpriseRepository(payload: EnterpriseRepositoryRequest) {
+  return request<EnterpriseRepositorySettings>('/api/settings/enterprise-repository/validate', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function saveEnterpriseRepository(payload: EnterpriseRepositoryRequest) {
+  return request<EnterpriseRepositorySettings>('/api/settings/enterprise-repository', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
 }
 
 export function runEvaluation(payload: EvaluationRunRequest) {

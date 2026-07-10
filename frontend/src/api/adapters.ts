@@ -105,12 +105,20 @@ export function toUiChatCitations(response: ChatResponse): UiChatCitation[] {
     citationIndex: index + 1,
     documentTitle: citation.document_name || 'Unknown document',
     documentId: citation.document_id || undefined,
+    repositoryId: citation.repository_id || undefined,
+    relativePath: citation.relative_path || undefined,
     pageNumber: citation.page ?? sourceById.get(citation.id || `S${index + 1}`)?.page ?? undefined,
+    pageCount: citation.page_count ?? sourceById.get(citation.id || `S${index + 1}`)?.page_count ?? undefined,
     sheetName: citation.sheet_name ?? undefined,
     sheetIndex: citation.sheet_index ?? undefined,
     slideNumber: citation.slide_number ?? undefined,
     anchor: citation.anchor ?? citation.chunk_id ?? undefined,
+    chunkId: citation.chunk_id ?? undefined,
     snippet: citation.snippet || undefined,
+    highlightText: citation.highlight_text ?? undefined,
+    previewText: citation.preview_text ?? undefined,
+    fileType: citation.file_type ?? undefined,
+    fileUrl: citation.file_url ?? undefined,
     score: citation.score ?? undefined,
   }));
 }
@@ -130,6 +138,7 @@ export function toUiChatSources(response: ChatResponse): UiChatSource[] {
     const citationIndex = citationIndexes.get(source.id) ?? index + 1;
     return {
       id: source.id || `source-${index + 1}`,
+      citationId: source.id || `source-${index + 1}`,
       citationIndex,
       documentId:
         source.document_id ||
@@ -137,6 +146,7 @@ export function toUiChatSources(response: ChatResponse): UiChatSource[] {
         source.path ||
         source.id ||
         documentTitleFromSource(source),
+      repositoryId: source.repository_id || undefined,
       relativePath: source.relative_path || source.path || undefined,
       documentTitle: documentTitleFromSource(source),
       sourceType: 'enterprise',

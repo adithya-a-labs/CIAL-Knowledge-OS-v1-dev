@@ -2,6 +2,38 @@ export type ResponseMode = 'quick' | 'standard' | 'detailed' | 'operational' | '
 export type ResponseLength = ResponseMode | 'short' | 'medium' | 'long';
 export type RuntimeStatus = 'starting' | 'ready' | 'indexing' | 'degraded' | 'failed' | 'no_documents';
 
+export interface SignupRequest {
+  full_name: string;
+  email: string;
+  password: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface AuthenticatedUser {
+  id: string;
+  email: string;
+  display_name: string;
+  initials: string;
+  organization_name?: string | null;
+  department_name?: string | null;
+  role_names: string[];
+  permission_names: string[];
+  notifications_count: number;
+}
+
+export interface AuthResponse {
+  user: AuthenticatedUser;
+  message: string;
+}
+
+export interface LogoutResponse {
+  message: string;
+}
+
 export interface HealthResponse {
   status: RuntimeStatus;
   service: string;
@@ -30,6 +62,7 @@ export interface ChatCitation {
   id: string;
   document_name: string;
   document_id?: string | null;
+  repository_id?: string | null;
   relative_path?: string | null;
   page: number | null;
   page_count?: number | null;
@@ -51,6 +84,7 @@ export interface ChatSource {
   document_name: string;
   path: string;
   document_id?: string | null;
+  repository_id?: string | null;
   relative_path?: string | null;
   page: number | null;
   page_count?: number | null;
@@ -205,6 +239,22 @@ export interface ExportFile {
 
 export interface ExportListResponse {
   exports: ExportFile[];
+}
+
+export interface EnterpriseRepositorySettings {
+  name: string;
+  folder: string;
+  config_path: string;
+  exists: boolean;
+  is_directory: boolean;
+  readable: boolean;
+  writable: boolean;
+  valid: boolean;
+  message: string;
+}
+
+export interface EnterpriseRepositoryRequest {
+  folder: string;
 }
 
 export interface CorpusDocument {
