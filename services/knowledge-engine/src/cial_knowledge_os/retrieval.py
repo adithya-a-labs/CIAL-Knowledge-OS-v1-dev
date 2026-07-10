@@ -49,6 +49,10 @@ def search_similar_chunks(
                 "metadata": metadata,
                 "source": str(metadata.get("file_name") or metadata.get("source", "")),
                 "page_number": metadata.get("page_number"),
+                "sheet_name": metadata.get("sheet_name"),
+                "sheet_index": metadata.get("sheet_index"),
+                "slide_number": metadata.get("slide_number"),
+                "anchor": metadata.get("anchor"),
                 "chunk_id": metadata.get("chunk_id"),
             }
         )
