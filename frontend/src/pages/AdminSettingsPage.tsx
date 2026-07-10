@@ -1,12 +1,18 @@
-import { useState } from 'react';
-import { Edit, CheckCircle, XCircle } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Edit, CheckCircle, XCircle, FolderOpen, Save, RefreshCw } from 'lucide-react';
 import PageHeader from '@/components/common/PageHeader';
 import StatusPill from '@/components/common/StatusPill';
 import { AUDIT_LOG, MOCK_USERS } from '@/data/auditLogData';
-import { CURRENT_USER } from '@/config/userConfig';
+import { useAuth } from '@/auth/AuthContext';
 import { Role } from '@/types';
 import { hasPermission } from '@/config/securityConfig';
 import { INTEGRATIONS, ROLE_COLORS, THEME_CONFIG_ITEMS, INGESTION_SETTINGS } from '@/data/adminData';
+import {
+  getEnterpriseRepositorySettings,
+  saveEnterpriseRepository,
+  validateEnterpriseRepository,
+} from '@/api/client';
+import type { EnterpriseRepositorySettings } from '@/api/types';
 
 type TabId = 'theme' | 'ingestion' | 'users' | 'audit' | 'integrations';
 
@@ -20,8 +26,62 @@ const TABS: { id: TabId; label: string }[] = [
 
 export default function AdminSettingsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('theme');
-  const userRole = CURRENT_USER.role as Role;
+  const [repositoryFolder, setRepositoryFolder] = useState('');
+  const [repositoryStatus, setRepositoryStatus] = useState<EnterpriseRepositorySettings | null>(null);
+  const [repositoryMessage, setRepositoryMessage] = useState('');
+  const [repositoryBusy, setRepositoryBusy] = useState(false);
+  const directoryInputRef = useRef<HTMLInputElement | null>(null);
+  const { userView } = useAuth();
+  const userRole = (userView?.role ?? 'viewer') as Role;
   const canAccess = hasPermission(userRole, 'canAccessAdmin');
+
+  useEffect(() => {
+    if (!canAccess) return;
+    let cancelled = false;
+    getEnterpriseRepositorySettings()
+      .then(settings => {
+        if (cancelled) return;
+        setRepositoryFolder(settings.folder);
+        setRepositoryStatus(settings);
+        setRepositoryMessage(settings.message);
+      })
+      .catch(error => {
+        if (!cancelled) {
+          setRepositoryMessage(error instanceof Error ? error.message : 'Unable to load repository settings.');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canAccess]);
+
+  const handleValidateRepository = async () => {
+    setRepositoryBusy(true);
+    try {
+      const result = await validateEnterpriseRepository({ folder: repositoryFolder });
+      setRepositoryStatus(result);
+      setRepositoryFolder(result.folder);
+      setRepositoryMessage(result.message);
+    } catch (error) {
+      setRepositoryMessage(error instanceof Error ? error.message : 'Repository validation failed.');
+    } finally {
+      setRepositoryBusy(false);
+    }
+  };
+
+  const handleSaveRepository = async () => {
+    setRepositoryBusy(true);
+    try {
+      const result = await saveEnterpriseRepository({ folder: repositoryFolder });
+      setRepositoryStatus(result);
+      setRepositoryFolder(result.folder);
+      setRepositoryMessage(result.message);
+    } catch (error) {
+      setRepositoryMessage(error instanceof Error ? error.message : 'Repository setting was not saved.');
+    } finally {
+      setRepositoryBusy(false);
+    }
+  };
 
   if (!canAccess) {
     return (
@@ -78,20 +138,97 @@ export default function AdminSettingsPage() {
 
       {/* Document Ingestion Tab */}
       {activeTab === 'ingestion' && (
-        <div className="fluid-grid" data-testid="tab-content-ingestion">
-          {INGESTION_SETTINGS.map(item => (
-            <div key={item.label} className="fluid-card responsive-card min-w-0 border border-[#e2eedd] bg-white p-4 shadow-sm hover:shadow-md">
-              <p className="text-xs font-semibold text-[#5a7a52] uppercase tracking-wide mb-1.5">{item.label}</p>
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-[#1a2e14]">{item.value}</p>
-                {item.type === 'toggle' && (
-                  <div className="w-10 h-5 bg-[#4a7c3f] rounded-full relative cursor-pointer">
-                    <div className="absolute right-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow-sm" />
-                  </div>
-                )}
+        <div className="space-y-5" data-testid="tab-content-ingestion">
+          <div className="rounded-lg border border-[#e2eedd] bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-[#5a7a52] uppercase tracking-wide mb-1.5">
+                  Enterprise Knowledge Repository
+                </p>
+                <label htmlFor="enterprise-repository-folder" className="text-xs font-medium text-[#5a7a52]">
+                  Folder
+                </label>
+                <input
+                  id="enterprise-repository-folder"
+                  value={repositoryFolder}
+                  onChange={event => setRepositoryFolder(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-[#ddecd6] bg-white px-3 py-2 text-sm font-medium text-[#1a2e14] outline-none focus:border-[#4a7c3f] focus:ring-2 focus:ring-[#d9ebd2]"
+                  placeholder="D:\\CIAL\\KnowledgeRepository"
+                  data-testid="input-enterprise-repository-folder"
+                />
+                <input
+                  ref={directoryInputRef}
+                  type="file"
+                  className="hidden"
+                  // @ts-expect-error Browser directory selection is intentionally non-standard.
+                  webkitdirectory=""
+                  directory=""
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => directoryInputRef.current?.click()}
+                  className="inline-flex items-center gap-2 rounded-lg border border-[#ddecd6] px-3 py-2 text-sm font-medium text-[#4a7c3f] transition-colors hover:bg-[#f0f7ed]"
+                  data-testid="button-browse-enterprise-repository"
+                >
+                  <FolderOpen size={16} />
+                  Browse...
+                </button>
+                <button
+                  type="button"
+                  onClick={handleValidateRepository}
+                  disabled={repositoryBusy}
+                  className="inline-flex items-center gap-2 rounded-lg border border-[#ddecd6] px-3 py-2 text-sm font-medium text-[#4a7c3f] transition-colors hover:bg-[#f0f7ed] disabled:cursor-not-allowed disabled:opacity-60"
+                  data-testid="button-validate-enterprise-repository"
+                >
+                  <RefreshCw size={16} />
+                  Validate
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveRepository}
+                  disabled={repositoryBusy}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#4a7c3f] px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#3d6834] disabled:cursor-not-allowed disabled:opacity-60"
+                  data-testid="button-save-enterprise-repository"
+                >
+                  <Save size={16} />
+                  Save
+                </button>
               </div>
             </div>
-          ))}
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              {repositoryStatus?.valid ? (
+                <CheckCircle size={14} className="text-[#27ae60]" />
+              ) : (
+                <XCircle size={14} className="text-[#c0392b]" />
+              )}
+              <span className={repositoryStatus?.valid ? 'font-medium text-[#2f6d25]' : 'font-medium text-[#c0392b]'}>
+                {repositoryMessage || 'Repository status unavailable.'}
+              </span>
+              {repositoryStatus && (
+                <span className="text-[#5a7a52]">
+                  Read {repositoryStatus.readable ? 'OK' : 'blocked'} / Write {repositoryStatus.writable ? 'OK' : 'blocked'}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="fluid-grid">
+            {INGESTION_SETTINGS.map(item => (
+              <div key={item.label} className="fluid-card responsive-card min-w-0 border border-[#e2eedd] bg-white p-4 shadow-sm hover:shadow-md">
+                <p className="text-xs font-semibold text-[#5a7a52] uppercase tracking-wide mb-1.5">{item.label}</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-[#1a2e14]">{item.value}</p>
+                  {item.type === 'toggle' && (
+                    <div className="w-10 h-5 bg-[#4a7c3f] rounded-full relative cursor-pointer">
+                      <div className="absolute right-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow-sm" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
