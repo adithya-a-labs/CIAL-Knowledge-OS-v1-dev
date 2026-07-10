@@ -50,9 +50,14 @@ export default function ContextChips({
       {hasAnyContext && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              <Paperclip size={12} />
-              Attached context
+            <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              <span className="flex items-center gap-2">
+                <Paperclip size={12} />
+                Attached context
+              </span>
+              <span className="rounded-sm bg-[#eef5e8] px-1.5 py-0.5 text-[10px] text-primary">
+                Hard retrieval boundary
+              </span>
             </div>
             {onClearAll ? (
               <button type="button" onClick={onClearAll} className="text-[11px] font-medium text-muted-foreground transition hover:text-foreground">
