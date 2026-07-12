@@ -29,6 +29,15 @@ try {
     throw "Configured corpus directory is not readable by this account: $resolvedRepository"
 }
 
+$probe = Join-Path $resolvedRepository (".cial-write-probe-{0}.tmp" -f [guid]::NewGuid().ToString("N"))
+try {
+    [IO.File]::WriteAllText($probe, "CIAL repository access probe")
+    Remove-Item -LiteralPath $probe -Force
+} catch {
+    if (Test-Path -LiteralPath $probe) { Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue }
+    throw "Configured corpus directory is not writable by this account: $resolvedRepository"
+}
+
 $configDirectory = Split-Path -Parent $ConfigPath
 New-Item -ItemType Directory -Path $configDirectory -Force | Out-Null
 
