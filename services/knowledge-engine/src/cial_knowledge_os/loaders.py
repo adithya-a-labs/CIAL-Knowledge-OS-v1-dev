@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import mimetypes
+import time
 from collections import Counter
 from html.parser import HTMLParser
 from pathlib import Path
@@ -17,6 +19,7 @@ from .file_formats import (
     SupportStatus,
     get_file_format_info,
     is_supported_file,
+    inspect_ingestion_candidate,
     list_supported_formats,
     scan_file_format_readiness,
     validate_ingestion_file,
@@ -126,6 +129,8 @@ def _base_metadata(
         "collection": folder_parts[1] if len(folder_parts) > 1 else None,
         "loader_type": loader_type,
         "document_type": format_info["extension"],
+        "file_type": path.suffix.lstrip(".").casefold(),
+        "mime_type": mimetypes.guess_type(path.name)[0],
         "file_format_category": format_info["category"],
         "file_format_label": format_info["format_label"],
         "file_support_status": format_info["support_status"],
@@ -134,6 +139,8 @@ def _base_metadata(
     }
     if page_number is not None:
         metadata["page_number"] = page_number
+        metadata["page_index"] = page_number - 1
+        metadata["citation_metadata_version"] = 2
     return metadata
 
 
@@ -351,17 +358,26 @@ def _load_pdf_with_pymupdf(path: Path, corpus_root: Path, *, repository_id: str 
 
 
 def _load_ocr_document(path: Path, config: KnowledgeOSConfig, corpus_root: Path) -> list[Document]:
+    inspection = inspect_ingestion_candidate(path, corpus_root=corpus_root, ocr_engine=config.ocr_engine)
     if not config.ocr_enabled:
         logger.warning(
             "ocr_skipped_disabled",
             extra={
                 "event": "ocr",
-                "source": str(path.resolve()),
-                "document_type": path.suffix.lstrip(".").lower(),
+                "document_filename": inspection["filename"],
+                "relative_path": inspection["relative_path"],
+                "extension": inspection["extension"],
+                "detected_mime_type": inspection["detected_mime_type"],
+                "file_size_bytes": inspection["file_size_bytes"],
+                "ocr_engine": config.ocr_engine,
+                "ocr_engine_available": False,
+                "ocr_fallback_available": False,
+                "skip_reason": "OCR_disabled_by_configuration",
             },
         )
         return []
     engine = create_ocr_engine(config)
+    preflight = getattr(engine, "preflight", lambda **_: {"status": "unknown"})(enabled=True)
     result = engine.extract(path)
     metadata = _base_metadata(path, "ocr", corpus_root=corpus_root, repository_id=config.repository_id)
     metadata.update(result.metadata)
@@ -373,9 +389,18 @@ def _load_ocr_document(path: Path, config: KnowledgeOSConfig, corpus_root: Path)
             "ocr_file_skipped",
             extra={
                 "event": "ocr",
-                "source": str(path.resolve()),
+                "document_filename": inspection["filename"],
+                "relative_path": inspection["relative_path"],
+                "extension": inspection["extension"],
+                "detected_mime_type": inspection["detected_mime_type"],
+                "file_size_bytes": inspection["file_size_bytes"],
+                "ocr_engine": config.ocr_engine,
+                "ocr_engine_available": preflight.get("status") == "ready",
+                "ocr_fallback_available": False,
+                "skip_reason": "image_decode_failed" if result.status == "OCR_FAILED" else "already_contains_extractable_text",
+                "error_type": type(result.error).__name__ if result.error else None,
                 "ocr_status": result.status,
-                "error": result.error,
+                "error": result.error[:300] if result.error else None,
             },
         )
         return []
@@ -404,34 +429,44 @@ def discover_knowledge_documents(
         return corpus_root, []
     paths: list[Path] = []
     for path in sorted(item for item in corpus_root.rglob("*") if item.is_file()):
-        validation = validate_ingestion_file(path.name)
-        if validation["valid_for_ingestion"]:
+        inspection = inspect_ingestion_candidate(path, corpus_root=corpus_root, ocr_engine=config.ocr_engine)
+        validation = inspection["validation"]
+        if inspection["eligible"] and validation["valid_for_ingestion"]:
             paths.append(path)
             continue
         logger.warning(
             "document_type_not_ingested",
             extra={
                 "event": "document_discovery",
-                "source": str(path.resolve()),
-                "document_type": validation["extension"],
+                "document_filename": inspection["filename"],
+                "relative_path": inspection["relative_path"],
+                "extension": inspection["extension"],
+                "detected_mime_type": inspection["detected_mime_type"],
+                "configured_supported_formats": sorted(SUPPORTED_DOCUMENT_EXTENSIONS),
+                "skip_reason": inspection["skip_reason"],
+                "loader_selected": inspection["loader_selected"],
                 "support_status": validation["support_status"],
-                "action": validation["action"],
             },
         )
     return corpus_root, paths
 
 
 def _load_supported_path(path: Path, config: KnowledgeOSConfig, corpus_root: Path) -> list[Document]:
-    validation = validate_ingestion_file(path.name)
-    if not validation["valid_for_ingestion"]:
+    inspection = inspect_ingestion_candidate(path, corpus_root=corpus_root, ocr_engine=config.ocr_engine)
+    validation = inspection["validation"]
+    if not inspection["eligible"] or not validation["valid_for_ingestion"]:
         logger.warning(
             "document_type_not_ingested",
             extra={
                 "event": "document_loading",
-                "source": str(path.resolve()),
-                "document_type": validation["extension"],
+                "document_filename": inspection["filename"],
+                "relative_path": inspection["relative_path"],
+                "extension": inspection["extension"],
+                "detected_mime_type": inspection["detected_mime_type"],
+                "configured_supported_formats": sorted(SUPPORTED_DOCUMENT_EXTENSIONS),
+                "skip_reason": inspection["skip_reason"],
+                "loader_selected": inspection["loader_selected"],
                 "support_status": validation["support_status"],
-                "action": validation["action"],
             },
         )
         return []
@@ -531,6 +566,28 @@ def _load_pdf_path(path: Path, corpus_root: Path, *, repository_id: str | None =
             "or 'PyMuPDF'; no cloud OCR fallback is used."
         )
 
+    # PDF citations must be page-addressable.  Docling's current Markdown
+    # export is document-wide and does not retain page provenance, whereas
+    # PyMuPDF emits one Document per physical PDF page. Prefer the latter when
+    # available; Docling remains a local fallback for environments without it.
+    if pymupdf_available:
+        try:
+            return (
+                _load_pdf_with_pymupdf(path, corpus_root, repository_id=repository_id)
+                if repository_id is not None
+                else _load_pdf_with_pymupdf(path, corpus_root)
+            )
+        except Exception as exc:
+            if not docling_available:
+                raise RuntimeError(
+                    f"Could not read PDF '{path}'. The file may be corrupted, "
+                    f"encrypted, or unsupported by PyMuPDF. Original error: {exc}"
+                ) from exc
+            logger.warning(
+                "pymupdf_pdf_fallback",
+                extra={"event": "document_loading", "source": str(path), "error": str(exc)},
+            )
+
     if docling_available:
         try:
             docling_documents = (
@@ -557,18 +614,10 @@ def _load_pdf_path(path: Path, corpus_root: Path, *, repository_id: str | None =
                     f"Docling extracted no text from {path.name}, and PyMuPDF "
                     "is not installed as a local fallback."
                 )
-    try:
-        return (
-            _load_pdf_with_pymupdf(path, corpus_root, repository_id=repository_id)
-            if repository_id is not None
-            else _load_pdf_with_pymupdf(path, corpus_root)
-        )
-    except Exception as exc:
-        raise RuntimeError(
-            f"Could not read PDF '{path}'. The file may be corrupted, "
-            "encrypted, or unsupported by the configured local loaders. "
-            f"Original error: {exc}"
-        ) from exc
+    raise RuntimeError(
+        f"No text could be extracted from PDF '{path}'. Docling output does not "
+        "include page provenance, so this PDF cannot be indexed for page-addressable citations."
+    )
 
 
 def load_pdf_documents(config: KnowledgeOSConfig) -> list[Document]:
@@ -609,8 +658,72 @@ def load_pdf_paths(
         knowledge_root=corpus_root,
     )
     documents: list[Document] = []
-    for path in pdf_paths:
-        documents.extend(_load_supported_path(path, effective_config, corpus_root))
+    total = len(pdf_paths)
+    for position, path in enumerate(pdf_paths, start=1):
+        inspection = inspect_ingestion_candidate(path, corpus_root=corpus_root, ocr_engine=effective_config.ocr_engine)
+        started = time.perf_counter()
+        logger.info(
+            "document_indexing_started",
+            extra={
+                "event": "document_indexing",
+                "current_document_number": position,
+                "total_documents": total,
+                "document_filename": inspection["filename"],
+                "relative_path": inspection["relative_path"],
+                "extension": inspection["extension"],
+                "loader": inspection["loader_selected"],
+            },
+        )
+        try:
+            parsed = _load_supported_path(path, effective_config, corpus_root)
+        except Exception as exc:
+            logger.error(
+                "document_indexing_failed",
+                extra={
+                    "event": "document_indexing",
+                    "current_document_number": position,
+                    "total_documents": total,
+                    "document_filename": inspection["filename"],
+                    "relative_path": inspection["relative_path"],
+                    "extension": inspection["extension"],
+                    "loader": inspection["loader_selected"],
+                    "elapsed_seconds": round(time.perf_counter() - started, 3),
+                    "error_type": type(exc).__name__,
+                },
+            )
+            raise
+        if not parsed:
+            logger.warning(
+                "document_indexing_skipped",
+                extra={
+                    "event": "document_indexing",
+                    "current_document_number": position,
+                    "total_documents": total,
+                    "document_filename": inspection["filename"],
+                    "relative_path": inspection["relative_path"],
+                    "extension": inspection["extension"],
+                    "loader": inspection["loader_selected"],
+                    "skip_reason": inspection["skip_reason"] or "parser_rejected_file",
+                    "elapsed_seconds": round(time.perf_counter() - started, 3),
+                },
+            )
+            continue
+        documents.extend(parsed)
+        logger.info(
+            "document_parsing_completed",
+            extra={
+                "event": "document_indexing",
+                "current_document_number": position,
+                "total_documents": total,
+                "document_filename": inspection["filename"],
+                "relative_path": inspection["relative_path"],
+                "extension": inspection["extension"],
+                "loader": inspection["loader_selected"],
+                "page_count": max((item.metadata.get("page_number") or 0 for item in parsed), default=None) or None,
+                "parsed_documents": len(parsed),
+                "elapsed_seconds": round(time.perf_counter() - started, 3),
+            },
+        )
     return documents
 
 
