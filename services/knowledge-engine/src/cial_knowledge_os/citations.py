@@ -57,6 +57,12 @@ def build_citations(
                     "page_number",
                     metadata.get("page_number"),
                 ),
+                "page_index": result.get("page_index", metadata.get("page_index")),
+                "document_id": result.get("document_id", metadata.get("document_id")),
+                "document_version_id": result.get(
+                    "document_version_id", metadata.get("document_version_id")
+                ),
+                "mime_type": result.get("mime_type", metadata.get("mime_type")),
                 "sheet_name": result.get("sheet_name", metadata.get("sheet_name")),
                 "sheet_index": result.get("sheet_index", metadata.get("sheet_index")),
                 "slide_number": result.get("slide_number", metadata.get("slide_number")),
