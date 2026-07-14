@@ -1,6 +1,6 @@
 services:
   qdrant:
-    image: qdrant/qdrant:v1.18.2
+    image: qdrant/qdrant:latest
     container_name: cial-knowledge-os-v1-dev-qdrant
 
     ports:
