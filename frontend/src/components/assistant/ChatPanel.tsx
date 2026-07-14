@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { FileText, Paperclip, Send, Sparkles } from 'lucide-react';
+import { FileText, Paperclip, Send, Sparkles, Square } from 'lucide-react';
+import { ApiError } from '@/api/types';
 import { useAssistantSessions } from './AssistantSessionContext';
 import ChatControlBar from './ChatControlBar';
 import ChatMessage, { ChatMessageData } from './ChatMessage';
@@ -85,6 +86,7 @@ export default function ChatPanel() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeStageIndex, setActiveStageIndex] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [contextManagerOpen, setContextManagerOpen] = useState(false);
   const [selectedSource, setSelectedSource] = useState<ChatSource | null>(null);
   const [sourceViewerOpen, setSourceViewerOpen] = useState(false);
@@ -93,6 +95,8 @@ export default function ChatPanel() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const activeRequestControllerRef = useRef<AbortController | null>(null);
+  const activeRequestIdRef = useRef<string | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const [chatMessagesWidth, setChatMessagesWidth] = useState<number>(0);
   const messages = activeSession.messages as ChatMessageData[];
@@ -189,6 +193,23 @@ export default function ChatPanel() {
   }, [isLoading]);
 
   useEffect(() => {
+    if (!isLoading) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const interval = window.setInterval(() => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => window.clearInterval(interval);
+  }, [isLoading]);
+
+  const stopGenerating = () => {
+    const controller = activeRequestControllerRef.current;
+    if (!controller || controller.signal.aborted) return;
+    console.debug('[chat-request]', { requestId: activeRequestIdRef.current, status: 'cancelled_by_user' });
+    controller.abort();
+  };
+
+  useEffect(() => {
     const mediaQuery = window.matchMedia('(min-width: 1024px)');
     const handleViewportChange = () => setIsDesktopViewport(mediaQuery.matches);
     handleViewportChange();
@@ -217,7 +238,11 @@ export default function ChatPanel() {
       documentId: source.documentId,
       repositoryId: source.repositoryId,
       extractedPage: source.pageNumber ?? null,
-      normalizedPage: source.pageNumber && source.pageNumber > 0 ? Math.trunc(source.pageNumber) : null,
+      normalizedPage: typeof source.pageNumber === 'number' && source.pageNumber > 0
+        ? Math.trunc(source.pageNumber)
+        : typeof source.pageIndex === 'number' && source.pageIndex >= 0
+          ? Math.trunc(source.pageIndex) + 1
+          : null,
       pdfEndpointUrl: source.fileUrl ?? null,
     });
     if (toUuidDocumentId(source.documentId)) {
@@ -294,9 +319,15 @@ export default function ChatPanel() {
     setInput('');
     setIsLoading(true);
     setErrorMessage(null);
+    const controller = new AbortController();
+    const requestId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    activeRequestControllerRef.current = controller;
+    activeRequestIdRef.current = requestId;
+    const startedAt = performance.now();
+    console.debug('[chat-request]', { requestId, status: 'started' });
 
     try {
-      const response = await askQuestion(toChatRequest(requestPayload));
+      const response = await askQuestion(toChatRequest(requestPayload), controller.signal);
       const adapted = toAssistantMessage(response, requestPayload);
       const aiMsg: ChatMessageData = {
         id: `ai-${Date.now()}`,
@@ -313,13 +344,29 @@ export default function ChatPanel() {
         messages: [...messages, userMsg, aiMsg],
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'The backend could not answer this question.';
+      const cancelled = controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
+      const message = cancelled
+        ? 'Generation stopped.'
+        : error instanceof ApiError && error.status === 503
+          ? 'The knowledge engine is still preparing.'
+          : error instanceof TypeError
+            ? 'The connection to the local knowledge service was interrupted.'
+            : 'The assistant could not complete this request.';
       setErrorMessage(message);
       toast({
-        title: 'Assistant request failed',
+        title: cancelled ? 'Generation stopped' : 'Assistant request failed',
         description: message,
       });
     } finally {
+      console.debug('[chat-request]', {
+        requestId,
+        status: controller.signal.aborted ? 'cancelled_by_user' : 'completed',
+        elapsedSeconds: Math.round((performance.now() - startedAt) / 1000),
+      });
+      if (activeRequestControllerRef.current === controller) {
+        activeRequestControllerRef.current = null;
+        activeRequestIdRef.current = null;
+      }
       setIsLoading(false);
     }
   };
@@ -443,8 +490,14 @@ export default function ChatPanel() {
                 ))}
 
             {isLoading && (
-              <div className="flex justify-start">
+              <div className="flex flex-col items-start gap-2">
                 <RetrievalTimeline activeStageIndex={activeStageIndex} />
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <span>Generating locally · {Math.floor(elapsedSeconds / 60)}m {String(elapsedSeconds % 60).padStart(2, '0')}s</span>
+                  <button type="button" onClick={stopGenerating} className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 font-medium text-red-700 hover:bg-red-50" data-testid="button-stop-generating">
+                    <Square size={11} fill="currentColor" /> Stop generating
+                  </button>
+                </div>
               </div>
             )}
 
