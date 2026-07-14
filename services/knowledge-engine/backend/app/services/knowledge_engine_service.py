@@ -1051,6 +1051,8 @@ class KnowledgeEngineService:
             normalized_page = (
                 self._optional_page(citation.get("page_number"))
                 if citation.get("page_number") not in {None, ""}
+                else self._page_from_index(citation.get("page_index"))
+                if citation.get("page_index") not in {None, ""}
                 else (source.page if source else None)
             )
             logger.debug(
@@ -1059,7 +1061,10 @@ class KnowledgeEngineService:
                     "citation_id": source_id,
                     "document_id": source.document_id if source else None,
                     "repository_id": source.repository_id if source else None,
+                    "version_id": source.document_version_id if source else None,
+                    "mime_type": source.mime_type if source else None,
                     "extracted_page": citation.get("page_number"),
+                    "page_index": citation.get("page_index"),
                     "normalized_page": normalized_page,
                     "pdf_endpoint_url": source.file_url if source else None,
                     "fallback_reason": None if source and normalized_page else "missing_source_or_page_metadata",
@@ -1074,9 +1079,17 @@ class KnowledgeEngineService:
                         or "Unknown document"
                     ),
                     document_id=source.document_id if source else None,
+                    document_version_id=source.document_version_id if source else None,
                     repository_id=source.repository_id if source else None,
                     relative_path=source.relative_path if source else None,
                     page=normalized_page,
+                    page_number=normalized_page,
+                    page_index=(
+                        self._optional_page_index(citation.get("page_index"))
+                        if citation.get("page_index") not in {None, ""}
+                        else (source.page_index if source else None)
+                    ),
+                    location_label=(f"Page {normalized_page}" if normalized_page is not None else None),
                     page_count=source.page_count if source else None,
                     sheet_name=self._optional_str(
                         citation.get("sheet_name")
@@ -1100,7 +1113,13 @@ class KnowledgeEngineService:
                     highlight_text=source.highlight_text if source else None,
                     preview_text=source.preview_text if source else None,
                     file_type=source.file_type if source else None,
+                    mime_type=source.mime_type if source else None,
                     file_url=source.file_url if source else None,
+                    preview_url=source.file_url if source else None,
+                    download_url=(
+                        source.file_url.replace("/file", "/download")
+                        if source and source.file_url else None
+                    ),
                     score=self._optional_float(citation.get("score")),
                 )
             )
@@ -1154,16 +1173,19 @@ class KnowledgeEngineService:
                     document_name=document_name,
                     path=path,
                     document_id=str(file_id) if file_id else None,
+                    document_version_id=self._optional_str(context.get("document_version_id") or metadata.get("document_version_id")),
                     repository_id=self._optional_str(
                         context.get("repository_id") or metadata.get("repository_id")
                     ),
                     relative_path=relative_path or None,
-                    page=self._optional_page(
-                        self._first_present(
-                            chunk.get("page_number"),
-                            metadata.get("page_number"),
-                            context.get("page"),
-                        )
+                    page=self._result_page(chunk, metadata, context),
+                    page_number=self._result_page(chunk, metadata, context),
+                    page_index=self._optional_page_index(
+                        self._first_present(chunk.get("page_index"), metadata.get("page_index"))
+                    ),
+                    location_label=(
+                        f"Page {self._result_page(chunk, metadata, context)}"
+                        if self._result_page(chunk, metadata, context) is not None else None
                     ),
                     page_count=self._optional_int(context.get("page_count")),
                     sheet_name=self._optional_str(
@@ -1193,6 +1215,7 @@ class KnowledgeEngineService:
                     highlight_text=str(context.get("highlight_text") or preview_text[:1000] or ""),
                     preview_text=preview_text[:4000] or None,
                     file_type=str(context.get("file_type") or metadata.get("file_type") or ""),
+                    mime_type=self._optional_str(context.get("mime_type") or metadata.get("mime_type")),
                     file_url=(
                         f"/api/corpus/document/{file_id}/file"
                         if file_id
@@ -1337,11 +1360,13 @@ class KnowledgeEngineService:
     def _serialize_document_context(document: Document) -> dict[str, Any]:
         return {
             "document_id": str(document.id),
+            "document_version_id": str(document.current_version_id) if document.current_version_id else None,
             "repository_id": document.repository_id,
             "name": document.name,
             "relative_path": document.relative_path,
             "page_count": document.page_count,
             "file_type": document.file_type,
+            "mime_type": document.mime_type,
             "chunks": {},
         }
 
@@ -1387,6 +1412,10 @@ class KnowledgeEngineService:
             context["page_count"] = self._optional_int(metadata.get("page_count"))
         if not context.get("file_type") and metadata.get("file_type"):
             context["file_type"] = str(metadata.get("file_type"))
+        if not context.get("mime_type") and metadata.get("mime_type"):
+            context["mime_type"] = str(metadata.get("mime_type"))
+        if not context.get("document_version_id") and metadata.get("document_version_id"):
+            context["document_version_id"] = str(metadata.get("document_version_id"))
         if not context.get("relative_path") and relative_path:
             context["relative_path"] = relative_path
         if not context.get("document_id") and raw_document_id:
@@ -1410,6 +1439,36 @@ class KnowledgeEngineService:
         if parsed is None or parsed <= 0:
             return None
         return parsed
+
+    @classmethod
+    def _optional_page_index(cls, value: Any) -> int | None:
+        parsed = cls._optional_int(value)
+        return parsed if parsed is not None and parsed >= 0 else None
+
+    @classmethod
+    def _page_from_index(cls, value: Any) -> int | None:
+        index = cls._optional_page_index(value)
+        return index + 1 if index is not None else None
+
+    @classmethod
+    def _result_page(
+        cls,
+        chunk: Mapping[str, Any],
+        metadata: Mapping[str, Any],
+        context: Mapping[str, Any],
+    ) -> int | None:
+        explicit = cls._optional_page(
+            cls._first_present(
+                chunk.get("page_number"),
+                metadata.get("page_number"),
+                context.get("page"),
+            )
+        )
+        if explicit is not None:
+            return explicit
+        return cls._page_from_index(
+            cls._first_present(chunk.get("page_index"), metadata.get("page_index"))
+        )
 
     @staticmethod
     def _optional_float(value: Any) -> float | None:
