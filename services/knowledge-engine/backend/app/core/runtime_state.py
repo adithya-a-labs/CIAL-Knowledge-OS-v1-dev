@@ -6,9 +6,11 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from threading import RLock
 from typing import Literal
+import logging
 
 
 RuntimeStatus = Literal["starting", "ready", "indexing", "degraded", "failed", "no_documents"]
+logger = logging.getLogger(__name__)
 
 
 def utc_now_iso() -> str:
@@ -20,6 +22,7 @@ class RuntimeState:
     status: RuntimeStatus = "starting"
     engine_available: bool = False
     engine_ready: bool = False
+    stage: str = "starting"
     documents_seen: int = 0
     documents_indexed: int = 0
     index_fresh: bool = False
@@ -34,10 +37,42 @@ class RuntimeState:
 
     def update(self, **values: object) -> None:
         with self._lock:
+            previous_status = self.status
+            previous_ready = self.engine_ready
             for key, value in values.items():
                 if not hasattr(self, key):
                     raise AttributeError(f"Unknown runtime state field: {key}")
                 setattr(self, key, value)
+            if previous_status != self.status or previous_ready != self.engine_ready:
+                logger.info(
+                    "knowledge_engine_state_changed",
+                    extra={
+                        "event": "knowledge_engine_state",
+                        "previous_status": previous_status,
+                        "new_status": self.status,
+                        "previous_ready": previous_ready,
+                        "new_ready": self.engine_ready,
+                        "stage": self.stage,
+                        "reason": values.get("message"),
+                        "updated_at": utc_now_iso(),
+                    },
+                )
+
+    def set_ready(self, *, message: str, documents_seen: int, documents_indexed: int) -> None:
+        """Authoritatively mark the shared, already-initialized engine ready."""
+
+        self.update(
+            status="ready",
+            stage="ready",
+            engine_ready=True,
+            qdrant_ready=True,
+            models_ready=True,
+            index_fresh=True,
+            documents_seen=documents_seen,
+            documents_indexed=documents_indexed,
+            last_index_run_at=utc_now_iso(),
+            message=message,
+        )
 
     def snapshot(self) -> dict[str, object]:
         with self._lock:
@@ -67,6 +102,7 @@ class RuntimeState:
         return {
             "reason": reason,
             "status": status,
+            "stage": state["stage"],
             "phase": "4.5",
             "message": state["message"],
             "engine_ready": state["engine_ready"],
