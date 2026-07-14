@@ -35,6 +35,15 @@ function normalizedPage(value: number | null | undefined) {
   return Math.trunc(value);
 }
 
+function resolvedPageNumber(source: ChatSource | null, preview?: DocumentPreview | null) {
+  const explicit = normalizedPage(source?.pageNumber ?? preview?.page ?? null);
+  if (explicit !== null) return explicit;
+  const pageIndex = source?.pageIndex;
+  return typeof pageIndex === 'number' && Number.isFinite(pageIndex) && pageIndex >= 0
+    ? Math.trunc(pageIndex) + 1
+    : null;
+}
+
 function isPdfSource(source: ChatSource | null, preview: DocumentPreview | null) {
   const fileType = (source?.fileType || '').replace(/^\./, '').toLowerCase();
   const title = (source?.documentTitle || source?.relativePath || '').toLowerCase();
@@ -138,7 +147,7 @@ function SourceFallback({
   const workspaceHref = (() => {
     if (!documentId) return null;
     const params = new URLSearchParams();
-    if (pageNumber) params.set('page', String(pageNumber));
+    if (pageNumber !== null && pageNumber !== undefined && pageNumber > 0) params.set('page', String(pageNumber));
     if (citationId) params.set('citation', citationId);
     if (slideNumber) params.set('slide', String(slideNumber));
     if (sheetName) params.set('sheet', sheetName);
@@ -196,11 +205,11 @@ export default function DocumentViewerPanel({
   const [pageCount, setPageCount] = useState<number | null>(null);
 
   useEffect(() => {
-    const nextPage = source?.slideNumber ?? source?.pageNumber ?? 1;
+    const nextPage = source?.slideNumber ?? resolvedPageNumber(source) ?? 1;
     setActivePage(nextPage);
     setRequestedPage(nextPage);
     setPageCount(source?.pageCount ?? null);
-  }, [source?.id, source?.pageCount, source?.pageNumber, source?.slideNumber]);
+  }, [source?.id, source?.pageCount, source?.pageNumber, source?.pageIndex, source?.slideNumber]);
 
   const previewQuery = useQuery({
     queryKey: [
@@ -208,6 +217,7 @@ export default function DocumentViewerPanel({
       source?.documentId,
       source?.chunkId ?? source?.anchor,
       source?.pageNumber,
+      source?.pageIndex,
       source?.sheetName,
       source?.sheetIndex,
       source?.slideNumber,
@@ -215,7 +225,7 @@ export default function DocumentViewerPanel({
     queryFn: () =>
       getDocumentPreview(source!.documentId, {
         chunkId: source?.chunkId ?? source?.anchor,
-        page: source?.pageNumber,
+        page: resolvedPageNumber(source) ?? undefined,
         sheetName: source?.sheetName,
         sheetIndex: source?.sheetIndex,
         slideNumber: source?.slideNumber,
@@ -227,7 +237,7 @@ export default function DocumentViewerPanel({
   const preview = previewQuery.data ?? null;
   const title = preview?.name || source?.documentTitle || 'Source';
   const extractedPageNumber = source?.pageNumber ?? preview?.page ?? null;
-  const effectivePageNumber = normalizedPage(extractedPageNumber);
+  const effectivePageNumber = resolvedPageNumber(source, preview);
   const effectiveSheetName = source?.sheetName ?? preview?.active_sheet ?? null;
   const effectiveSheetIndex = source?.sheetIndex ?? preview?.active_sheet_index ?? null;
   const effectiveSlideNumber = source?.slideNumber ?? preview?.active_slide_number ?? null;
@@ -252,12 +262,12 @@ export default function DocumentViewerPanel({
   })();
 
   useEffect(() => {
-    if (source?.slideNumber || source?.pageNumber) return;
+    if (source?.slideNumber || resolvedPageNumber(source) !== null) return;
     const previewPage = preview?.page;
     if (!previewPage || previewPage <= 0) return;
     setRequestedPage(previewPage);
     setActivePage(previewPage);
-  }, [preview?.page, source?.pageNumber, source?.slideNumber]);
+  }, [preview?.page, source, source?.pageNumber, source?.pageIndex, source?.slideNumber]);
 
   useEffect(() => {
     logCitationNavigation(source, {
