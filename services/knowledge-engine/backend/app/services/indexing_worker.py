@@ -166,6 +166,7 @@ class IndexingWorker:
                 counts = self.engine.prepare_pipeline(
                     force_rebuild_index=False,
                 )
+            models_ready, model_message = self.engine.check_ollama_model()
 
             elapsed_ms = int((perf_counter() - started) * 1000)
 
@@ -191,10 +192,30 @@ class IndexingWorker:
                 session.commit()
 
             # Update runtime state
-            self.runtime_state.update(
-                documents_indexed=counts.get("documents_indexed", 0),
-                index_fresh=True,
-            )
+            if self.engine.is_ready() and models_ready:
+                self.runtime_state.set_ready(
+                    message="Background incremental indexing completed; knowledge engine is ready.",
+                    documents_seen=counts.get("documents_seen", 0),
+                    documents_indexed=counts.get("documents_indexed", 0),
+                )
+                logger.info(
+                    "knowledge_engine_ready",
+                    extra={
+                        "event": "knowledge_engine_state",
+                        "ready": True,
+                        "stage": "ready",
+                        "reason": "background_incremental_indexing_completed",
+                    },
+                )
+            else:
+                self.runtime_state.update(
+                    status="degraded",
+                    stage="loading_reranker",
+                    engine_ready=False,
+                    models_ready=False,
+                    index_fresh=True,
+                    message=model_message,
+                )
 
             logger.info(
                 "indexing_job_succeeded",
