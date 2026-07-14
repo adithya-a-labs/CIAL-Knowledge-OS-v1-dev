@@ -18,8 +18,20 @@ def _normalize_page_number(value: Any) -> Any:
     except (TypeError, ValueError):
         return value
     if number <= 0:
-        return 1 if number == 0 else None
+        return None
     return number
+
+
+def page_index(result: Mapping[str, Any]) -> int | None:
+    """Read the zero-based PDF page index without treating it as a page number."""
+
+    metadata = result_metadata(result)
+    value = result.get("page_index", metadata.get("page_index"))
+    try:
+        index = int(value) if value not in {None, ""} else None
+    except (TypeError, ValueError):
+        return None
+    return index if index is not None and index >= 0 else None
 
 
 def result_metadata(result: Mapping[str, Any]) -> dict[str, Any]:
@@ -50,11 +62,19 @@ def source_label(result: Mapping[str, Any]) -> str:
 
 
 def page_number(result: Mapping[str, Any]) -> Any:
-    """Read a page value from either the public result or nested metadata."""
+    """Read a human-facing one-based page number from canonical metadata.
+
+    ``page_number`` is never inferred from an invalid zero value.  A valid
+    zero-based ``page_index`` is the only supported conversion path to page 1.
+    """
 
     metadata = result_metadata(result)
     value = result.get("page_number", metadata.get("page_number", metadata.get("page")))
-    return _normalize_page_number(value)
+    normalized = _normalize_page_number(value)
+    if normalized is not None:
+        return normalized
+    index = page_index(result)
+    return index + 1 if index is not None else None
 
 
 def sheet_name(result: Mapping[str, Any]) -> str | None:
@@ -123,6 +143,7 @@ def normalize_result(result: Mapping[str, Any]) -> RetrievalResult:
             "source": source_label(result),
             "source_path": source_path(result),
             "page_number": page_number(result),
+            "page_index": page_index(result),
             "sheet_name": sheet_name(result),
             "sheet_index": sheet_index(result),
             "slide_number": slide_number(result),
