@@ -9,6 +9,25 @@ from pathlib import Path
 from typing import Any
 
 _STANDARD_RECORD_KEYS = set(logging.makeLogRecord({}).__dict__)
+_RESERVED_EXTRA_KEYS = _STANDARD_RECORD_KEYS | {"message", "asctime", "taskName"}
+_CANONICAL_EXTRA_RENAMES = {"filename": "document_filename", "pathname": "source_relative_path", "name": "document_name"}
+
+
+def sanitize_log_extra(extra: dict[str, Any] | None) -> dict[str, Any]:
+    """Return a copied, LogRecord-safe structured logging payload.
+
+    Python raises a ``KeyError`` when ``extra`` tries to overwrite a LogRecord
+    attribute. Known document fields get stable names; all other collisions are
+    retained under a ``field_`` prefix rather than silently discarded.
+    """
+
+    sanitized: dict[str, Any] = {}
+    for key, value in (extra or {}).items():
+        safe_key = _CANONICAL_EXTRA_RENAMES.get(key, key)
+        if safe_key in _RESERVED_EXTRA_KEYS:
+            safe_key = f"field_{safe_key}"
+        sanitized[safe_key] = value
+    return sanitized
 
 
 class StructuredJsonFormatter(logging.Formatter):
