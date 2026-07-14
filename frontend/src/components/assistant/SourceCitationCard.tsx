@@ -58,7 +58,7 @@ export default function SourceCitationCard({ sources, onOpenSource }: SourceCita
                   <div className="mb-1 flex flex-wrap items-center gap-2">
                     <span className="ce-badge ce-badge-accent">[{source.citationIndex}]</span>
                     <span className={`ce-badge ${badge.className}`}>{badge.label}</span>
-                    {source.pageNumber ? <span className="ce-meta-text font-semibold">p. {source.pageNumber}</span> : null}
+                    {source.pageNumber !== undefined && source.pageNumber > 0 ? <span className="ce-meta-text font-semibold">p. {source.pageNumber}</span> : null}
                   </div>
                   <h3 className="safe-text text-sm font-semibold text-foreground">{source.documentTitle}</h3>
                   {source.department ? <p className="mt-1 text-[11px] text-muted-foreground">{source.department}</p> : null}
