@@ -127,7 +127,7 @@ class DocumentService:
                 "upload_duplicate_detected",
                 extra={
                     "event": "upload",
-                    "filename": safe_name,
+                    "document_filename": safe_name,
                     "content_hash": content_hash,
                     "existing_document_id": str(duplicate_doc.get("id", "")),
                 },
@@ -155,7 +155,7 @@ class DocumentService:
                     "upload_corpus_sync_completed",
                     extra={
                         "event": "upload",
-                        "filename": safe_name,
+                        "document_filename": safe_name,
                         "files_added": summary.files_added if hasattr(summary, "files_added") else 0,
                         "indexing_jobs_created": summary.indexing_jobs_created if hasattr(summary, "indexing_jobs_created") else 0,
                     },
@@ -190,7 +190,7 @@ class DocumentService:
             "upload_accepted",
             extra={
                 "event": "upload",
-                "filename": safe_name,
+                "document_filename": safe_name,
                 "content_hash": content_hash,
                 "indexing_job_id": indexing_job_id,
             },
