@@ -96,6 +96,13 @@ function documentTitleFromSource(source: ChatSource): string {
   return source.document_name || source.relative_path?.split('/').pop() || source.path?.split('/').pop() || 'Unknown document';
 }
 
+function resolvedPageNumber(pageNumber?: number | null, page?: number | null, pageIndex?: number | null): number | undefined {
+  if (typeof pageNumber === 'number' && Number.isFinite(pageNumber) && pageNumber > 0) return Math.trunc(pageNumber);
+  if (typeof page === 'number' && Number.isFinite(page) && page > 0) return Math.trunc(page);
+  if (typeof pageIndex === 'number' && Number.isFinite(pageIndex) && pageIndex >= 0) return Math.trunc(pageIndex) + 1;
+  return undefined;
+}
+
 export function toUiChatCitations(response: ChatResponse): UiChatCitation[] {
   const citations = Array.isArray(response.citations) ? response.citations : [];
   const sources = Array.isArray(response.sources) ? response.sources : [];
@@ -105,9 +112,13 @@ export function toUiChatCitations(response: ChatResponse): UiChatCitation[] {
     citationIndex: index + 1,
     documentTitle: citation.document_name || 'Unknown document',
     documentId: citation.document_id || undefined,
+    documentVersionId: citation.document_version_id || undefined,
     repositoryId: citation.repository_id || undefined,
     relativePath: citation.relative_path || undefined,
-    pageNumber: citation.page ?? sourceById.get(citation.id || `S${index + 1}`)?.page ?? undefined,
+    pageNumber: resolvedPageNumber(citation.page_number, citation.page, citation.page_index)
+      ?? resolvedPageNumber(undefined, sourceById.get(citation.id || `S${index + 1}`)?.page, sourceById.get(citation.id || `S${index + 1}`)?.page_index),
+    pageIndex: citation.page_index ?? sourceById.get(citation.id || `S${index + 1}`)?.page_index ?? undefined,
+    locationLabel: citation.location_label ?? undefined,
     pageCount: citation.page_count ?? sourceById.get(citation.id || `S${index + 1}`)?.page_count ?? undefined,
     sheetName: citation.sheet_name ?? undefined,
     sheetIndex: citation.sheet_index ?? undefined,
@@ -118,6 +129,7 @@ export function toUiChatCitations(response: ChatResponse): UiChatCitation[] {
     highlightText: citation.highlight_text ?? undefined,
     previewText: citation.preview_text ?? undefined,
     fileType: citation.file_type ?? undefined,
+    mimeType: citation.mime_type ?? undefined,
     fileUrl: citation.file_url ?? undefined,
     score: citation.score ?? undefined,
   }));
@@ -146,11 +158,14 @@ export function toUiChatSources(response: ChatResponse): UiChatSource[] {
         source.path ||
         source.id ||
         documentTitleFromSource(source),
+      documentVersionId: source.document_version_id || undefined,
       repositoryId: source.repository_id || undefined,
       relativePath: source.relative_path || source.path || undefined,
       documentTitle: documentTitleFromSource(source),
       sourceType: 'enterprise',
-      pageNumber: source.page ?? undefined,
+      pageNumber: resolvedPageNumber(source.page_number, source.page, source.page_index),
+      pageIndex: source.page_index ?? undefined,
+      locationLabel: source.location_label ?? undefined,
       pageCount: source.page_count ?? undefined,
       sheetName: source.sheet_name ?? undefined,
       sheetIndex: source.sheet_index ?? undefined,
@@ -162,6 +177,7 @@ export function toUiChatSources(response: ChatResponse): UiChatSource[] {
       highlightText: source.highlight_text || undefined,
       previewText: source.preview_text || undefined,
       fileType: source.file_type || undefined,
+      mimeType: source.mime_type || undefined,
       fileUrl: source.file_url || undefined,
       reason: `Retrieved through ${metadata.retrieval_mode} / Phase ${metadata.phase}.`,
     };
