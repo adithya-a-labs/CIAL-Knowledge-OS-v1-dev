@@ -340,7 +340,7 @@ function CitationList({
             >
               <span>[{citation.citationIndex}]</span>
               <span className="truncate">{citation.documentTitle}</span>
-              {citation.pageNumber ? <span className="text-muted-foreground">p. {citation.pageNumber}</span> : null}
+              {citation.pageNumber !== undefined && citation.pageNumber > 0 ? <span className="text-muted-foreground">p. {citation.pageNumber}</span> : null}
             </button>
           );
         })}
