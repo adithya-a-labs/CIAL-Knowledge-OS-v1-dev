@@ -393,6 +393,21 @@ class BasicRAGPipeline:
                         self.config,
                         embedding_dimension,
                     )
+                indexing_mode = "full_rebuild" if self.config.force_rebuild_index else "incremental"
+                collection_recreated = bool(self.config.force_rebuild_index)
+                logger.info(
+                    "corpus_full_rebuild_started" if indexing_mode == "full_rebuild" else "corpus_incremental_indexing_started",
+                    extra={
+                        "event": "corpus_indexing",
+                        "indexing_mode": indexing_mode,
+                        "force_rebuild_requested": bool(self.config.force_rebuild_index),
+                        "collection_existed_before": collection_existed,
+                        "collection_recreated": collection_recreated,
+                        "corpus_manifest_changed": bool(plan and plan.corpus_changed),
+                        "changed_document_count": len(plan.files_to_process) if plan else len(self.documents),
+                        "collection_name": self.config.qdrant_collection_name,
+                    },
+                )
                 collection_health = parse_collection_health(
                     self.client.get_collection(
                         self.config.qdrant_collection_name
@@ -486,6 +501,16 @@ class BasicRAGPipeline:
                 self.indexing_summary["chunks_added"] = len(self.chunks)
                 self.indexing_summary["chunks_removed"] = removed
                 self.indexing_summary["vector_index_updated"] = changed
+                self.indexing_summary.update(
+                    {
+                        "indexing_mode": indexing_mode,
+                        "collection_existed_before": collection_existed,
+                        "collection_recreated": collection_recreated,
+                        "qdrant_points_upserted": len(self.chunks),
+                        "full_rebuild": indexing_mode == "full_rebuild",
+                        "incremental_update": indexing_mode == "incremental",
+                    }
+                )
                 chunk_counts = Counter(
                     str(chunk.metadata.get("relative_path") or "")
                     for chunk in self.chunks
@@ -503,6 +528,18 @@ class BasicRAGPipeline:
                 if self.config.incremental_indexing_enabled:
                     self.chunks = load_indexed_chunks(self.client, self.config)
             except Exception as exc:
+                logger.error(
+                    "corpus_indexing_failed",
+                    extra={
+                        "event": "corpus_indexing_summary",
+                        "indexing_mode": "full_rebuild" if self.config.force_rebuild_index else "incremental",
+                        "collection_name": self.config.qdrant_collection_name,
+                        "generated_chunks": len(self.chunks),
+                        "failed_files": 1,
+                        "elapsed_seconds": round(float(self.metrics.get("indexing_time", 0.0)), 3),
+                        "error_type": type(exc).__name__,
+                    },
+                )
                 manager.emit(
                     "indexing_failed",
                     stage="indexing",
@@ -531,8 +568,38 @@ class BasicRAGPipeline:
                 **self.indexing_summary,
             )
         logger.info(
-            "incremental_indexing_complete",
+            "corpus_full_rebuild_completed" if self.indexing_summary.get("full_rebuild") else "corpus_incremental_indexing_completed",
             extra={"event": "indexing", **self.indexing_summary},
+        )
+        logger.info(
+            "corpus_indexing_summary",
+            extra={
+                "event": "corpus_indexing_summary",
+                "indexing_mode": self.indexing_summary.get("indexing_mode", "incremental"),
+                "discovered_files": int(self.file_format_readiness.get("total_files", 0)),
+                "eligible_files": int(self.file_format_readiness.get("processable_files", 0)),
+                "ingested_files": len({str(document.metadata.get("relative_path") or "") for document in self.documents}),
+                "skipped_files": len(self.file_format_readiness.get("skipped_files", [])),
+                "failed_files": 0,
+                "unchanged_files": int(self.indexing_summary.get("unchanged_files", 0)),
+                "deleted_documents": int(self.indexing_summary.get("deleted_files", 0)),
+                "parsed_documents": len(self.documents),
+                "generated_chunks": len(self.chunks),
+                "embedded_chunks": len(self.chunks),
+                "qdrant_points_upserted": int(self.indexing_summary.get("qdrant_points_upserted", 0)),
+                "qdrant_points_deleted": int(self.indexing_summary.get("chunks_removed", 0)),
+                "bm25_documents_indexed": len(self.chunks),
+                "elapsed_seconds": round(float(self.metrics.get("indexing_time", 0.0)), 3),
+                "collection_name": self.config.qdrant_collection_name,
+                "collection_recreated": bool(self.indexing_summary.get("collection_recreated")),
+                "full_rebuild": bool(self.indexing_summary.get("full_rebuild")),
+                "incremental_update": bool(self.indexing_summary.get("incremental_update")),
+                "counts_by_extension": self.file_format_readiness.get("extension_distribution", {}),
+                "counts_by_skip_reason": {"registry_or_file_policy": len(self.file_format_readiness.get("skipped_files", []))},
+                "counts_by_loader": {},
+                "counts_by_ocr_engine": {str(getattr(self.config, "ocr_engine", "tesseract")): int(self.file_format_readiness.get("ocr_files", 0))},
+                "failed_filenames": [],
+            },
         )
         return self.client
 
