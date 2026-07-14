@@ -26,6 +26,12 @@ def health(request: Request) -> dict[str, object]:
         "reranker_model": settings.reranker_model_name,
         "engine_available": runtime["engine_available"],
         "engine_ready": runtime["engine_ready"],
+        "stage": runtime["stage"],
+        "knowledge_engine": {
+            "status": runtime["status"],
+            "ready": runtime["engine_ready"],
+            "stage": runtime["stage"],
+        },
         "qdrant_ready": runtime["qdrant_ready"],
         "models_ready": runtime["models_ready"],
         "documents_seen": runtime["documents_seen"],
