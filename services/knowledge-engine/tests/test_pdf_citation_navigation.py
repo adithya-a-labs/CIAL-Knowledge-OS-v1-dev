@@ -176,6 +176,29 @@ def test_missing_or_zero_page_metadata_is_not_silently_mapped_to_page_one() -> N
     assert [citation.page for citation in citations] == [None, None]
 
 
+def test_zero_based_page_index_resolves_to_first_human_facing_page() -> None:
+    service = KnowledgeEngineService()
+    document_id = uuid.uuid4()
+    chunk = _chunk(document_id, "Manuals/manual.pdf", None, "page-index-zero")
+    chunk["metadata"]["page_index"] = 0
+    response = {
+        "retrieved": [chunk],
+        "context_stages": {"compressed": [chunk]},
+        "citations": [{"reference_id": 1, "source_file": "manual.pdf", "page_index": 0}],
+    }
+
+    source = service._sources(response)[0]
+    citation = service._citations(response)[0]
+
+    assert source.page == 1
+    assert source.page_number == 1
+    assert source.page_index == 0
+    assert citation.page == 1
+    assert citation.page_number == 1
+    assert citation.page_index == 0
+    assert citation.location_label == "Page 1"
+
+
 def test_chat_response_metadata_uses_preserved_sources_when_restored() -> None:
     service = KnowledgeEngineService()
     document_id = uuid.uuid4()
