@@ -14,6 +14,7 @@ from typing import Any, Iterable
 from .file_formats import is_supported_file
 
 MANIFEST_VERSION = 1
+CITATION_METADATA_VERSION = 2
 
 
 def _now_iso() -> str:
@@ -40,6 +41,7 @@ class DocumentManifestEntry:
     indexed_at: str | None = None
     document_id: str = ""
     index_version: int = MANIFEST_VERSION
+    citation_metadata_version: int = 1
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "DocumentManifestEntry":
@@ -56,6 +58,7 @@ class DocumentManifestEntry:
             indexed_at=value.get("indexed_at"),
             document_id=str(value.get("document_id") or document_id(relative_path)),
             index_version=int(value.get("index_version", MANIFEST_VERSION)),
+            citation_metadata_version=int(value.get("citation_metadata_version", 1)),
         )
 
 
@@ -98,6 +101,9 @@ def _fingerprint(path: Path, root: Path, *, repository_id: str | None = None) ->
         category=parts[0] if parts else None,
         collection=parts[1] if len(parts) > 1 else None,
         document_id=document_id(relative, repository_id),
+        citation_metadata_version=(
+            CITATION_METADATA_VERSION if path.suffix.casefold() == ".pdf" else 1
+        ),
     )
 
 
@@ -187,7 +193,10 @@ def create_indexing_plan(
         old = previous.get(key)
         if old is None:
             new.append(entry)
-        elif old.sha256 == entry.sha256:
+        elif old.sha256 == entry.sha256 and (
+            entry.document_type != "pdf"
+            or old.citation_metadata_version >= CITATION_METADATA_VERSION
+        ):
             value = asdict(entry)
             value.update(
                 {
@@ -195,6 +204,7 @@ def create_indexing_plan(
                     "indexed_at": old.indexed_at,
                     "document_id": old.document_id,
                     "index_version": old.index_version,
+                    "citation_metadata_version": old.citation_metadata_version,
                 }
             )
             unchanged.append(DocumentManifestEntry(**value))
