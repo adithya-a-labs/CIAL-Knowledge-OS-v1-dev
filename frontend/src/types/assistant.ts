@@ -56,12 +56,15 @@ export interface ChatSource {
   citationId?: string;
   citationIndex: number;
   documentId: string;
+  documentVersionId?: string;
   repositoryId?: string;
   relativePath?: string;
   documentTitle: string;
   sourceType: ContextSourceType;
   department?: string;
   pageNumber?: number;
+  pageIndex?: number;
+  locationLabel?: string;
   pageCount?: number;
   sheetName?: string;
   sheetIndex?: number;
@@ -74,6 +77,7 @@ export interface ChatSource {
   highlightText?: string;
   previewText?: string;
   fileType?: string;
+  mimeType?: string;
   fileUrl?: string;
 }
 
@@ -82,9 +86,12 @@ export interface ChatCitation {
   citationIndex: number;
   documentTitle: string;
   documentId?: string;
+  documentVersionId?: string;
   repositoryId?: string;
   relativePath?: string;
   pageNumber?: number;
+  pageIndex?: number;
+  locationLabel?: string;
   pageCount?: number;
   sheetName?: string;
   sheetIndex?: number;
@@ -95,6 +102,7 @@ export interface ChatCitation {
   highlightText?: string;
   previewText?: string;
   fileType?: string;
+  mimeType?: string;
   fileUrl?: string;
   score?: number;
 }
