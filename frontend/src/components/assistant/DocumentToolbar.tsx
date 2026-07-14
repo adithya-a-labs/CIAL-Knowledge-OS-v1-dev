@@ -42,7 +42,7 @@ export default function DocumentToolbar({
   const workspaceHref = (() => {
     if (!documentId) return null;
     const params = new URLSearchParams();
-    if (pageNumber) params.set('page', String(pageNumber));
+    if (pageNumber !== null && pageNumber !== undefined && pageNumber > 0) params.set('page', String(pageNumber));
     if (citationId) params.set('citation', citationId);
     if (slideNumber) params.set('slide', String(slideNumber));
     if (sheetName) params.set('sheet', sheetName);
@@ -55,7 +55,7 @@ export default function DocumentToolbar({
     ? `Sheet ${sheetName}${sheetIndex ? ` (${sheetIndex})` : ''}`
     : slideNumber
       ? `Slide ${slideNumber}`
-      : pageNumber
+      : pageNumber !== null && pageNumber !== undefined && pageNumber > 0
         ? `Page ${pageNumber}`
         : 'Location unavailable';
 
