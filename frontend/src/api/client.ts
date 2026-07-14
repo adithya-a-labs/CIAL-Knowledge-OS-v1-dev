@@ -69,7 +69,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export function getHealth() {
-  return request<HealthResponse>('/api/health');
+  return request<HealthResponse>('/api/health', { cache: 'no-store' });
 }
 
 export function signUp(payload: SignupRequest) {
@@ -96,10 +96,13 @@ export function logOut() {
   });
 }
 
-export function askQuestion(payload: ChatRequest) {
+export function askQuestion(payload: ChatRequest, signal?: AbortSignal) {
+  // Chat generation deliberately has no deadline. The caller supplies a
+  // per-request signal solely for an explicit user Stop action.
   return request<ChatResponse>('/api/chat', {
     method: 'POST',
     body: JSON.stringify(payload),
+    signal,
   });
 }
 

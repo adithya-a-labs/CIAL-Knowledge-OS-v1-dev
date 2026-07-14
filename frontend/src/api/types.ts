@@ -40,6 +40,8 @@ export interface HealthResponse {
   phase: string;
   engine_available: boolean;
   engine_ready: boolean;
+  stage?: string;
+  knowledge_engine?: { status: string; ready: boolean; stage: string };
   qdrant_ready: boolean;
   models_ready: boolean;
   documents_seen: number;
@@ -62,9 +64,13 @@ export interface ChatCitation {
   id: string;
   document_name: string;
   document_id?: string | null;
+  document_version_id?: string | null;
   repository_id?: string | null;
   relative_path?: string | null;
   page: number | null;
+  page_number?: number | null;
+  page_index?: number | null;
+  location_label?: string | null;
   page_count?: number | null;
   sheet_name?: string | null;
   sheet_index?: number | null;
@@ -75,7 +81,10 @@ export interface ChatCitation {
   highlight_text?: string | null;
   preview_text?: string | null;
   file_type?: string | null;
+  mime_type?: string | null;
   file_url?: string | null;
+  preview_url?: string | null;
+  download_url?: string | null;
   score: number | null;
 }
 
@@ -84,9 +93,13 @@ export interface ChatSource {
   document_name: string;
   path: string;
   document_id?: string | null;
+  document_version_id?: string | null;
   repository_id?: string | null;
   relative_path?: string | null;
   page: number | null;
+  page_number?: number | null;
+  page_index?: number | null;
+  location_label?: string | null;
   page_count?: number | null;
   sheet_name?: string | null;
   sheet_index?: number | null;
@@ -97,6 +110,7 @@ export interface ChatSource {
   highlight_text?: string | null;
   preview_text?: string | null;
   file_type?: string | null;
+  mime_type?: string | null;
   file_url?: string | null;
   score: number | null;
 }
