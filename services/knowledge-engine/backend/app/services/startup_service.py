@@ -144,6 +144,34 @@ class StartupService:
 
             # --- Incremental skip logic ---
             skip_indexing = self._should_skip_indexing(sync_summary)
+            changed_files = (
+                int(getattr(sync_summary, "files_added", 0) or 0)
+                + int(getattr(sync_summary, "files_modified", 0) or 0)
+                + int(getattr(sync_summary, "files_moved", 0) or 0)
+                + int(getattr(sync_summary, "files_renamed", 0) or 0)
+            ) if sync_summary is not None else 0
+            removed_files = int(getattr(sync_summary, "files_removed", 0) or 0) if sync_summary is not None else 0
+            decision = "skip" if skip_indexing else ("full_rebuild" if settings.force_rebuild_on_startup else "incremental")
+            decision_reason = (
+                "force_rebuild_requested" if settings.force_rebuild_on_startup
+                else "index_current" if skip_indexing
+                else "corpus_changes_or_pending_jobs"
+            )
+            logger.info(
+                "corpus_startup_indexing_decision",
+                extra={
+                    "event": "startup",
+                    "decision": decision,
+                    "reason": decision_reason,
+                    "discovered_files": documents_seen,
+                    "changed_files": changed_files,
+                    "removed_files": removed_files,
+                    "collection_name": config.qdrant_collection_name,
+                    "index_stale": not skip_indexing,
+                    "metadata_schema_version": 2,
+                    "expected_metadata_schema_version": 2,
+                },
+            )
 
             if skip_indexing:
                 logger.info(
@@ -152,6 +180,7 @@ class StartupService:
                         "event": "startup",
                         "reason": "no_changes",
                         "documents_seen": documents_seen,
+                        "indexing_mode": "skip",
                     },
                 )
                 # Still need to initialize the pipeline for chat readiness
@@ -168,6 +197,9 @@ class StartupService:
                         "event": "startup",
                         "pending_jobs": pending_count,
                         "force_rebuild": settings.force_rebuild_on_startup,
+                        "indexing_mode": decision,
+                        "changed_files": changed_files,
+                        "removed_files": removed_files,
                     },
                 )
                 self.runtime_state.update(
@@ -201,9 +233,22 @@ class StartupService:
 
             self.runtime_state.update(
                 status="ready",
+                stage="ready",
                 engine_ready=True,
                 models_ready=True,
                 message="Phase 4.5 engine is ready.",
+            )
+            logger.info(
+                "knowledge_engine_ready",
+                extra={
+                    "event": "knowledge_engine_state",
+                    "ready": True,
+                    "stage": "ready",
+                    "collection_name": config.qdrant_collection_name,
+                    "bm25_ready": bool(getattr(self.engine._pipeline, "bm25_retriever", None)),
+                    "reranker_ready": bool(getattr(self.engine._pipeline, "reranker", None)),
+                    "pipeline_loaded": self.engine.is_ready(),
+                },
             )
         except Exception as exc:  # noqa: BLE001 - startup must not crash the API.
             logger.exception("phase45_startup_failed")
@@ -343,6 +388,7 @@ class StartupService:
     def _on_pipeline_stage(self, stage: str, counts: dict[str, int]) -> None:
         values: dict[str, object] = {
             "status": "indexing",
+            "stage": stage,
             "engine_ready": False,
             "last_startup_check_at": utc_now_iso(),
             "message": _STAGE_MESSAGES.get(stage, f"Phase 4.5 startup stage: {stage}."),
