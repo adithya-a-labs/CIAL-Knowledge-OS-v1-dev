@@ -100,6 +100,7 @@ def _document_result(document: Document) -> RetrievalResult:
             "metadata": metadata,
             "source": metadata.get("file_name") or metadata.get("source"),
             "page_number": metadata.get("page_number"),
+            "page_index": metadata.get("page_index"),
             "sheet_name": metadata.get("sheet_name"),
             "sheet_index": metadata.get("sheet_index"),
             "slide_number": metadata.get("slide_number"),
