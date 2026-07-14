@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from enum import StrEnum
+import mimetypes
+import os
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -246,6 +248,80 @@ def validate_ingestion_file(path_or_filename: str | Path) -> dict[str, Any]:
             "message": "This file type is not currently recognized by CIAL Knowledge OS.",
         }
     return info | validation
+
+
+def selected_loader_for(path_or_filename: str | Path, *, ocr_engine: str = "tesseract") -> str | None:
+    """Return the production loader decision without attempting ingestion."""
+
+    extension = get_file_extension(path_or_filename)
+    if extension == "pdf":
+        return "pymupdf"
+    if extension in {"txt", "md", "markdown", "html", "htm", "json", "xml", "yaml", "yml", "csv"}:
+        return "text"
+    if extension in {"docx", "doc", "xlsx", "xls", "pptx", "ppt"}:
+        return extension
+    if extension in {"png", "jpg", "jpeg", "tif", "tiff"}:
+        return f"ocr:{ocr_engine}"
+    return None
+
+
+def inspect_ingestion_candidate(
+    path: str | Path,
+    *,
+    corpus_root: str | Path | None = None,
+    ocr_engine: str = "tesseract",
+) -> dict[str, Any]:
+    """Classify one file using the same registry rules as production ingestion.
+
+    The result deliberately contains a corpus-relative path only.  It can be
+    used in runtime logs and scan-only diagnostics without exposing server
+    filesystem layout.
+    """
+
+    candidate = Path(path)
+    root = Path(corpus_root) if corpus_root is not None else None
+    try:
+        relative_path = candidate.resolve().relative_to(root.resolve()).as_posix() if root else candidate.name
+    except (OSError, ValueError):
+        relative_path = candidate.name
+    extension = candidate.suffix.casefold()
+    filename = candidate.name
+    detected_mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    validation = validate_ingestion_file(filename)
+    skip_reason: str | None = None
+    try:
+        stat = candidate.stat()
+        file_size_bytes: int | None = stat.st_size
+    except OSError:
+        stat = None
+        file_size_bytes = None
+        skip_reason = "unreadable_file"
+    name_parts = candidate.relative_to(root).parts if root and candidate.is_relative_to(root) else candidate.parts
+    if filename.startswith("~$"):
+        skip_reason = "temporary_office_file"
+    elif filename.casefold() in {"thumbs.db", "desktop.ini"} or any(part.startswith(".") for part in name_parts):
+        skip_reason = "hidden_or_system_file"
+    elif stat is not None and stat.st_size == 0:
+        skip_reason = "empty_file"
+    elif stat is not None and not os.access(candidate, os.R_OK):
+        skip_reason = "unreadable_file"
+    elif not validation["valid_for_ingestion"]:
+        skip_reason = (
+            "file_excluded_by_configuration"
+            if validation["support_status"] == SupportStatus.RECOGNIZED_FUTURE_SUPPORT.value
+            else "unsupported_extension"
+        )
+    return {
+        "filename": filename,
+        "relative_path": relative_path,
+        "extension": extension,
+        "detected_mime_type": detected_mime_type,
+        "file_size_bytes": file_size_bytes,
+        "validation": validation,
+        "eligible": skip_reason is None,
+        "skip_reason": skip_reason,
+        "loader_selected": selected_loader_for(filename, ocr_engine=ocr_engine) if skip_reason is None else None,
+    }
 
 
 def list_supported_formats() -> list[dict[str, Any]]:
