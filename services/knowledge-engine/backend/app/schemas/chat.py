@@ -33,9 +33,13 @@ class ChatCitation(BaseModel):
     id: str
     document_name: str
     document_id: str | None = None
+    document_version_id: str | None = None
     repository_id: str | None = None
     relative_path: str | None = None
     page: int | None = None
+    page_number: int | None = None
+    page_index: int | None = None
+    location_label: str | None = None
     page_count: int | None = None
     sheet_name: str | None = None
     sheet_index: int | None = None
@@ -46,7 +50,10 @@ class ChatCitation(BaseModel):
     highlight_text: str | None = None
     preview_text: str | None = None
     file_type: str | None = None
+    mime_type: str | None = None
     file_url: str | None = None
+    preview_url: str | None = None
+    download_url: str | None = None
     score: float | None = None
 
 
@@ -55,9 +62,13 @@ class ChatSource(BaseModel):
     document_name: str
     path: str = ""
     document_id: str | None = None
+    document_version_id: str | None = None
     repository_id: str | None = None
     relative_path: str | None = None
     page: int | None = None
+    page_number: int | None = None
+    page_index: int | None = None
+    location_label: str | None = None
     page_count: int | None = None
     sheet_name: str | None = None
     sheet_index: int | None = None
@@ -68,6 +79,7 @@ class ChatSource(BaseModel):
     highlight_text: str | None = None
     preview_text: str | None = None
     file_type: str | None = None
+    mime_type: str | None = None
     file_url: str | None = None
     score: float | None = None
 
