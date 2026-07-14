@@ -33,6 +33,7 @@ class IndexingService:
     def rebuild(self, *, force: bool) -> dict[str, object]:
         self.runtime_state.update(
             status="indexing",
+            stage="indexing",
             engine_ready=False,
             index_fresh=False,
             message="Index rebuild is running.",
@@ -56,23 +57,32 @@ class IndexingService:
             )
             return self.runtime_state.snapshot()
 
-        ready = bool(models_ready)
-        self.runtime_state.update(
-            status="ready" if ready else "degraded",
-            engine_ready=ready,
-            qdrant_ready=True,
-            models_ready=ready,
-            documents_seen=counts["documents_seen"],
-            documents_indexed=counts["documents_indexed"],
-            index_fresh=True,
-            last_index_run_at=datetime.now(timezone.utc).isoformat(),
-            message="Index rebuild completed." if ready else model_message,
-        )
+        ready = bool(models_ready and self.engine.is_ready())
+        if ready:
+            self.runtime_state.set_ready(
+                message="Index rebuild completed.",
+                documents_seen=counts["documents_seen"],
+                documents_indexed=counts["documents_indexed"],
+            )
+        else:
+            self.runtime_state.update(
+                status="degraded",
+                stage="loading_reranker",
+                engine_ready=False,
+                qdrant_ready=True,
+                models_ready=False,
+                documents_seen=counts["documents_seen"],
+                documents_indexed=counts["documents_indexed"],
+                index_fresh=True,
+                last_index_run_at=datetime.now(timezone.utc).isoformat(),
+                message=model_message,
+            )
         return self.runtime_state.snapshot()
 
     def _on_pipeline_stage(self, stage: str, counts: dict[str, int]) -> None:
         values: dict[str, object] = {
             "status": "indexing",
+            "stage": stage,
             "engine_ready": False,
             "message": _STAGE_MESSAGES.get(stage, f"Index rebuild stage: {stage}."),
         }
