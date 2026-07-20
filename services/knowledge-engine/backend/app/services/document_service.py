@@ -9,12 +9,14 @@ import logging
 from pathlib import Path
 import re
 import shutil
+import uuid
 from typing import Any, BinaryIO
 
 from backend.app.core.config import settings
 from backend.app.db.session import SessionLocal
 from backend.app.security.access import RequestAccessContext, list_accessible_documents
 from backend.app.schemas.documents import DocumentMetadata, DocumentType, UploadResponse
+from cial_knowledge_os.file_formats import validate_ingestion_file
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,8 @@ class DocumentService:
         if not self.root.is_dir():
             raise FileNotFoundError(f"Configured corpus directory does not exist: {self.root}")
         safe_name = self._safe_filename(filename)
+        if not validate_ingestion_file(safe_name)["valid_for_ingestion"]:
+            raise ValueError("This file type is not supported for indexing.")
         destination = self._available_path(self.root / safe_name)
         with destination.open("wb") as handle:
             shutil.copyfileobj(stream, handle)
@@ -93,9 +97,11 @@ class DocumentService:
         if not self.root.is_dir():
             raise FileNotFoundError(f"Configured corpus directory does not exist: {self.root}")
         safe_name = self._safe_filename(filename)
+        if not validate_ingestion_file(safe_name)["valid_for_ingestion"]:
+            raise ValueError("This file type is not supported for indexing.")
 
         # Save to a temp file first for hashing
-        temp_path = self.root / f".upload_{safe_name}.tmp"
+        temp_path = self.root / f".upload_{uuid.uuid4().hex}_{safe_name}.tmp"
         try:
             with temp_path.open("wb") as handle:
                 shutil.copyfileobj(stream, handle)
@@ -132,7 +138,7 @@ class DocumentService:
                     "existing_document_id": str(duplicate_doc.get("id", "")),
                 },
             )
-            return UploadResponse(
+            _ = UploadResponse(
                 id=hashlib.sha1(relative.encode("utf-8")).hexdigest()[:16],
                 name=destination.name,
                 path=relative,

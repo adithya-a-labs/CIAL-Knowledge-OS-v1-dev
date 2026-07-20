@@ -1,7 +1,8 @@
 """Durable, immutable, backend-only assistant export job pipeline."""
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
-import hashlib, json, logging, os, queue, re, shutil, uuid, zipfile
+from html import unescape
+import hashlib, json, logging, os, queue, re, shutil, unicodedata, uuid, zipfile
 from pathlib import Path
 from threading import Thread
 from sqlalchemy.orm import Session
@@ -13,10 +14,13 @@ from backend.app.repositories.exports import ExportRepository
 from backend.app.schemas.exports import ExportCreateRequest, ExportFile
 from backend.app.services.export_document import ExportDocument, ExportSource, MarkdownExportParser, cited_reference_ids
 from backend.app.services.export_renderers import DocxRenderer, HtmlPreviewRenderer, PdfRenderer
+from backend.app.services.personal_workspace_service import PersonalWorkspaceService, WorkspaceAuthenticationRequired, WorkspaceNotFound
 
 _SENTINEL = object()
 logger=logging.getLogger(__name__)
 MIMES={"pdf":"application/pdf","docx":"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
+WINDOWS_RESERVED={"con","prn","aux","nul",*(f"com{number}" for number in range(1,10)),*(f"lpt{number}" for number in range(1,10))}
+WORKSPACE_FILENAME_MAX=160
 
 class ExportError(RuntimeError):
     def __init__(self, message: str, code: str, status_code: int=400): super().__init__(message); self.code=code; self.status_code=status_code
@@ -26,9 +30,34 @@ def sanitize_filename(title: str, format: str, now: datetime) -> str:
     value=value.replace(" ","-")
     return f"CIAL-Knowledge-OS_{value}_{now:%Y-%m-%d_%H-%M}.{format}"
 
+def _workspace_name_stem(value: str) -> str:
+    value=unescape(value);value=re.sub(r"<[^>]*>"," ",value);value=re.sub(r"!\[([^]]*)\]\([^)]*\)",r"\1",value);value=re.sub(r"\[([^]]+)\]\([^)]*\)",r"\1",value)
+    value=re.sub(r"\[\d+\]"," ",value);value=re.sub(r"[`#*_~>]"," ",value);value=unicodedata.normalize("NFKD",value).encode("ascii","ignore").decode("ascii").casefold()
+    value=re.sub(r'[<>:"/\\|?*\x00-\x1f]+',"-",value);value=re.sub(r"[^a-z0-9]+","-",value).strip("-. ")
+    if value in WINDOWS_RESERVED:value=f"knowledge-os-{value}"
+    return value
+
+def suggested_workspace_filename(job, now: datetime | None=None) -> str:
+    now=now or datetime.now(timezone.utc);source=(job.title or "").strip() or str((job.source_snapshot or {}).get("query") or "").strip() or "knowledge-os-export"
+    stem=_workspace_name_stem(source) or "knowledge-os-export";suffix=f"_{now:%Y-%m-%d}.{job.format}";stem=stem[:WORKSPACE_FILENAME_MAX-len(suffix)].rstrip("-.") or "knowledge-os-export"
+    return f"{stem}{suffix}"
+
+def validate_workspace_filename(value: str | None, job, now: datetime | None=None) -> str:
+    if value is None or not value.strip():return suggested_workspace_filename(job,now)
+    raw=value.strip()
+    if raw in {".",".."} or ".." in raw or "/" in raw or "\\" in raw or re.match(r"^[a-zA-Z]:",raw) or Path(raw).is_absolute():
+        raise ExportError("Choose a filename without folders or path components.","invalid_export_filename",422)
+    expected=f".{job.format}";provided=Path(raw).suffix.casefold()
+    if provided and provided!=expected:raise ExportError(f"The filename extension must be {expected}.","invalid_export_filename",422)
+    stem=_workspace_name_stem(raw[:-len(provided)] if provided else raw)
+    if not stem:raise ExportError("Enter a valid filename.","invalid_export_filename",422)
+    stem=stem[:WORKSPACE_FILENAME_MAX-len(expected)].rstrip("-.")
+    return f"{stem}{expected}"
+
 class ExportService:
-    def __init__(self, outputs_root: Path | None=None) -> None:
+    def __init__(self, outputs_root: Path | None=None, indexing_wakeup=None) -> None:
         self.root=(outputs_root or settings.export_root_path).resolve(); self._queue: queue.Queue[object]=queue.Queue(maxsize=settings.export_queue_limit); self._thread=None; self._running=False
+        self.indexing_wakeup=indexing_wakeup
         self.parser=MarkdownExportParser(); self.pdf=PdfRenderer(); self.docx=DocxRenderer(); self.html=HtmlPreviewRenderer()
     def start(self):
         self.root.mkdir(parents=True,exist_ok=True)
@@ -132,6 +161,26 @@ class ExportService:
         path=(self.root/key).resolve()
         if self.root not in path.parents or path.is_symlink() or not path.is_file():raise ExportError("Export artifact is unavailable.","artifact_unavailable",404)
         return path
+    def save_to_workspace(self,db:Session,access,job,filename:str|None=None,folder_id:uuid.UUID|None=None)->dict[str,object]:
+        if job.status!="ready":raise ExportError("Export is not ready.","export_not_ready",409)
+        if job.format not in MIMES:raise ExportError("This export format cannot be saved.","unsupported_export_format",422)
+        try:source=self.artifact(job)
+        except ExportError as exc:raise ExportError("The completed export artifact is unavailable.","export_artifact_missing",409) from exc
+        final_name=validate_workspace_filename(filename,job)
+        provenance={"export_job_id":str(job.id),"chat_session_id":str(job.session_id),"chat_message_id":str(job.message_id),"format":job.format,"source_content_hash":job.source_content_hash,"generated_at":job.completed_at.isoformat() if job.completed_at else None}
+        try:
+            payload=PersonalWorkspaceService(db).save_export_artifact(access,source,final_name,folder_id,provenance)
+        except WorkspaceAuthenticationRequired as exc:raise ExportError("My Workspace is unavailable.","workspace_unavailable",401) from exc
+        except WorkspaceNotFound as exc:
+            if folder_id:raise ExportError("The selected My Workspace folder is unavailable.","workspace_folder_forbidden",404) from exc
+            raise ExportError("My Workspace is temporarily unavailable.","workspace_unavailable",503) from exc
+        except ValueError as exc:raise ExportError(str(exc),"workspace_save_failed",409) from exc
+        except Exception as exc:
+            logger.exception("export_save_to_workspace_failed",extra={"export_id":str(job.id),"user_id":str(access.principal.user_id)})
+            raise ExportError("The export could not be saved to My Workspace.","workspace_save_failed",503) from exc
+        if self.indexing_wakeup is not None and payload.get("indexing_job_id"):
+            self.indexing_wakeup(uuid.UUID(str(payload["indexing_job_id"])))
+        return {"document_id":payload["id"],"filename":payload["name"],"folder_id":payload.get("folder_id"),"file_type":payload["file_type"],"size_bytes":payload["size_bytes"],"indexing_status":payload["status"],"indexing_job_id":payload.get("indexing_job_id"),"open_url":f"/knowledge/document/{payload['id']}"}
     def cancel(self,db,job):
         if job.status in {"queued","processing"}:job.status="cancelled"; job.progress_stage="cancelled"; db.commit()
         elif job.status=="ready":
