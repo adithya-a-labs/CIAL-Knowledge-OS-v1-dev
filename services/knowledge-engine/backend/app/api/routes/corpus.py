@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
+from sqlalchemy import select
 
-from backend.app.security.access import can_sync_corpus, resolve_access_context
+from backend.app.db.session import SessionLocal
+from backend.app.models.knowledge import Document
+from backend.app.security.access import apply_document_access_filter, can_sync_corpus, resolve_access_context
 from backend.app.services.document_preview_service import (
     file_response,
     parse_document_id,
@@ -15,6 +18,7 @@ from backend.app.services.document_preview_service import (
 )
 from backend.app.services.document_rendering_service import rendered_response
 from cial_knowledge_os.corpus.service import CorpusServiceUnavailable
+from cial_knowledge_os.corpus.metadata import document_to_dict
 
 router = APIRouter()
 
@@ -67,6 +71,14 @@ def _get_corpus_document_or_404(document_id: str, request: Request) -> dict[str,
         )
     except CorpusServiceUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    if document is None and SessionLocal is not None:
+        with SessionLocal() as session:
+            personal = session.scalar(apply_document_access_filter(
+                select(Document).where(Document.id == parsed_document_id, Document.repository_id.like("personal:%")),
+                access_context,
+            ))
+            if personal is not None:
+                document = document_to_dict(personal)
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corpus document not found.")
     return document
