@@ -5,6 +5,7 @@ import test from 'node:test';
 const message = readFileSync(new URL('../src/components/assistant/ChatMessage.tsx', import.meta.url), 'utf8');
 const panel = readFileSync(new URL('../src/components/assistant/ChatPanel.tsx', import.meta.url), 'utf8');
 const adapter = readFileSync(new URL('../src/api/adapters.ts', import.meta.url), 'utf8');
+const exportDialog = readFileSync(new URL('../src/components/assistant/ExportPreviewDialog.tsx', import.meta.url), 'utf8');
 
 test('copy uses the complete persisted Markdown answer and reports Copied', () => {
   assert.match(panel, /navigator\.clipboard\.writeText\(message\.content\)/);
@@ -47,4 +48,32 @@ test('metadata derives documents from source identity and separates citations', 
   assert.match(adapter, /new Set\(\[\.\.\.sources, \.\.\.citations\]/);
   assert.match(adapter, /citationCount: citations\.length/);
   assert.match(message, /evidence confidence/);
+});
+
+test('PDF and DOCX exports use exact persisted identifiers and never send answer content', () => {
+  const client = readFileSync(new URL('../src/api/client.ts', import.meta.url), 'utf8');
+  assert.match(panel, /session_id: actionSessionId, message_id: message\.id/);
+  assert.match(panel, /action === 'export_pdf' \? 'pdf' : 'docx'/);
+  const create = client.split('export function createAssistantExport', 2)[1].split('export function', 1)[0];
+  assert.match(create, /'\/api\/exports'/);
+  assert.doesNotMatch(create, /message\.content|answer_text|raw_html|evidence_text|citation_ids|source_records/);
+});
+
+test('export dialog polls backend state and never downloads automatically', () => {
+  assert.match(exportDialog, /getAssistantExport\(exportId, controller\.signal\)/);
+  assert.match(exportDialog, /window\.setTimeout\(poll, 900\)/);
+  assert.match(exportDialog, /controller\.abort\(\)/);
+  assert.match(exportDialog, /Confirm Download/);
+  assert.match(exportDialog, /downloadLock\.current/);
+  assert.doesNotMatch(exportDialog.split('useEffect(() =>', 2)[1], /anchor\.click\(\)/);
+});
+
+test('preview supports progress, cancellation, retry, format switch, and accessibility', () => {
+  assert.match(exportDialog, /aria-live="polite"/);
+  assert.match(exportDialog, /title="PDF export preview"/);
+  assert.match(exportDialog, /title="DOCX Preview"/);
+  assert.match(exportDialog, /sandbox=""/);
+  assert.match(exportDialog, /Cancel/);
+  assert.match(exportDialog, /Retry/);
+  assert.match(exportDialog, /Switch to/);
 });
