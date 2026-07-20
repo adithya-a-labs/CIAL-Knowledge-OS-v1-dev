@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 import time
 from collections import Counter
 from typing import Any
@@ -102,28 +103,27 @@ class BasicRAGPipeline:
                 or manifest_without_vectorstore
             ),
             repository_id=getattr(self.config, "repository_id", None),
+            additional_roots=getattr(self.config, "additional_knowledge_roots", ()),
         )
-        if (
-            self.config.incremental_indexing_enabled
-            and not self.indexing_plan.force_rebuild
-        ):
-            paths_to_process = entry_paths(
-                self.indexing_plan,
-                self.indexing_plan.files_to_process,
-            )
+        if self.config.incremental_indexing_enabled or self.indexing_plan.force_rebuild:
+            entries_to_process = self.indexing_plan.files_to_process
+            paths_to_process = entry_paths(self.indexing_plan, entries_to_process)
+            roots_by_path = {
+                str(path.resolve()): Path(entry.source_root) if entry.source_root else self.indexing_plan.corpus_root
+                for entry, path in zip(entries_to_process, paths_to_process, strict=True)
+            }
             try:
-                pdf_documents = load_pdf_paths(
-                    paths_to_process,
-                    corpus_root=self.indexing_plan.corpus_root,
-                    config=self.config,
-                )
+                pdf_documents = []
+                for root in dict.fromkeys(roots_by_path.values()):
+                    root_paths = [path for path in paths_to_process if roots_by_path[str(path.resolve())] == root]
+                    pdf_documents.extend(load_pdf_paths(root_paths, corpus_root=root, config=self.config))
             except TypeError as exc:
                 if "unexpected keyword argument 'config'" not in str(exc):
                     raise
-                pdf_documents = load_pdf_paths(
-                    paths_to_process,
-                    corpus_root=self.indexing_plan.corpus_root,
-                )
+                pdf_documents = []
+                for root in dict.fromkeys(roots_by_path.values()):
+                    root_paths = [path for path in paths_to_process if roots_by_path[str(path.resolve())] == root]
+                    pdf_documents.extend(load_pdf_paths(root_paths, corpus_root=root))
         else:
             pdf_documents = load_pdf_documents(self.config)
         pdf_elapsed = time.perf_counter() - pdf_started_at
@@ -227,10 +227,7 @@ class BasicRAGPipeline:
 
         with SessionLocal() as session:
             rows = session.scalars(
-                select(MetadataDocument).where(
-                    MetadataDocument.repository_id == getattr(self.config, "repository_id", None),
-                    MetadataDocument.relative_path.in_(relative_paths)
-                )
+                select(MetadataDocument).where(MetadataDocument.relative_path.in_(relative_paths))
             ).all()
         by_path = {row.relative_path: row for row in rows}
         for document in documents:
@@ -242,6 +239,7 @@ class BasicRAGPipeline:
                 {
                     "document_id": str(row.id),
                     "document_version_id": str(row.current_version_id) if row.current_version_id else None,
+                    "repository_id": row.repository_id,
                     "organization_id": str(row.organization_id),
                     "department_id": str(row.department_id),
                     "workspace_id": str(row.workspace_id),
@@ -249,7 +247,10 @@ class BasicRAGPipeline:
                     "storage_scope": row.storage_scope,
                     "owner_user_id": str(row.owner_user_id) if row.owner_user_id else None,
                     "visibility": row.visibility,
-                    "lifecycle_status": row.lifecycle_status,
+                    # This candidate pipeline is only swapped into live service
+                    # after all index stages succeed; its payload represents the
+                    # committed retrieval lifecycle, not the transient DB job state.
+                    "lifecycle_status": "indexed" if row.lifecycle_status != "deleted" else "deleted",
                     "file_type": row.file_type,
                     "mime_type": row.mime_type,
                     "page_count": row.page_count,

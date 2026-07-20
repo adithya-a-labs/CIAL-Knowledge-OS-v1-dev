@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .file_formats import is_supported_file
+from .corpus.scanner import is_ignored_managed_path
 
 MANIFEST_VERSION = 1
 CITATION_METADATA_VERSION = 2
@@ -42,6 +43,7 @@ class DocumentManifestEntry:
     document_id: str = ""
     index_version: int = MANIFEST_VERSION
     citation_metadata_version: int = 1
+    source_root: str | None = None
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "DocumentManifestEntry":
@@ -59,6 +61,7 @@ class DocumentManifestEntry:
             document_id=str(value.get("document_id") or document_id(relative_path)),
             index_version=int(value.get("index_version", MANIFEST_VERSION)),
             citation_metadata_version=int(value.get("citation_metadata_version", 1)),
+            source_root=str(value["source_root"]) if value.get("source_root") else None,
         )
 
 
@@ -104,6 +107,7 @@ def _fingerprint(path: Path, root: Path, *, repository_id: str | None = None) ->
         citation_metadata_version=(
             CITATION_METADATA_VERSION if path.suffix.casefold() == ".pdf" else 1
         ),
+        source_root=str(root.resolve()),
     )
 
 
@@ -115,7 +119,8 @@ def scan_corpus(root: Path, *, repository_id: str | None = None) -> dict[str, Do
     entries = (
         _fingerprint(path, root, repository_id=repository_id)
         for path in sorted(root.rglob("*"))
-        if path.is_file() and is_supported_file(path.name)
+        if path.is_file() and not path.is_symlink()
+        and not is_ignored_managed_path(path, root) and is_supported_file(path.name)
     )
     return {entry.relative_path: entry for entry in entries}
 
@@ -166,8 +171,15 @@ def create_indexing_plan(
     incremental_enabled: bool = True,
     force_rebuild: bool = False,
     repository_id: str | None = None,
+    additional_roots: Iterable[Path] = (),
 ) -> IndexingPlan:
-    current = scan_corpus(corpus_root, repository_id=repository_id)
+    roots = (corpus_root, *(Path(value) for value in additional_roots))
+    current: dict[str, DocumentManifestEntry] = {}
+    for root in roots:
+        for key, entry in scan_corpus(root, repository_id=repository_id).items():
+            if key in current:
+                raise RuntimeError(f"Duplicate managed relative path: {key}")
+            current[key] = entry
     previous = load_manifest(
         manifest_path,
         corpus_root=corpus_root,
@@ -266,4 +278,8 @@ def entry_paths(
     plan: IndexingPlan,
     entries: Iterable[DocumentManifestEntry],
 ) -> list[Path]:
-    return [plan.corpus_root / entry.relative_path for entry in entries]
+    return [
+        (Path(entry.source_root) if entry.source_root else plan.corpus_root)
+        / entry.relative_path
+        for entry in entries
+    ]
