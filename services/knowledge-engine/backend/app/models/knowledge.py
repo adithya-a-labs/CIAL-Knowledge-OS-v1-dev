@@ -96,6 +96,7 @@ class Folder(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("folders.id", ondelete="SET NULL"),
     )
     repository_id: Mapped[str | None] = mapped_column(Text)
+    system_key: Mapped[str | None] = mapped_column(Text)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     relative_path: Mapped[str] = mapped_column(Text, nullable=False)
     depth: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -106,6 +107,28 @@ class Folder(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     parent: Mapped[Folder | None] = relationship(remote_side="Folder.id")
     workspace: Mapped[Workspace] = relationship(back_populates="folders")
     documents: Mapped[list[Document]] = relationship(back_populates="folder")
+
+
+class WorkspaceUserPreference(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """Validated user-level workspace configuration.
+
+    Stable widget ids are stored in ``preferences``; frontend component names and
+    security policy are deliberately excluded from this persistence boundary.
+    """
+
+    __tablename__ = "workspace_user_preferences"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "user_id", name="uq_workspace_user_preferences_workspace_user"),
+        Index("ix_workspace_user_preferences_user_id", "user_id"),
+    )
+
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    preferences: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
 
 
 class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -135,7 +158,7 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="ck_documents_lifecycle_status",
         ),
         CheckConstraint(
-            "source_type in ('corpus_sync', 'user_upload', 'system_import', 'backup_sync')",
+            "source_type in ('corpus_sync', 'user_upload', 'chat_upload', 'system_import', 'backup_sync')",
             name="ck_documents_source_type",
         ),
         CheckConstraint(
@@ -192,6 +215,7 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     page_count: Mapped[int | None] = mapped_column(Integer)
     source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="corpus_sync")
+    metadata_: Mapped[dict[str, object] | None] = mapped_column("metadata", JSONB)
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
