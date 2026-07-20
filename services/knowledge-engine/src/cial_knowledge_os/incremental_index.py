@@ -172,6 +172,7 @@ def create_indexing_plan(
     force_rebuild: bool = False,
     repository_id: str | None = None,
     additional_roots: Iterable[Path] = (),
+    force_reindex_paths: Iterable[str] = (),
 ) -> IndexingPlan:
     roots = (corpus_root, *(Path(value) for value in additional_roots))
     current: dict[str, DocumentManifestEntry] = {}
@@ -200,11 +201,14 @@ def create_indexing_plan(
     new: list[DocumentManifestEntry] = []
     unchanged: list[DocumentManifestEntry] = []
     changed: list[DocumentManifestEntry] = []
+    forced = {str(value).replace("\\", "/").strip("/") for value in force_reindex_paths if str(value).strip()}
     for key in sorted(current):
         entry = current[key]
         old = previous.get(key)
         if old is None:
             new.append(entry)
+        elif key in forced:
+            changed.append(entry)
         elif old.sha256 == entry.sha256 and (
             entry.document_type != "pdf"
             or old.citation_metadata_version >= CITATION_METADATA_VERSION
