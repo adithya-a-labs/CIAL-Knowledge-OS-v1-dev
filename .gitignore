@@ -56,3 +56,7 @@ data/documents/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Local workspace directories
+data/user-workspaces/
+
