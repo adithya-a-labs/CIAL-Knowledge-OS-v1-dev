@@ -44,6 +44,8 @@ export interface UploadedFileContext {
   indexingStatus?: 'pending' | 'indexing' | 'indexed' | 'failed' | 'deleted';
   indexingStage?: string;
   indexingSafeMessage?: string;
+  indexingErrorCode?: string;
+  retryAllowed?: boolean;
 }
 
 export interface ChatRequestPayload {

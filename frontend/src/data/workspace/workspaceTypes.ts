@@ -39,6 +39,11 @@ export interface WorkspaceFile {
   modified_at: string;
   status: WorkspaceDocumentStatus;
   indexed: boolean;
+  indexing_stage?: string | null;
+  indexing_safe_message?: string | null;
+  indexing_error_code?: string | null;
+  retry_allowed?: boolean;
+  indexing_updated_at?: string;
 }
 
 export interface WorkspaceTreeResponse {

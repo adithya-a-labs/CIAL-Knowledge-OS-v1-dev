@@ -228,6 +228,9 @@ export interface ApiDocument {
   indexing_status?: 'pending' | 'indexing' | 'indexed' | 'failed' | 'deleted';
   indexing_stage?: string | null;
   indexing_safe_message?: string | null;
+  indexing_error_code?: string | null;
+  retry_allowed?: boolean;
+  indexing_updated_at?: string;
 }
 
 export interface ChatAttachmentResponse {
@@ -240,7 +243,7 @@ export interface DocumentIndexingStatus {
   document_id: string; document_version_id?: string | null; name: string;
   indexing_status: 'pending' | 'indexing' | 'indexed' | 'failed' | 'deleted';
   indexing_stage?: string | null; indexing_safe_message?: string | null;
-  indexing_updated_at: string; retry_allowed: boolean;
+  indexing_error_code?: string | null; indexing_updated_at: string; retry_allowed: boolean;
 }
 
 export interface DocumentListResponse {
@@ -342,6 +345,11 @@ export interface CorpusDocument {
   modified_at: string | null;
   indexed: boolean;
   indexing_status: 'pending' | 'indexing' | 'indexed' | 'failed' | 'deleted' | string;
+  indexing_stage?: string | null;
+  indexing_safe_message?: string | null;
+  indexing_error_code?: string | null;
+  retry_allowed?: boolean;
+  indexing_updated_at?: string;
   indexed_at: string | null;
   page_count: number | null;
   created_at: string;
