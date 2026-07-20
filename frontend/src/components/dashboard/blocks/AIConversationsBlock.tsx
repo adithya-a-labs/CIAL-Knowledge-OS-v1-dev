@@ -1,10 +1,15 @@
 import { useLocation } from 'wouter';
 import { MessageSquare, Clock, ArrowRight } from 'lucide-react';
 import DashboardBlock from '@/components/common/DashboardBlock';
-import { RECENT_CONVERSATIONS } from '@/data/knowledgeBaseData';
+import { useQuery } from '@tanstack/react-query';
+import { listChatSessions } from '@/api/client';
+import { useAuth } from '@/auth/AuthContext';
 
 export default function AIConversationsBlock() {
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const { data } = useQuery({ queryKey: ['chat-sessions', user?.id], queryFn: () => listChatSessions(), enabled: Boolean(user), retry: false });
+  const conversations = data?.sessions ?? [];
 
   return (
     <DashboardBlock
@@ -13,7 +18,7 @@ export default function AIConversationsBlock() {
       onViewAll={() => setLocation('/assistant')}
     >
       <div className="space-y-2">
-        {RECENT_CONVERSATIONS.map(conv => (
+        {conversations.map(conv => (
           <button
             key={conv.id}
             onClick={() => setLocation('/assistant')}
@@ -24,14 +29,15 @@ export default function AIConversationsBlock() {
               <MessageSquare size={13} className="text-[#4a7c3f]" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-[#1a2e14] truncate group-hover:text-[#4a7c3f] transition-colors">{conv.question}</p>
+              <p className="text-sm font-medium text-[#1a2e14] truncate group-hover:text-[#4a7c3f] transition-colors">{conv.title}</p>
               <p className="flex items-center gap-1 text-[11px] text-[#9ab88e] mt-0.5">
-                <Clock size={10} /> {conv.time}
+                <Clock size={10} /> {new Date(conv.updated_at).toLocaleDateString()}
               </p>
             </div>
             <ArrowRight size={14} className="text-[#9ab88e] flex-shrink-0 group-hover:text-[#4a7c3f] transition-colors" />
           </button>
         ))}
+        {conversations.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-500">No conversations yet.</p>}
       </div>
     </DashboardBlock>
   );

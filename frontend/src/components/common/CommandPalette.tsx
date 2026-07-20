@@ -15,9 +15,9 @@ import {
   FileSpreadsheet,
   PlusCircle,
 } from 'lucide-react';
-import { getCorpusTree } from '@/api/client';
+import { getCorpusTree, listChatSessions } from '@/api/client';
 import { flattenCorpusTree } from '@/api/adapters';
-import { MY_DOCUMENTS, MY_CONVERSATIONS } from '@/data/workspace/workspaceData';
+import { MY_DOCUMENTS } from '@/data/workspace/workspaceData';
 import {
   CommandDialog,
   CommandInput,
@@ -27,6 +27,7 @@ import {
   CommandItem,
 } from '@/components/ui/command';
 import { Kbd } from '@/components/ui/kbd';
+import { useAuth } from '@/auth/AuthContext';
 
 export interface CommandPaletteItem {
   id: string;
@@ -75,6 +76,7 @@ const ASSISTANT_NEW_SESSION_PENDING_STORAGE_KEY = 'cial-new-conversation-pending
 const NEW_CONVERSATION_EVENT = 'cial-new-conversation';
 
 export function CommandPaletteProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [, navigate] = useLocation();
 
@@ -92,6 +94,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
     retry: false,
     staleTime: 60_000,
   });
+  const { data: chatHistory } = useQuery({ queryKey: ['chat-sessions', user?.id], queryFn: () => listChatSessions(), enabled: Boolean(user), retry: false });
 
   const corpusDocuments = useMemo(() => {
     if (!corpusTree?.root) return [];
@@ -215,22 +218,8 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
           findFolders(corpusTree.root);
         }
 
-        // 4. AI Conversations (from localStorage sessions + Workspace Mock Data)
-        const localConversations: any[] = [];
-        try {
-          const raw = localStorage.getItem('cial-assistant-sessions');
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-              localConversations.push(...parsed);
-            }
-          }
-        } catch {}
-
-        const allConvos = [
-          ...localConversations.map((c) => ({ id: c.id, question: c.title })),
-          ...MY_CONVERSATIONS,
-        ];
+        // 4. AI Conversations (PostgreSQL-backed API only)
+        const allConvos = (chatHistory?.sessions ?? []).map((session) => ({ id: session.id, question: session.title }));
 
         const seenConvoTitles = new Set<string>();
         allConvos.forEach((convo) => {
@@ -304,7 +293,7 @@ export function CommandPaletteProvider({ children }: { children: React.ReactNode
         return results;
       },
     };
-  }, [corpusDocuments, corpusTree, navigate]);
+  }, [chatHistory, corpusDocuments, corpusTree, navigate]);
 
   const [provider, setProvider] = useState<CommandPaletteSearchProvider>(defaultProvider);
 
