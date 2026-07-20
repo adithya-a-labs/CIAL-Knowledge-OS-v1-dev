@@ -21,6 +21,7 @@ interface AssistantSessionsValue {
   createNewSession: () => void;
   updateSession: (sessionId: string, update: SessionUpdate) => void;
   updateActiveSession: (update: SessionUpdate) => void;
+  appendMessage: (sessionId: string, message: AssistantChatMessage) => void;
 }
 
 const AssistantSessionsContext = createContext<AssistantSessionsValue | null>(null);
@@ -49,6 +50,7 @@ function fromApi(session: ChatHistorySession): AssistantSession {
         citationCount: message.citations.length,
         confidence: message.citations.length > 0 ? 84 : 0,
         generationTimeSeconds: Number(metadata.latency_ms ?? 0) / 1000,
+        transformationLabel: typeof metadata.label === 'string' ? metadata.label : undefined,
       },
     };
   }) });
@@ -114,7 +116,12 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
     });
   }, []);
   const updateActiveSession = useCallback((update: SessionUpdate) => updateSession(activeSession.id, update), [activeSession.id, updateSession]);
-  const value = useMemo(() => ({ activeSession, sessions, historyLoading, historyError, retryHistory: () => setReload((value) => value + 1), setActiveSession: setActiveSessionId, createNewSession, updateSession, updateActiveSession }), [activeSession, sessions, historyLoading, historyError, createNewSession, updateSession, updateActiveSession]);
+  const appendMessage = useCallback((sessionId: string, message: AssistantChatMessage) => {
+    setSessions((current) => current.map((session) => session.id === sessionId
+      ? { ...session, messages: [...session.messages, message], updatedAt: new Date().toISOString() }
+      : session));
+  }, []);
+  const value = useMemo(() => ({ activeSession, sessions, historyLoading, historyError, retryHistory: () => setReload((value) => value + 1), setActiveSession: setActiveSessionId, createNewSession, updateSession, updateActiveSession, appendMessage }), [activeSession, sessions, historyLoading, historyError, createNewSession, updateSession, updateActiveSession, appendMessage]);
   return <AssistantSessionsContext.Provider value={value}>{children}</AssistantSessionsContext.Provider>;
 }
 
