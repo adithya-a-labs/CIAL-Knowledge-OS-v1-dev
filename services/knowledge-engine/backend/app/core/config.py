@@ -116,6 +116,10 @@ class Settings:
     workspace_quota_bytes: int = _env_int("CIAL_WORKSPACE_QUOTA_BYTES", 0)
     corpus_repository_id: str = configured_repository_id(DEFAULT_CORPUS_ROOT)
     outputs_root: str = str(resolve_repo_path(_env_str("CIAL_OUTPUTS_DIR", default=str(OUTPUTS_ROOT))))
+    export_root: str = str(resolve_repo_path(_env_str("CIAL_EXPORT_ROOT", default=str(OUTPUTS_ROOT / "exports"))))
+    export_ttl_hours: int = _env_int("CIAL_EXPORT_TTL_HOURS", 24)
+    export_max_content_bytes: int = _env_int("CIAL_EXPORT_MAX_CONTENT_BYTES", 2_000_000)
+    export_queue_limit: int = _env_int("CIAL_EXPORT_QUEUE_LIMIT", 100)
     models_root: str = str(resolve_repo_path(_env_str("CIAL_MODELS_DIR", default="models")))
     cors_origins: tuple[str, ...] = _env_csv("CIAL_CORS_ORIGINS", (
         "http://localhost:5173",
@@ -219,6 +223,10 @@ class Settings:
     @property
     def outputs_path(self) -> Path:
         return Path(self.outputs_root)
+
+    @property
+    def export_root_path(self) -> Path:
+        return Path(self.export_root)
 
     @property
     def models_path(self) -> Path:
