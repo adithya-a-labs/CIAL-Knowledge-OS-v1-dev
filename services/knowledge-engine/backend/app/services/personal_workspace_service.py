@@ -18,6 +18,7 @@ from backend.app.models.conversations import ChatSession
 from backend.app.models.identity import User
 from backend.app.models.knowledge import Document, DocumentVersion, Folder, Workspace, WorkspaceUserPreference
 from backend.app.models.operations import AuditEvent, IndexingJob
+from cial_knowledge_os.file_formats import validate_ingestion_file
 from backend.app.schemas.workspaces import WorkspacePreferences
 from backend.app.security.access import RequestAccessContext
 
@@ -227,21 +228,27 @@ class PersonalWorkspaceService:
         self.session.commit()
         return self._folder_payload(folder)
 
-    def upload(self, access: RequestAccessContext, filename: str, stream: BinaryIO, folder_id: uuid.UUID | None = None) -> dict[str, object]:
+    def upload(self, access: RequestAccessContext, filename: str, stream: BinaryIO, folder_id: uuid.UUID | None = None, *, metadata: dict[str, object] | None = None, source_type: str = "user_upload", audit_action: str = "workspace.document.uploaded", resolve_collision: bool = False, system_folder_key: str = "personal_uploads") -> dict[str, object]:
         user_id, organization_id = self._identity(access)
         workspace = self.get_or_create(access)
         user = self.session.get(User, user_id)
         if user is None or user.department_id is None:
             raise WorkspaceNotFound("A department classification is required before uploading.")
         if folder_id is None:
-            folder = self._ensure_system_folder(workspace, "personal_uploads", "Personal Uploads")
+            folder_name = "Chat Uploads" if system_folder_key == "chat_uploads" else "Personal Uploads"
+            folder = self._ensure_system_folder(workspace, system_folder_key, folder_name)
         else:
             folder = self.session.scalar(select(Folder).where(Folder.id == folder_id, Folder.workspace_id == workspace.id))
             if folder is None:
                 raise WorkspaceNotFound("Upload folder not found.")
 
         display_name = Path(filename).name[:255] or "upload"
+        if resolve_collision:
+            self.session.scalar(select(Workspace.id).where(Workspace.id == workspace.id).with_for_update())
+            display_name = self._available_name(workspace.id, folder.id, display_name)
         extension = Path(display_name).suffix.casefold()
+        if not validate_ingestion_file(display_name)["valid_for_ingestion"]:
+            raise ValueError("This file type is not supported for indexing.")
         relative_path = Path(str(organization_id), str(user_id), folder.system_key or str(folder.id), f"{uuid.uuid4()}{extension}")
         root = settings.workspace_root_path.resolve()
         destination = (root / relative_path).resolve()
@@ -269,8 +276,8 @@ class PersonalWorkspaceService:
                 file_type=extension.lstrip(".") or "unknown", extension=extension or None,
                 mime_type=mimetypes.guess_type(display_name)[0], visibility="private", size_bytes=size,
                 content_hash=digest.hexdigest(), modified_at=now, indexed=False, indexing_status="pending",
-                lifecycle_status="pending", source_type="user_upload", created_by_user_id=user_id,
-                updated_by_user_id=user_id, metadata_={"pinned": False},
+                lifecycle_status="pending", source_type=source_type, created_by_user_id=user_id,
+                updated_by_user_id=user_id, metadata_={"pinned": False, **(metadata or {})},
             )
             self.session.add(document)
             self.session.flush()
@@ -286,14 +293,21 @@ class PersonalWorkspaceService:
             job = IndexingJob(
                 document_id=document.id, document_version_id=version.id, content_hash=document.content_hash,
                 repository_id=document.repository_id, status="pending", force_rebuild=False,
-                metadata_={"storage_scope": "personal", "workspace_id": str(workspace.id), "owner_user_id": str(user_id)},
+                metadata_={"source": source_type, "action": "added", "document_id": str(document.id),
+                    "document_version_id": str(version.id), "relative_path": document.relative_path,
+                    "content_hash": document.content_hash, "repository_id": document.repository_id,
+                    "storage_scope": "personal", "workspace_id": str(workspace.id),
+                    "owner_user_id": str(user_id), "department_id": str(document.department_id),
+                    "folder_id": str(folder.id), "visibility": "private", "lifecycle_status": "pending"},
             )
             self.session.add(job)
             folder.document_count = int(folder.document_count or 0) + 1
-            self._audit(user_id, "workspace.document.uploaded", "document", document.id)
+            self._audit(user_id, audit_action, "document", document.id)
             self.session.commit()
             payload = self._document_payload(document)
             payload["indexing_job_id"] = str(job.id)
+            payload["document_version_id"] = str(version.id)
+            payload["mime_type"] = document.mime_type
             return payload
         except Exception:
             self.session.rollback()
@@ -301,13 +315,38 @@ class PersonalWorkspaceService:
             destination.unlink(missing_ok=True)
             raise
 
+    def save_export_artifact(self, access: RequestAccessContext, source: Path, filename: str, folder_id: uuid.UUID | None, provenance: dict[str, object]) -> dict[str, object]:
+        """Copy a trusted completed export through the normal personal-upload transaction."""
+        if source.is_symlink() or not source.is_file():
+            raise WorkspaceNotFound("Export artifact is unavailable.")
+        with source.open("rb") as stream:
+            return self.upload(
+                access, filename, stream, folder_id, metadata={"source_export": provenance},
+                source_type="system_import", audit_action="export_saved_to_workspace", resolve_collision=True,
+            )
+
+    def _available_name(self, workspace_id: uuid.UUID, folder_id: uuid.UUID, requested: str) -> str:
+        existing = {name.casefold() for name in self.session.scalars(select(Document.name).where(
+            Document.workspace_id == workspace_id, Document.folder_id == folder_id,
+            Document.deleted_at.is_(None), Document.lifecycle_status != "deleted",
+        ))}
+        if requested.casefold() not in existing:
+            return requested
+        path=Path(requested);stem=path.stem;suffix=path.suffix
+        counter=2
+        collision_suffix=f"-{counter}{suffix}";candidate=f"{stem[:160-len(collision_suffix)].rstrip('-.')}{collision_suffix}"
+        while candidate.casefold() in existing:
+            counter += 1
+            collision_suffix=f"-{counter}{suffix}";candidate=f"{stem[:160-len(collision_suffix)].rstrip('-.')}{collision_suffix}"
+        return candidate
+
     def _used_bytes(self, workspace_id: uuid.UUID, user_id: uuid.UUID) -> int:
         return int(self.session.scalar(select(func.coalesce(func.sum(Document.size_bytes), 0)).where(
             Document.workspace_id == workspace_id, Document.owner_user_id == user_id,
             Document.deleted_at.is_(None), Document.lifecycle_status != "deleted",
         )) or 0)
 
-    def delete_document(self, access: RequestAccessContext, document_id: uuid.UUID) -> None:
+    def delete_document(self, access: RequestAccessContext, document_id: uuid.UUID) -> str | None:
         user_id, _ = self._identity(access)
         document = self.session.scalar(select(Document).where(
             Document.id == document_id, Document.owner_user_id == user_id,
@@ -318,8 +357,37 @@ class PersonalWorkspaceService:
         document.deleted_at = datetime.now(timezone.utc)
         document.deleted_by_user_id = user_id
         document.lifecycle_status = "deleted"
+        document.indexing_status = "deleted"; document.indexed = False
+        active = self.session.scalar(select(IndexingJob).where(
+            IndexingJob.document_version_id == document.current_version_id,
+            IndexingJob.status.in_(("pending", "running")),
+        )) if document.current_version_id else None
+        if active is not None:
+            active.metadata_ = {**(active.metadata_ or {}), "action": "deleted"}
+            job = active
+        else:
+            job = IndexingJob(document_id=document.id, document_version_id=document.current_version_id,
+                content_hash=document.content_hash, repository_id=document.repository_id, status="pending",
+                force_rebuild=False, attempts=0, message="Personal document deleted.",
+                metadata_={"source":"personal_workspace", "action":"deleted", "document_id":str(document.id),
+                           "document_version_id":str(document.current_version_id) if document.current_version_id else None,
+                           "relative_path":document.relative_path, "workspace_id":str(document.workspace_id),
+                           "owner_user_id":str(document.owner_user_id), "storage_scope":"personal", "visibility":"private"})
+            self.session.add(job); self.session.flush()
+        source = (settings.workspace_root_path.resolve() / document.relative_path).resolve()
+        root = settings.workspace_root_path.resolve()
+        if root not in source.parents or source.is_symlink():
+            raise WorkspaceNotFound("Document storage path is invalid.")
+        trash = root / ".trash" / str(user_id) / f"{document.id}{source.suffix}"
+        trash.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_file(): source.replace(trash)
         self._audit(user_id, "workspace.document.deleted", "document", document.id)
-        self.session.commit()
+        try:
+            self.session.commit()
+        except Exception:
+            if trash.is_file(): trash.replace(source)
+            raise
+        return str(job.id)
 
     @staticmethod
     def _workspace_payload(workspace: Workspace) -> dict[str, object]:
