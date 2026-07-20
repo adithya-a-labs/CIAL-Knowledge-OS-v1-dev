@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from backend.app.db.session import SessionLocal
 from backend.app.models.knowledge import Document
-from backend.app.security.access import apply_document_access_filter, can_sync_corpus, resolve_access_context
+from backend.app.security.access import apply_document_access_filter, can_sync_corpus, can_upload_enterprise_documents, resolve_access_context
 from backend.app.services.document_preview_service import (
     file_response,
     parse_document_id,
@@ -21,6 +21,21 @@ from cial_knowledge_os.corpus.service import CorpusServiceUnavailable
 from cial_knowledge_os.corpus.metadata import document_to_dict
 
 router = APIRouter()
+
+
+def _apply_retry_permissions(payload: dict[str, object], *, can_retry_enterprise: bool) -> dict[str, object]:
+    """Remove enterprise retry affordances for read-only callers."""
+    if payload.get("storage_scope") == "enterprise" and not can_retry_enterprise:
+        payload["retry_allowed"] = False
+    for key in ("documents", "files", "children", "folders", "root"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            _apply_retry_permissions(value, can_retry_enterprise=can_retry_enterprise)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    _apply_retry_permissions(item, can_retry_enterprise=can_retry_enterprise)
+    return payload
 
 
 @router.post("/corpus/sync")
@@ -41,7 +56,8 @@ def corpus_sync(request: Request) -> dict[str, object]:
 def corpus_tree(request: Request) -> dict[str, object]:
     access_context = resolve_access_context(request)
     try:
-        return request.app.state.corpus_service.get_tree(access_context=access_context)
+        payload = request.app.state.corpus_service.get_tree(access_context=access_context)
+        return _apply_retry_permissions(payload, can_retry_enterprise=can_upload_enterprise_documents(access_context))
     except CorpusServiceUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
@@ -58,7 +74,7 @@ def corpus_folder(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     if payload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Corpus folder not found.")
-    return payload
+    return _apply_retry_permissions(payload, can_retry_enterprise=can_upload_enterprise_documents(access_context))
 
 
 def _get_corpus_document_or_404(document_id: str, request: Request) -> dict[str, object]:
@@ -145,4 +161,6 @@ def corpus_document_preview(
 
 @router.get("/corpus/document/{document_id}")
 def corpus_document(document_id: str, request: Request) -> dict[str, object]:
-    return _get_corpus_document_or_404(document_id, request)
+    payload = _get_corpus_document_or_404(document_id, request)
+    access_context = resolve_access_context(request)
+    return _apply_retry_permissions(payload, can_retry_enterprise=can_upload_enterprise_documents(access_context))
