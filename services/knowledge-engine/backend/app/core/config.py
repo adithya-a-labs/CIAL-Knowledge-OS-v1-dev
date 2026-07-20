@@ -153,7 +153,7 @@ class Settings:
     chat_debug: bool = _env_bool("CIAL_CHAT_DEBUG", False)
     database_url: str = _env_str("DATABASE_URL", default="")
     corpus_sync_on_startup: bool = _env_bool("CIAL_CORPUS_SYNC_ON_STARTUP", True)
-    corpus_watch: bool = _env_bool("CIAL_CORPUS_WATCH", False)
+    corpus_watch: bool = _env_bool("CIAL_CORPUS_WATCH", True)
     corpus_hash: str = _env_str("CIAL_CORPUS_HASH", default="sha256")
     metadata_batch_size: int = _env_int("CIAL_METADATA_BATCH_SIZE", 500)
     auth_secret_key: str = _env_str(

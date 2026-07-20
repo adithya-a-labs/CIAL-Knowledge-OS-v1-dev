@@ -27,6 +27,7 @@ from backend.app.services.indexing_service import IndexingService
 from backend.app.services.indexing_worker import IndexingWorker
 from backend.app.services.knowledge_engine_service import KnowledgeEngineService
 from backend.app.services.message_transformation_service import OllamaTransformationGenerator
+from backend.app.services.managed_workspace_ingestion import ManagedWorkspaceIngestionService
 from backend.app.services.startup_service import StartupService
 from cial_knowledge_os.corpus.service import CorpusService
 from cial_knowledge_os.corpus.watcher import CorpusWatcher
@@ -36,19 +37,26 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    watcher = None
+    watchers = []
     if settings.corpus_watch:
         watcher = CorpusWatcher(
             root=settings.corpus_root_path,
-            sync_callback=app.state.corpus_service.sync,
+            sync_callback=lambda: (app.state.corpus_service.sync(), app.state.indexing_worker.enqueue()),
         )
         try:
             watcher.start()
             app.state.corpus_watcher = watcher
+            watchers.append(watcher)
+            workspace_watcher = CorpusWatcher(
+                root=settings.workspace_root_path,
+                sync_callback=lambda: (app.state.workspace_ingestion.sync(), app.state.indexing_worker.enqueue()),
+            )
+            workspace_watcher.start()
+            app.state.workspace_watcher = workspace_watcher
+            watchers.append(workspace_watcher)
         except Exception as exc:  # noqa: BLE001 - watcher is optional.
             logger.exception("corpus_watcher_start_failed")
             app.state.corpus_watcher_error = str(exc)
-            watcher = None
 
     # Start background indexing worker
     app.state.indexing_worker.start()
@@ -64,7 +72,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        if watcher is not None:
+        for watcher in watchers:
             watcher.stop()
         app.state.indexing_worker.stop()
         app.state.export_service.stop()
@@ -91,11 +99,9 @@ def create_app() -> FastAPI:
         batch_size=settings.metadata_batch_size,
         repository_id=settings.corpus_repository_id,
     )
-    startup_service = StartupService(
-        engine=engine,
-        runtime_state=runtime_state,
-        corpus_service=corpus_service,
-    )
+    workspace_ingestion = ManagedWorkspaceIngestionService(root=settings.workspace_root_path, session_factory=SessionLocal)
+    startup_service = StartupService(engine=engine, runtime_state=runtime_state,
+        corpus_service=corpus_service, workspace_ingestion=workspace_ingestion)
     indexing_worker = IndexingWorker(
         engine=engine,
         runtime_state=runtime_state,
@@ -106,10 +112,11 @@ def create_app() -> FastAPI:
     app.state.corpus_service = corpus_service
     app.state.startup_service = startup_service
     app.state.indexing_worker = indexing_worker
+    app.state.workspace_ingestion = workspace_ingestion
     app.state.document_service = DocumentService(root=settings.corpus_root_path)
     app.state.indexing_service = IndexingService(engine, runtime_state)
     app.state.evaluation_service = EvaluationService()
-    app.state.export_service = ExportService()
+    app.state.export_service = ExportService(indexing_wakeup=indexing_worker.enqueue)
     app.state.transformation_generator = OllamaTransformationGenerator()
 
     app.include_router(health.router, prefix="/api", tags=["health"])
