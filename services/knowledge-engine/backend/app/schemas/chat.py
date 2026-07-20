@@ -124,6 +124,9 @@ class ChatResponse(BaseModel):
     sources: list[ChatSource] = Field(default_factory=list)
     metadata: ChatMetadata
     debug: dict[str, Any] | None = None
+    # Internal persistence payload. Pydantic excludes exact evidence text from
+    # API serialization so it is never exposed outside existing debug gating.
+    evidence_snapshot: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
 
 
 class ChatMessageRecord(BaseModel):
