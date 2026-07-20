@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.models.conversations import ChatMessage, ConversationFeedback
 from backend.app.repositories.chats import ChatRepository
-from backend.app.schemas.chat import ChatRequest, ChatResponse, MessageExportRequest
+from backend.app.schemas.chat import ChatRequest, ChatResponse
 from backend.app.security.access import RequestAccessContext
 
 
@@ -20,8 +20,8 @@ class ChatActionError(RuntimeError):
 
 
 class ChatActionService:
-    def __init__(self, db: Session, engine, export_service) -> None:
-        self.db, self.repository, self.engine, self.export_service = db, ChatRepository(db), engine, export_service
+    def __init__(self, db: Session, engine) -> None:
+        self.db, self.repository, self.engine = db, ChatRepository(db), engine
 
     def _assistant(self, message_id: uuid.UUID, access: RequestAccessContext) -> ChatMessage:
         item = self.repository.get_message_for_user(message_id, access.principal.user_id)
@@ -94,15 +94,3 @@ class ChatActionService:
         item.metadata_ = {**(item.metadata_ or {}), "categories": sorted(active), "updated_at": datetime.now(timezone.utc).isoformat()}
         self.db.commit()
         return sorted(active)
-
-    def export(self, message_id: uuid.UUID, payload: MessageExportRequest, access: RequestAccessContext) -> tuple[str, str]:
-        message = self._assistant(message_id, access)
-        metadata = message.metadata_ or {}
-        try:
-            question_message = self.repository.get_message_for_user(uuid.UUID(str(metadata.get("user_message_id"))), access.principal.user_id)
-        except (TypeError, ValueError):
-            question_message = None
-        try:
-            return self.export_service.export_chat_message(message, question_message.content if question_message else None, payload.format, payload.include_sources, payload.include_metadata)
-        except (RuntimeError, ValueError, OSError) as exc:
-            raise ChatActionError("Response export failed.", code="export_failed", status_code=500) from exc
