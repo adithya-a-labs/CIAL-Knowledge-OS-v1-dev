@@ -37,6 +37,7 @@ pypdf                   # NEW
 pytest                  # NEW
 pytest-asyncio          # NEW
 python-docx             # NEW
+reportlab               # Chat response PDF export
 python-dotenv           # NEW
 PyYAML                  # NEW
 rapidfuzz               # NEW
