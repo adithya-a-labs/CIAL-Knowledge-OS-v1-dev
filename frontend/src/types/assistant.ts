@@ -113,6 +113,7 @@ export interface AssistantMessageMetadata {
   documentsSearched: number;
   chunksRetrieved: number;
   sourcesUsed: number;
+  citationCount?: number;
   confidence: number;
   generationTimeSeconds: number;
 }
@@ -125,7 +126,7 @@ export interface AssistantSession {
   uploadedFiles: UploadedFileContext[];
   searchScope: SearchScope;
   activeProfile: ResponseLength;
-  feedbackByMessageId: Record<string, FeedbackType>;
+  feedbackByMessageId: Record<string, FeedbackType[]>;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,230 +1,121 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { INITIAL_ASSISTANT_MESSAGES } from '@/data/assistantData';
-import type {
-  AssistantChatMessage,
-  AssistantSession,
-  FeedbackType,
-  ResponseLength,
-  SearchScope,
-  UploadedFileContext,
-} from '@/types/assistant';
-import type { SelectedContextItem } from '@/api/types';
+import { listChatSessions } from '@/api/client';
+import type { ChatHistorySession, SelectedContextItem } from '@/api/types';
+import { toUiChatCitations, toUiChatSources } from '@/api/adapters';
+import { useAuth } from '@/auth/AuthContext';
+import type { AssistantChatMessage, AssistantSession, FeedbackType, ResponseLength, SearchScope, UploadedFileContext } from '@/types/assistant';
 
-const ASSISTANT_SESSIONS_STORAGE_KEY = 'cial-assistant-sessions';
-const ASSISTANT_ACTIVE_SESSION_STORAGE_KEY = 'cial-assistant-active-session';
 const ASSISTANT_CONTEXT_STORAGE_KEY = 'cial-assistant-selected-context';
 const ASSISTANT_NEW_SESSION_PENDING_STORAGE_KEY = 'cial-new-conversation-pending';
 const NEW_CONVERSATION_EVENT = 'cial-new-conversation';
 
-interface SessionUpdate {
-  title?: string;
-  messages?: AssistantChatMessage[];
-  selectedContextItems?: SelectedContextItem[];
-  uploadedFiles?: UploadedFileContext[];
-  searchScope?: SearchScope;
-  activeProfile?: ResponseLength;
-  feedbackByMessageId?: Record<string, FeedbackType>;
-}
-
+interface SessionUpdate { title?: string; messages?: AssistantChatMessage[]; selectedContextItems?: SelectedContextItem[]; uploadedFiles?: UploadedFileContext[]; searchScope?: SearchScope; activeProfile?: ResponseLength; feedbackByMessageId?: Record<string, FeedbackType[]>; }
 interface AssistantSessionsValue {
   activeSession: AssistantSession;
   sessions: AssistantSession[];
+  historyLoading: boolean;
+  historyError: string | null;
+  retryHistory: () => void;
   setActiveSession: (sessionId: string) => void;
   createNewSession: () => void;
-  clearHistory: () => void;
+  updateSession: (sessionId: string, update: SessionUpdate) => void;
   updateActiveSession: (update: SessionUpdate) => void;
 }
 
 const AssistantSessionsContext = createContext<AssistantSessionsValue | null>(null);
 
-function buildSession({
-  id,
-  title = 'New conversation',
-  messages = [],
-  selectedContextItems = [],
-  uploadedFiles = [],
-  searchScope = 'hybrid',
-  activeProfile = 'detailed',
-  feedbackByMessageId = {},
-  createdAt,
-  updatedAt,
-}: Partial<AssistantSession> = {}): AssistantSession {
+function buildSession(value: Partial<AssistantSession> = {}): AssistantSession {
   const now = new Date().toISOString();
-  return {
-    id: id ?? `session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-    title,
-    messages,
-    selectedContextItems,
-    uploadedFiles,
-    searchScope,
-    activeProfile,
-    feedbackByMessageId,
-    createdAt: createdAt ?? now,
-    updatedAt: updatedAt ?? now,
-  };
+  return { id: value.id ?? crypto.randomUUID(), title: value.title ?? 'New conversation', messages: value.messages ?? [], selectedContextItems: value.selectedContextItems ?? [], uploadedFiles: value.uploadedFiles ?? [], searchScope: value.searchScope ?? 'hybrid', activeProfile: value.activeProfile ?? 'detailed', feedbackByMessageId: value.feedbackByMessageId ?? {}, createdAt: value.createdAt ?? now, updatedAt: value.updatedAt ?? now };
 }
 
-function initialSessions(): AssistantSession[] {
-  const seededContext = (() => {
-    try {
-      const raw = window.localStorage.getItem(ASSISTANT_CONTEXT_STORAGE_KEY);
-      return raw ? (JSON.parse(raw) as SelectedContextItem[]) : [];
-    } catch {
-      return [];
-    }
-  })();
-
-  return [
-    buildSession({
-      title: 'Runway edge light not working',
-      messages: INITIAL_ASSISTANT_MESSAGES as AssistantChatMessage[],
-      selectedContextItems: seededContext,
-    }),
-  ];
+function fromApi(session: ChatHistorySession): AssistantSession {
+  const feedbackByMessageId = Object.fromEntries(session.messages.filter((message) => message.feedback?.length).map((message) => [message.id, message.feedback as FeedbackType[]]));
+  return buildSession({ id: session.id, title: session.title, createdAt: session.created_at, updatedAt: session.updated_at, feedbackByMessageId, messages: session.messages.map((message) => {
+    const timestamp = new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (message.role === 'user') return { id: message.id, role: 'user', content: message.content, timestamp };
+    const metadata = message.metadata;
+    const response = { answer: message.content, citations: message.citations as never[], sources: message.sources as never[], metadata: metadata as never };
+    return {
+      id: message.id, role: 'assistant' as const, content: message.content, timestamp,
+      citations: toUiChatCitations(response), sources: toUiChatSources(response),
+      metadata: {
+        searchScope: 'hybrid' as const,
+        activeProfile: (typeof metadata.profile === 'string' ? metadata.profile : 'detailed') as ResponseLength,
+        documentsSearched: Number(metadata.effective_document_count ?? new Set([...message.sources, ...message.citations].map((x) => x.document_id ?? x.relative_path ?? x.document_name).filter(Boolean)).size),
+        chunksRetrieved: Number(metadata.selected_evidence_count ?? metadata.context_sections ?? message.sources.length),
+        sourcesUsed: message.sources.length,
+        citationCount: message.citations.length,
+        confidence: message.citations.length > 0 ? 84 : 0,
+        generationTimeSeconds: Number(metadata.latency_ms ?? 0) / 1000,
+      },
+    };
+  }) });
 }
 
-function loadSessions(): AssistantSession[] {
-  try {
-    const raw = window.localStorage.getItem(ASSISTANT_SESSIONS_STORAGE_KEY);
-    if (!raw) return initialSessions();
-    const parsed = JSON.parse(raw) as Array<AssistantSession & { responseLength?: ResponseLength }>;
-    if (!Array.isArray(parsed) || parsed.length === 0) return initialSessions();
-    return parsed.map((session) =>
-      buildSession({
-        ...session,
-        activeProfile: session.activeProfile ?? session.responseLength ?? 'detailed',
-      }),
-    );
-  } catch {
-    return initialSessions();
-  }
-}
-
-function sessionTitleFromMessages(messages: AssistantChatMessage[]) {
-  const firstUserMessage = messages.find((message) => message.role === 'user' && message.content.trim());
-  if (!firstUserMessage) return 'New conversation';
-  return firstUserMessage.content.trim().slice(0, 72);
-}
+function titleFrom(messages: AssistantChatMessage[]) { return messages.find((item) => item.role === 'user' && item.content.trim())?.content.trim().slice(0, 72) ?? 'New conversation'; }
 
 export function AssistantSessionsProvider({ children }: { children: ReactNode }) {
-  const [sessions, setSessions] = useState<AssistantSession[]>(() => loadSessions());
-  const [activeSessionId, setActiveSessionId] = useState<string>(() => {
-    try {
-      return (
-        window.localStorage.getItem(ASSISTANT_ACTIVE_SESSION_STORAGE_KEY)
-        ?? loadSessions()[0]?.id
-        ?? buildSession().id
-      );
-    } catch {
-      return loadSessions()[0]?.id ?? buildSession().id;
-    }
-  });
-
-  const activeSession = useMemo(() => {
-    return sessions.find((session) => session.id === activeSessionId) ?? sessions[0] ?? buildSession();
-  }, [activeSessionId, sessions]);
+  const { status, user } = useAuth();
+  const [sessions, setSessions] = useState<AssistantSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+  const requestGeneration = useRef(0);
+  const previousUser = useRef<string | null>(null);
 
   useEffect(() => {
-    window.localStorage.setItem(ASSISTANT_SESSIONS_STORAGE_KEY, JSON.stringify(sessions));
-  }, [sessions]);
+    if (status !== 'authenticated' || !user) return;
+    const userChanged = previousUser.current !== null && previousUser.current !== user.id;
+    previousUser.current = user.id;
+    if (userChanged) { setSessions([]); setActiveSessionId(null); }
+    const generation = ++requestGeneration.current;
+    const controller = new AbortController();
+    setHistoryLoading(true); setHistoryError(null);
+    void listChatSessions(controller.signal).then(({ sessions: records }) => {
+      if (generation !== requestGeneration.current || controller.signal.aborted) return;
+      const hydrated = records.map(fromApi);
+      setSessions(hydrated);
+      setActiveSessionId((current) => hydrated.some((item) => item.id === current) ? current : hydrated[0]?.id ?? null);
+    }).catch((error: unknown) => {
+      if (generation !== requestGeneration.current || controller.signal.aborted) return;
+      setHistoryError(error instanceof Error ? error.message : 'Conversation history could not be loaded.');
+    }).finally(() => { if (generation === requestGeneration.current) setHistoryLoading(false); });
+    return () => controller.abort();
+  }, [reload, status, user?.id]);
 
-  useEffect(() => {
-    if (activeSession?.id) {
-      window.localStorage.setItem(ASSISTANT_ACTIVE_SESSION_STORAGE_KEY, activeSession.id);
-      window.localStorage.setItem(
-        ASSISTANT_CONTEXT_STORAGE_KEY,
-        JSON.stringify(activeSession.selectedContextItems),
-      );
-    }
-  }, [activeSession]);
-
-  useEffect(() => {
-    const handleNewConversation = () => {
-      window.localStorage.removeItem(ASSISTANT_NEW_SESSION_PENDING_STORAGE_KEY);
-      const seededContext = (() => {
-        try {
-          const raw = window.localStorage.getItem(ASSISTANT_CONTEXT_STORAGE_KEY);
-          return raw ? (JSON.parse(raw) as SelectedContextItem[]) : [];
-        } catch {
-          return [];
-        }
-      })();
-      const newSession = buildSession({ selectedContextItems: seededContext });
-      setSessions((current) => [...current, newSession]);
-      setActiveSessionId(newSession.id);
-    };
-
-    window.addEventListener(NEW_CONVERSATION_EVENT, handleNewConversation);
-    return () => window.removeEventListener(NEW_CONVERSATION_EVENT, handleNewConversation);
+  const createNewSession = useCallback(() => {
+    requestGeneration.current += 1;
+    setHistoryLoading(false);
+    let context: SelectedContextItem[] = [];
+    try { context = JSON.parse(localStorage.getItem(ASSISTANT_CONTEXT_STORAGE_KEY) ?? '[]') as SelectedContextItem[]; } catch { context = []; }
+    const draft = buildSession({ selectedContextItems: context });
+    setSessions((current) => [draft, ...current]); setActiveSessionId(draft.id);
   }, []);
 
   useEffect(() => {
-    const pending = window.localStorage.getItem(ASSISTANT_NEW_SESSION_PENDING_STORAGE_KEY);
-    if (!pending) return;
-    window.localStorage.removeItem(ASSISTANT_NEW_SESSION_PENDING_STORAGE_KEY);
-    const newSession = buildSession();
-    setSessions((current) => [...current, newSession]);
-    setActiveSessionId(newSession.id);
+    const handler = () => { localStorage.removeItem(ASSISTANT_NEW_SESSION_PENDING_STORAGE_KEY); createNewSession(); };
+    window.addEventListener(NEW_CONVERSATION_EVENT, handler);
+    if (localStorage.getItem(ASSISTANT_NEW_SESSION_PENDING_STORAGE_KEY)) handler();
+    return () => window.removeEventListener(NEW_CONVERSATION_EVENT, handler);
+  }, [createNewSession]);
+
+  const fallbackDraft = useMemo(() => buildSession(), []);
+  const activeSession = sessions.find((item) => item.id === activeSessionId) ?? sessions[0] ?? fallbackDraft;
+  const updateSession = useCallback((sessionId: string, update: SessionUpdate) => {
+    requestGeneration.current += 1;
+    setHistoryLoading(false);
+    setSessions((current) => {
+      const existing = current.find((session) => session.id === sessionId) ?? buildSession({ id: sessionId });
+      const next = { ...existing, ...update, messages: update.messages ?? existing.messages, title: update.title ?? titleFrom(update.messages ?? existing.messages), updatedAt: new Date().toISOString() };
+      return current.some((session) => session.id === sessionId) ? current.map((session) => session.id === sessionId ? next : session) : [next, ...current];
+    });
   }, []);
-
-  const updateActiveSession = (update: SessionUpdate) => {
-    setSessions((current) =>
-      current.map((session) => {
-        if (session.id !== activeSession.id) return session;
-        const nextMessages = update.messages ?? session.messages;
-        return {
-          ...session,
-          ...update,
-          messages: nextMessages,
-          title: update.title ?? sessionTitleFromMessages(nextMessages),
-          updatedAt: new Date().toISOString(),
-        };
-      }),
-    );
-  };
-
-  const createNewSession = () => {
-    const newSession = buildSession();
-    setSessions((current) => [...current, newSession]);
-    setActiveSessionId(newSession.id);
-  };
-
-  const clearHistory = () => {
-    const fresh = buildSession();
-    setSessions([fresh]);
-    setActiveSessionId(fresh.id);
-  };
-
-  const value = useMemo<AssistantSessionsValue>(
-    () => ({
-      activeSession,
-      sessions,
-      setActiveSession: setActiveSessionId,
-      createNewSession,
-      clearHistory,
-      updateActiveSession,
-    }),
-    [activeSession, sessions],
-  );
-
-  return (
-    <AssistantSessionsContext.Provider value={value}>
-      {children}
-    </AssistantSessionsContext.Provider>
-  );
+  const updateActiveSession = useCallback((update: SessionUpdate) => updateSession(activeSession.id, update), [activeSession.id, updateSession]);
+  const value = useMemo(() => ({ activeSession, sessions, historyLoading, historyError, retryHistory: () => setReload((value) => value + 1), setActiveSession: setActiveSessionId, createNewSession, updateSession, updateActiveSession }), [activeSession, sessions, historyLoading, historyError, createNewSession, updateSession, updateActiveSession]);
+  return <AssistantSessionsContext.Provider value={value}>{children}</AssistantSessionsContext.Provider>;
 }
 
-export function useAssistantSessions() {
-  const context = useContext(AssistantSessionsContext);
-  if (!context) {
-    throw new Error('useAssistantSessions must be used within AssistantSessionsProvider.');
-  }
-  return context;
-}
+export function useAssistantSessions() { const value = useContext(AssistantSessionsContext); if (!value) throw new Error('useAssistantSessions must be used within AssistantSessionsProvider.'); return value; }
