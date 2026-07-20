@@ -399,11 +399,17 @@ class PersonalWorkspaceService:
 
     @staticmethod
     def _document_payload(document: Document) -> dict[str, object]:
+        indexing_metadata = document.metadata_ or {}
         return {
             "id": str(document.id), "folder_id": str(document.folder_id) if document.folder_id else None,
             "name": document.name, "file_type": document.file_type, "size_bytes": document.size_bytes,
             "modified_at": document.modified_at.isoformat() if document.modified_at else document.created_at.isoformat(),
             "status": document.indexing_status, "indexed": document.indexed,
+            "indexing_stage": indexing_metadata.get("indexing_stage"),
+            "indexing_safe_message": indexing_metadata.get("indexing_safe_message"),
+            "indexing_error_code": indexing_metadata.get("indexing_error_code"),
+            "retry_allowed": document.indexing_status == "failed" and indexing_metadata.get("indexing_retry_allowed", True) is not False,
+            "indexing_updated_at": (document.updated_at or document.modified_at or document.created_at).isoformat(),
         }
 
     def _audit(self, user_id: uuid.UUID | None, action: str, entity_type: str, entity_id: uuid.UUID) -> None:
