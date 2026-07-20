@@ -64,10 +64,12 @@ class StartupService:
         engine: KnowledgeEngineService,
         runtime_state: RuntimeState,
         corpus_service: CorpusService | None = None,
+        workspace_ingestion: Any | None = None,
     ) -> None:
         self.engine = engine
         self.runtime_state = runtime_state
         self.corpus_service = corpus_service
+        self.workspace_ingestion = workspace_ingestion
 
     def run_startup(self) -> None:
         """Prepare the Phase 4.5 pipeline without crashing the API process."""
@@ -93,6 +95,8 @@ class StartupService:
             )
             self.ensure_required_folders()
             sync_summary = self.sync_corpus_metadata()
+            if self.workspace_ingestion is not None:
+                self.workspace_ingestion.sync()
             documents_seen = self.detect_documents()
             self.runtime_state.update(documents_seen=documents_seen)
 
@@ -218,9 +222,6 @@ class StartupService:
                 index_fresh=True,
                 last_index_run_at=utc_now_iso(),
             )
-
-            # Mark all pending startup jobs as succeeded
-            self._complete_pending_startup_jobs()
 
             if not ollama_ready:
                 self.runtime_state.update(
@@ -376,13 +377,13 @@ class StartupService:
             )
 
     def detect_documents(self) -> int:
-        root = settings.corpus_root_path
-        if not root.exists():
-            return 0
         return sum(
             1
+            for root in (settings.corpus_root_path, settings.workspace_root_path)
+            if root.exists()
             for path in root.rglob("*")
             if path.is_file() and path.suffix.casefold() in _SUPPORTED_DOCUMENT_SUFFIXES
+            and not any(part.startswith(".") for part in path.relative_to(root).parts)
         )
 
     def _on_pipeline_stage(self, stage: str, counts: dict[str, int]) -> None:
