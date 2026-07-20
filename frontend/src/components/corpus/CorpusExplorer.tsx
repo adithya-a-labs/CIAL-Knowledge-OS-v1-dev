@@ -21,6 +21,7 @@ import { corpusDocumentToContext, corpusFolderToContext, normalizeCorpusFolderRe
 import type { CorpusDocument, CorpusFolder, CorpusFolderResponse, CorpusTreeNode, SelectedContextItem } from '@/api/types';
 import { driveFiles, driveFolders } from '@/data/knowledgeDriveData';
 import { cn } from '@/lib/utils';
+import FileIndexingStatus from '@/components/documents/FileIndexingStatus';
 
 type ExplorerMode = 'browse' | 'select';
 type ViewMode = 'grid' | 'list';
@@ -47,17 +48,6 @@ function formatBytes(value: number) {
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function statusTooltip(status: string) {
-  const map: Record<string, string> = {
-    pending: 'Metadata is synced. Vector indexing has not completed yet.',
-    indexing: 'This document is currently being indexed.',
-    indexed: 'This document is available to grounded assistant retrieval.',
-    failed: 'Indexing failed. Metadata and file preview may still be available.',
-    deleted: 'This document was removed from the corpus source.',
-  };
-  return map[status] ?? 'Corpus indexing status.';
 }
 
 function fileIcon(file: CorpusDocument) {
@@ -214,7 +204,7 @@ function FileCard({
           <span className="rounded-full bg-[hsl(210_20%_98%)] px-2 py-1 font-semibold text-slate-700">{typeLabel}</span>
           <span>{formatBytes(file.size_bytes)}</span>
           <span>{formatDate(file.modified_at)}</span>
-          <span className="rounded-full bg-[hsl(95_24%_94%)] px-2 py-1 font-semibold text-primary" title={statusTooltip(file.indexing_status)}>{file.indexing_status}</span>
+          <FileIndexingStatus status={file.indexing_status} />
         </div>
       </article>
     );
@@ -227,7 +217,7 @@ function FileCard({
       <span>{typeLabel}</span>
       <span>{formatBytes(file.size_bytes)}</span>
       <span>{formatDate(file.modified_at)}</span>
-      <span className="font-semibold text-primary" title={statusTooltip(file.indexing_status)}>{file.indexing_status}</span>
+      <FileIndexingStatus status={file.indexing_status} />
     </div>
   );
 }
@@ -249,7 +239,8 @@ export default function CorpusExplorer({
   const [sortMode, setSortMode] = useState<SortMode>('latest');
 
   const treeQuery = useQuery({ queryKey: ['corpus-tree', mode], queryFn: getCorpusTree, retry: false, staleTime: 30_000 });
-  const folderQuery = useQuery({ queryKey: ['corpus-folder', activePath, mode], queryFn: () => getCorpusFolder(activePath), retry: false, staleTime: 30_000 });
+  const folderQuery = useQuery({ queryKey: ['corpus-folder', activePath, mode], queryFn: () => getCorpusFolder(activePath), retry: false, staleTime: 30_000,
+    refetchInterval: (query) => query.state.data && normalizeCorpusFolderResponse(query.state.data).files.some((file) => ['pending', 'indexing'].includes(file.indexing_status)) ? 1500 : false });
   const usingFallback = treeQuery.isError || folderQuery.isError;
   const folderResponse = usingFallback ? demoFolderResponse() : folderQuery.data ? normalizeCorpusFolderResponse(folderQuery.data) : null;
   const root = treeQuery.data?.root;
@@ -365,13 +356,13 @@ export default function CorpusExplorer({
             ) : viewMode === 'grid' ? (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                 {filteredFiles.map((file) => (
-                  <FileCard key={file.id} file={file} selected={selectedIds.has(file.id)} viewMode="grid" selectable={selectable} onToggle={() => toggleSelection(corpusDocumentToContext(file))} onOpen={() => navigate(`/knowledge/document/${encodeURIComponent(file.id)}`)} />
+                  <FileCard key={file.id} file={file} selected={selectedIds.has(file.id)} viewMode="grid" selectable={selectable && file.indexing_status === 'indexed'} onToggle={() => toggleSelection(corpusDocumentToContext(file))} onOpen={() => navigate(`/knowledge/document/${encodeURIComponent(file.id)}`)} />
                 ))}
               </div>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-slate-200">
                 {filteredFiles.map((file) => (
-                  <FileCard key={file.id} file={file} selected={selectedIds.has(file.id)} viewMode="list" selectable={selectable} onToggle={() => toggleSelection(corpusDocumentToContext(file))} onOpen={() => navigate(`/knowledge/document/${encodeURIComponent(file.id)}`)} />
+                  <FileCard key={file.id} file={file} selected={selectedIds.has(file.id)} viewMode="list" selectable={selectable && file.indexing_status === 'indexed'} onToggle={() => toggleSelection(corpusDocumentToContext(file))} onOpen={() => navigate(`/knowledge/document/${encodeURIComponent(file.id)}`)} />
                 ))}
               </div>
             )}
