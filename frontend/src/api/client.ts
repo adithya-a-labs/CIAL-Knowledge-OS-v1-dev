@@ -22,23 +22,35 @@ import type {
   SignupRequest,
   AuthResponse,
 } from './types';
+import type { WorkspaceFolderResponse, WorkspacePreferences, WorkspaceSummaryResponse, WorkspaceTreeResponse } from '@/data/workspace/workspaceTypes';
 import { ApiError } from './types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '');
 export const AUTH_INVALIDATED_EVENT = 'cial-auth-invalidated';
+let authInvalidationDispatched = false;
+
+type AuthInvalidationMode = 'none' | 'protected';
+type ApiRequestInit = RequestInit & {
+  authInvalidation?: AuthInvalidationMode;
+};
 
 export function apiUrl(path: string) {
   if (/^https?:\/\//i.test(path)) return path;
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export function resetAuthInvalidationGuard() {
+  authInvalidationDispatched = false;
+}
+
+async function request<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
+  const { authInvalidation = 'protected', ...fetchInit } = init;
   const response = await fetch(`${API_BASE_URL}${path}`, {
     credentials: 'include',
-    ...init,
+    ...fetchInit,
     headers: {
-      ...(init.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
-      ...init.headers,
+      ...(fetchInit.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+      ...fetchInit.headers,
     },
   });
 
@@ -59,7 +71,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
         : typeof rawDetail === 'string'
           ? rawDetail
           : `Request failed with status ${response.status}`;
-    if (response.status === 401 && typeof window !== 'undefined') {
+    if (
+      response.status === 401 &&
+      authInvalidation === 'protected' &&
+      typeof window !== 'undefined' &&
+      !authInvalidationDispatched
+    ) {
+      authInvalidationDispatched = true;
       window.dispatchEvent(new Event(AUTH_INVALIDATED_EVENT));
     }
     throw new ApiError(message, response.status, detail);
@@ -69,13 +87,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export function getHealth() {
-  return request<HealthResponse>('/api/health', { cache: 'no-store' });
+  return request<HealthResponse>('/api/health', { cache: 'no-store', authInvalidation: 'none' });
 }
 
 export function signUp(payload: SignupRequest) {
   return request<AuthResponse>('/api/auth/signup', {
     method: 'POST',
     body: JSON.stringify(payload),
+    authInvalidation: 'none',
   });
 }
 
@@ -83,17 +102,56 @@ export function logIn(payload: LoginRequest) {
   return request<AuthResponse>('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify(payload),
+    authInvalidation: 'none',
   });
 }
 
 export function getCurrentUser() {
-  return request<AuthResponse>('/api/auth/me');
+  return request<AuthResponse>('/api/auth/me', { authInvalidation: 'none' });
 }
 
 export function logOut() {
   return request<LogoutResponse>('/api/auth/logout', {
     method: 'POST',
+    authInvalidation: 'none',
   });
+}
+
+export function getMyWorkspaceTree() {
+  return request<WorkspaceTreeResponse>('/api/workspaces/me/tree');
+}
+
+export function getMyWorkspaceFolder(folderId?: string | null) {
+  return request<WorkspaceFolderResponse>(folderId ? `/api/workspaces/me/folders/${folderId}` : '/api/workspaces/me/root');
+}
+
+export function getMyWorkspaceSummary() {
+  return request<WorkspaceSummaryResponse>('/api/workspaces/me/summary');
+}
+
+export function getMyWorkspacePreferences() {
+  return request<WorkspacePreferences>('/api/workspaces/me/preferences');
+}
+
+export function saveMyWorkspacePreferences(preferences: WorkspacePreferences) {
+  return request<WorkspacePreferences>('/api/workspaces/me/preferences', { method: 'PATCH', body: JSON.stringify(preferences) });
+}
+
+export function resetMyWorkspacePreferences() {
+  return request<WorkspacePreferences>('/api/workspaces/me/preferences/reset', { method: 'POST' });
+}
+
+export function createMyWorkspaceFolder(name: string, parentId?: string | null) {
+  return request('/api/workspaces/me/folders', { method: 'POST', body: JSON.stringify({ name, parent_id: parentId ?? null }) });
+}
+
+export function uploadMyWorkspaceFiles(files: File[], folderId?: string | null) {
+  return Promise.all(files.map((file) => {
+    const body = new FormData();
+    body.append('file', file);
+    if (folderId) body.append('folder_id', folderId);
+    return request('/api/workspaces/me/documents/upload', { method: 'POST', body });
+  }));
 }
 
 export function askQuestion(payload: ChatRequest, signal?: AbortSignal) {
