@@ -1,4 +1,5 @@
 import { Folder, FileText, Paperclip, UploadCloud, X } from 'lucide-react';
+import FileIndexingStatus from '@/components/documents/FileIndexingStatus';
 import type { SelectedContextItem } from '@/api/types';
 import type {
   SearchScope,
@@ -105,9 +106,7 @@ export default function ContextChips({
               <span className="safe-text max-w-[12rem] truncate">
                 {file.name} ({formatFileSize(file.size)})
               </span>
-              <span className="rounded-sm bg-white px-1 py-0 text-[10px] font-semibold text-muted-foreground">
-                {file.uploadStatus === 'uploaded' ? 'Ready' : file.uploadStatus === 'upload_failed' ? 'Failed' : 'Uploading'}
-              </span>
+              <FileIndexingStatus status={file.uploadStatus === 'upload_failed' ? 'failed' : file.uploadStatus === 'uploading' ? 'pending' : file.indexingStatus || 'pending'} safeMessage={file.indexingSafeMessage} />
               <button
                 type="button"
                 onClick={() => onRemoveFile(file.id)}
