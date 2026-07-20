@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from backend.app.db.session import get_db_session
@@ -79,10 +79,14 @@ def reset_workspace_preferences(access_context: RequestAccessContext = Depends(r
 
 
 @router.post("/workspaces/me/documents/upload", status_code=status.HTTP_201_CREATED)
-def upload_workspace_document(file: UploadFile = File(...), folder_id: str | None = Form(default=None), access_context: RequestAccessContext = Depends(require_authenticated_access_context), service: PersonalWorkspaceService = Depends(_service)):
-    return _call(access_context, service, "upload", file.filename or "upload", file.file, uuid.UUID(folder_id) if folder_id else None)
+def upload_workspace_document(request: Request, file: UploadFile = File(...), folder_id: str | None = Form(default=None), access_context: RequestAccessContext = Depends(require_authenticated_access_context), service: PersonalWorkspaceService = Depends(_service)):
+    payload = _call(access_context, service, "upload", file.filename or "upload", file.file, uuid.UUID(folder_id) if folder_id else None)
+    if payload.get("indexing_job_id") and getattr(request.app.state, "indexing_worker", None):
+        request.app.state.indexing_worker.enqueue(uuid.UUID(str(payload["indexing_job_id"])))
+    return payload
 
 
 @router.delete("/workspaces/me/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_workspace_document(document_id: uuid.UUID, access_context: RequestAccessContext = Depends(require_authenticated_access_context), service: PersonalWorkspaceService = Depends(_service)):
-    _call(access_context, service, "delete_document", document_id)
+def delete_workspace_document(request: Request, document_id: uuid.UUID, access_context: RequestAccessContext = Depends(require_authenticated_access_context), service: PersonalWorkspaceService = Depends(_service)):
+    job_id = _call(access_context, service, "delete_document", document_id)
+    if job_id and getattr(request.app.state, "indexing_worker", None): request.app.state.indexing_worker.enqueue(uuid.UUID(str(job_id)))
