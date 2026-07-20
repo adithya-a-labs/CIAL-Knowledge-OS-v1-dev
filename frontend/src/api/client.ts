@@ -25,7 +25,7 @@ import type {
 import type { WorkspaceFolderResponse, WorkspacePreferences, WorkspaceSummaryResponse, WorkspaceTreeResponse } from '@/data/workspace/workspaceTypes';
 import { ApiError } from './types';
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '');
+const CONFIGURED_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '');
 export const AUTH_INVALIDATED_EVENT = 'cial-auth-invalidated';
 let authInvalidationDispatched = false;
 
@@ -34,9 +34,30 @@ type ApiRequestInit = RequestInit & {
   authInvalidation?: AuthInvalidationMode;
 };
 
+function isLoopbackHost(hostname: string) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1' || hostname === '[::1]';
+}
+
+function resolveApiBaseUrl() {
+  if (typeof window === 'undefined') {
+    return CONFIGURED_API_BASE_URL;
+  }
+  try {
+    const apiUrlValue = new URL(CONFIGURED_API_BASE_URL);
+    const pageHostname = window.location.hostname;
+    if (isLoopbackHost(apiUrlValue.hostname) && pageHostname && apiUrlValue.hostname !== pageHostname) {
+      apiUrlValue.hostname = pageHostname;
+      return apiUrlValue.toString().replace(/\/$/, '');
+    }
+  } catch {
+    return CONFIGURED_API_BASE_URL;
+  }
+  return CONFIGURED_API_BASE_URL;
+}
+
 export function apiUrl(path: string) {
   if (/^https?:\/\//i.test(path)) return path;
-  return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  return `${resolveApiBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
 export function resetAuthInvalidationGuard() {
@@ -45,7 +66,7 @@ export function resetAuthInvalidationGuard() {
 
 async function request<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
   const { authInvalidation = 'protected', ...fetchInit } = init;
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${resolveApiBaseUrl()}${path}`, {
     credentials: 'include',
     ...fetchInit,
     headers: {
