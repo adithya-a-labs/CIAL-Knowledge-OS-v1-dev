@@ -10,7 +10,7 @@ import ContextManagerDialog from './ContextManagerDialog';
 import RetrievalTimeline from './RetrievalTimeline';
 import SourceViewerPanel from './SourceViewerPanel';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
-import { askQuestion, createAssistantExport, getCorpusTree, getHealth, regenerateMessage, toggleMessageFeedback, transformMessage, uploadDocument } from '@/api/client';
+import { askQuestion, createAssistantExport, getCorpusTree, getHealth, regenerateMessage, toggleMessageFeedback, transformMessage, uploadChatAttachment } from '@/api/client';
 import type { AssistantExportFormat } from '@/api/types';
 import ExportPreviewDialog from './ExportPreviewDialog';
 import { flattenCorpusTree, toAssistantMessage, toChatRequest } from '@/api/adapters';
@@ -23,6 +23,7 @@ import type {
   ChatSource,
   UploadedFileContext,
 } from '@/types/assistant';
+import { useDocumentIndexingStatuses } from '@/hooks/useDocumentIndexingStatuses';
 
 const supportedFileTypes = '.pdf,.docx,.pptx,.xlsx,.csv,.txt,image/*';
 const ASSISTANT_CONTEXT_STORAGE_KEY = 'cial-assistant-selected-context';
@@ -108,6 +109,13 @@ export default function ChatPanel() {
   const messages = activeSession.messages as ChatMessageData[];
   const selectedContextItems = activeSession.selectedContextItems as SelectedContextItem[];
   const uploadedFiles = activeSession.uploadedFiles as UploadedFileContext[];
+  const uploadedDocumentIdsForStatus = useMemo(() => uploadedFiles.map((file) => file.backendDocumentId).filter((value): value is string => Boolean(value)), [uploadedFiles]);
+  const attachmentStatusQuery = useDocumentIndexingStatuses(uploadedDocumentIdsForStatus);
+  const effectiveUploadedFiles = useMemo(() => uploadedFiles.map((file) => {
+    const status = file.backendDocumentId ? attachmentStatusQuery.data?.[file.backendDocumentId] : undefined;
+    return status ? { ...file, indexingStatus: status.indexing_status, indexingStage: status.indexing_stage || undefined, indexingSafeMessage: status.indexing_safe_message || undefined } : file;
+  }), [attachmentStatusQuery.data, uploadedFiles]);
+  const blockingAttachments = effectiveUploadedFiles.filter((file) => file.uploadStatus !== 'uploaded' || file.indexingStatus !== 'indexed');
   const feedbackByMessageId = activeSession.feedbackByMessageId;
   const searchScope = activeSession.searchScope;
   const activeProfile = activeSession.activeProfile;
@@ -285,6 +293,12 @@ export default function ChatPanel() {
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
+    if (blockingAttachments.length > 0) {
+      const preparing = blockingAttachments.filter((file) => file.uploadStatus === 'uploading' || ['pending', 'indexing', undefined].includes(file.indexingStatus));
+      toast({ title: preparing.length ? 'Preparing attached files' : 'An attached file is not ready',
+        description: blockingAttachments.map((file) => file.name).join(', ') });
+      return;
+    }
     if (!chatReady) {
       toast({
         title: 'Backend is not ready',
@@ -299,7 +313,7 @@ export default function ChatPanel() {
     const explicitFolderIds = selectedContextItems
         .filter((item) => item.type === 'folder')
         .map((item) => item.id);
-    const uploadedDocumentIds = uploadedFiles
+    const uploadedDocumentIds = effectiveUploadedFiles
         .map((file) => file.backendDocumentId)
         .filter((value): value is string => Boolean(value));
 
@@ -388,7 +402,7 @@ export default function ChatPanel() {
     });
     if (fileInputRef.current) fileInputRef.current.value = '';
 
-    const results = await Promise.allSettled(Array.from(files).map((file) => uploadDocument(file)));
+    const results = await Promise.allSettled(Array.from(files).map((file) => uploadChatAttachment(file, activeSession.id)));
     updateActiveSession({
       uploadedFiles: [...uploadedFiles, ...queuedFiles].map((file) => {
         const resultIndex = queuedFiles.findIndex((queuedFile) => queuedFile.id === file.id);
@@ -398,7 +412,10 @@ export default function ChatPanel() {
           return {
             ...file,
             uploadStatus: 'uploaded',
-            backendDocumentId: result.value.id,
+            backendDocumentId: result.value.document_id,
+            backendDocumentVersionId: result.value.document_version_id,
+            indexingStatus: result.value.indexing_status,
+            indexingSafeMessage: result.value.indexing_safe_message || undefined,
           };
         }
         return {
@@ -416,7 +433,7 @@ export default function ChatPanel() {
       });
       return;
     }
-    toast({ title: 'Upload saved', description: 'The file is now available to scoped retrieval.' });
+    toast({ title: 'Upload saved', description: 'The file is being prepared for grounded retrieval.' });
   };
 
   const copyResponse = async (message: ChatMessageData) => {
@@ -601,7 +618,7 @@ export default function ChatPanel() {
 
         <ContextChips
           selectedContextItems={selectedContextItems}
-          uploadedFiles={uploadedFiles}
+          uploadedFiles={effectiveUploadedFiles}
           searchScope={searchScope}
           onRemoveContext={(id) =>
             updateActiveSession({
@@ -660,7 +677,7 @@ export default function ChatPanel() {
             <button
               type="button"
               onClick={() => void handleSend()}
-              disabled={!input.trim() || isLoading || !chatReady}
+              disabled={!input.trim() || isLoading || !chatReady || blockingAttachments.length > 0}
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition hover:opacity-95 disabled:bg-gray-300"
               data-testid="button-send"
               aria-label="Send message"
