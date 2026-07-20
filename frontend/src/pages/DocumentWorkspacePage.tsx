@@ -24,6 +24,7 @@ import {
 import { corpusDocumentToContext } from '@/api/adapters';
 import type { CorpusDocument } from '@/api/types';
 import DocumentPreviewRenderer from '@/components/assistant/DocumentPreviewRenderer';
+import FileIndexingStatus from '@/components/documents/FileIndexingStatus';
 
 const ASSISTANT_CONTEXT_STORAGE_KEY = 'cial-assistant-selected-context';
 const ASSISTANT_CONTEXT_INTENT_STORAGE_KEY = 'cial-assistant-context-intent';
@@ -40,13 +41,6 @@ function formatDate(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
-}
-
-function statusTone(status?: string | null) {
-  if (status === 'indexed') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-  if (status === 'failed' || status === 'deleted') return 'border-red-200 bg-red-50 text-red-700';
-  if (status === 'indexing' || status === 'pending') return 'border-amber-200 bg-amber-50 text-amber-800';
-  return 'border-slate-200 bg-slate-50 text-slate-600';
 }
 
 function UnavailableState({
@@ -101,6 +95,7 @@ export default function DocumentWorkspacePage() {
     queryFn: () => getCorpusDocument(documentId),
     enabled: Boolean(documentId),
     retry: false,
+    refetchInterval: (query) => ['pending', 'indexing'].includes(query.state.data?.indexing_status || '') ? 1500 : false,
   });
 
   const previewQuery = useQuery({
@@ -223,9 +218,7 @@ export default function DocumentWorkspacePage() {
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h1 className="safe-text min-w-0 text-base font-semibold text-slate-950 sm:text-lg">{title}</h1>
               <span className="ce-badge px-2 py-1 text-[11px]">{typeLabel}</span>
-              <span className={`rounded-md border px-2 py-1 text-xs font-semibold ${statusTone(document?.indexing_status)}`}>
-                {document?.indexing_status || 'unknown'}
-              </span>
+              <FileIndexingStatus status={document?.indexing_status || 'pending'} />
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
               <span>{formatBytes(document?.size_bytes)}</span>
