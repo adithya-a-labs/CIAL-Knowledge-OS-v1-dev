@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import uuid
 
-from fastapi import Request
+from fastapi import HTTPException, Request, status
 from sqlalchemy import and_, exists, false, literal, or_, select
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import ColumnElement, Select
@@ -55,16 +55,26 @@ def anonymous_access_context() -> RequestAccessContext:
     return RequestAccessContext(principal=AccessPrincipal(), scope="enterprise")
 
 
-def resolve_access_context(request: Request) -> RequestAccessContext:
-    raw_user_id = None
+def session_user_id_from_request(request: Request) -> uuid.UUID | None:
     cookie_name = session_cookie_settings()["key"]
     session_token = request.cookies.get(cookie_name)
-    session_user_id = verify_session_token(session_token) if session_token else None
+    return verify_session_token(session_token) if session_token else None
+
+
+def resolve_access_context(request: Request) -> RequestAccessContext:
+    raw_user_id = None
+    session_user_id = session_user_id_from_request(request)
     if session_user_id is None and settings.auth_allow_user_headers:
         raw_user_id = request.headers.get("X-CIAL-User-Id") or request.headers.get("X-User-Id")
     raw_scope = (request.headers.get("X-CIAL-Access-Scope") or "").strip().casefold()
     scope = raw_scope if raw_scope in _VALID_ACCESS_SCOPES else None
-    if session_user_id is None and (not raw_user_id or SessionLocal is None):
+    if SessionLocal is None:
+        return RequestAccessContext(
+            principal=AccessPrincipal(),
+            scope=scope or "enterprise",
+            user_header=raw_user_id or None,
+        )
+    if session_user_id is None and not raw_user_id:
         return RequestAccessContext(
             principal=AccessPrincipal(),
             scope=scope or "enterprise",
@@ -151,6 +161,16 @@ def resolve_access_context(request: Request) -> RequestAccessContext:
             scope=scope or "hybrid",
             user_header=raw_user_id,
         )
+
+
+def require_authenticated_access_context(request: Request) -> RequestAccessContext:
+    access_context = resolve_access_context(request)
+    if not access_context.principal.is_authenticated or access_context.principal.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required.",
+        )
+    return access_context
 
 
 def can_upload_enterprise_documents(access_context: RequestAccessContext) -> bool:
