@@ -316,7 +316,7 @@ def folder_to_dict(folder: Folder) -> dict[str, Any]:
 
 
 def document_to_dict(document: Document) -> dict[str, Any]:
-    return {
+    payload = {
         "id": str(document.id),
         "organization_id": str(document.organization_id),
         "department_id": str(document.department_id),
@@ -345,3 +345,12 @@ def document_to_dict(document: Document) -> dict[str, Any]:
         "created_at": document.created_at.isoformat(),
         "updated_at": document.updated_at.isoformat(),
     }
+    indexing_metadata = document.metadata_ or {}
+    payload.update({
+        "indexing_stage": indexing_metadata.get("indexing_stage"),
+        "indexing_safe_message": indexing_metadata.get("indexing_safe_message"),
+        "indexing_error_code": indexing_metadata.get("indexing_error_code"),
+        "retry_allowed": document.indexing_status == "failed" and indexing_metadata.get("indexing_retry_allowed", True) is not False,
+        "indexing_updated_at": document.updated_at.isoformat(),
+    })
+    return payload
