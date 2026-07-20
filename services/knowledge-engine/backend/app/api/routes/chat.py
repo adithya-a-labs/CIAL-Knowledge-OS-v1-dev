@@ -13,6 +13,7 @@ from backend.app.models.conversations import ChatMessage, ChatSession
 from backend.app.repositories.chats import ChatRepository
 from backend.app.schemas.chat import ChatMessageRecord, ChatRequest, ChatResponse, ChatSessionList, ChatSessionRecord, MessageExportRequest, MessageExportResponse, MessageFeedbackRequest, MessageFeedbackResponse, MessageTransformRequest
 from backend.app.services.chat_action_service import ChatActionError, ChatActionService
+from backend.app.services.message_transformation_service import MessageTransformationError, MessageTransformationService
 from backend.app.security.access import require_authenticated_access_context
 from backend.app.services.knowledge_engine_service import (
     KnowledgeEngineInvalidRequest,
@@ -23,6 +24,13 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _public_metadata(value: dict | None) -> dict:
+    metadata = dict(value or {})
+    metadata.pop("evidence_snapshot", None)
+    metadata.pop("generation_request", None)
+    return metadata
+
+
 def _record(session: ChatSession, repository: ChatRepository) -> ChatSessionRecord:
     return ChatSessionRecord(
         id=session.id,
@@ -31,7 +39,7 @@ def _record(session: ChatSession, repository: ChatRepository) -> ChatSessionReco
             ChatMessageRecord(
                 id=message.id, role=message.role, content=message.content,
                 citations=message.citations or [], sources=message.sources or [],
-                metadata=message.metadata_ or {}, created_at=message.created_at,
+                metadata=_public_metadata(message.metadata_), created_at=message.created_at,
                 feedback=(repository.get_feedback(message.id, session.user_id).metadata_ or {}).get("categories", []) if repository.get_feedback(message.id, session.user_id) else [],
             )
             for message in repository.list_messages_for_user(session.id, session.user_id)
@@ -103,7 +111,7 @@ def chat(payload: ChatRequest, request: Request, db: Session = Depends(get_db_se
             session_id=chat_session.id, user_id=user_id, role="assistant", content=response.answer,
             citations=[item.model_dump(mode="json") for item in response.citations],
             sources=[item.model_dump(mode="json") for item in response.sources],
-            metadata_={**response.metadata.model_dump(mode="json"), "generation_request": payload.model_dump(mode="json", exclude={"question", "session_id", "include_debug"}), "user_message_id": str(user_message.id)},
+            metadata_={**response.metadata.model_dump(mode="json"), "generation_request": payload.model_dump(mode="json", exclude={"question", "session_id", "include_debug"}), "user_message_id": str(user_message.id), "evidence_snapshot": response.evidence_snapshot},
         ))
         chat_session.updated_at = datetime.now(timezone.utc)
         db.commit()
@@ -145,9 +153,14 @@ def regenerate_message(message_id: uuid.UUID, request: Request, db: Session = De
 def transform_message(message_id: uuid.UUID, payload: MessageTransformRequest, request: Request, db: Session = Depends(get_db_session)) -> ChatMessageRecord:
     access = require_authenticated_access_context(request)
     try:
-        message = _actions(request, db).transform(message_id, payload.operation, access)
-        return ChatMessageRecord(id=message.id, role="assistant", content=message.content, citations=message.citations or [], sources=message.sources or [], metadata=message.metadata_ or {}, created_at=message.created_at)
-    except ChatActionError as exc:
+        if payload.operation == "explain_simpler":
+            message = MessageTransformationService(db, request.app.state.transformation_generator).explain_simpler(message_id, access)
+        elif payload.operation == "create_checklist":
+            message = MessageTransformationService(db, request.app.state.transformation_generator).create_checklist(message_id, access)
+        else:
+            message = _actions(request, db).transform(message_id, payload.operation, access)
+        return ChatMessageRecord(id=message.id, role="assistant", content=message.content, citations=message.citations or [], sources=message.sources or [], metadata=_public_metadata(message.metadata_), created_at=message.created_at)
+    except (ChatActionError, MessageTransformationError) as exc:
         raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}) from exc
 
 
