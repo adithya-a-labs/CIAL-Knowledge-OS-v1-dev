@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from backend.app.db.session import get_db_session
 from backend.app.models.conversations import ChatMessage, ChatSession
 from backend.app.repositories.chats import ChatRepository
-from backend.app.schemas.chat import ChatMessageRecord, ChatRequest, ChatResponse, ChatSessionList, ChatSessionRecord, MessageExportRequest, MessageExportResponse, MessageFeedbackRequest, MessageFeedbackResponse, MessageTransformRequest
+from backend.app.schemas.chat import ChatMessageRecord, ChatRequest, ChatResponse, ChatSessionList, ChatSessionRecord, MessageFeedbackRequest, MessageFeedbackResponse, MessageTransformRequest
 from backend.app.services.chat_action_service import ChatActionError, ChatActionService
 from backend.app.services.message_transformation_service import MessageTransformationError, MessageTransformationService
 from backend.app.security.access import require_authenticated_access_context
@@ -137,7 +137,7 @@ def chat(payload: ChatRequest, request: Request, db: Session = Depends(get_db_se
 
 
 def _actions(request: Request, db: Session) -> ChatActionService:
-    return ChatActionService(db, request.app.state.knowledge_engine, request.app.state.export_service)
+    return ChatActionService(db, request.app.state.knowledge_engine)
 
 
 @router.post("/chat/messages/{message_id}/regenerate", response_model=ChatResponse)
@@ -147,7 +147,6 @@ def regenerate_message(message_id: uuid.UUID, request: Request, db: Session = De
         return _actions(request, db).regenerate(message_id, access)
     except ChatActionError as exc:
         raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}) from exc
-
 
 @router.post("/chat/messages/{message_id}/transform", response_model=ChatMessageRecord)
 def transform_message(message_id: uuid.UUID, payload: MessageTransformRequest, request: Request, db: Session = Depends(get_db_session)) -> ChatMessageRecord:
@@ -169,15 +168,5 @@ def update_feedback(message_id: uuid.UUID, payload: MessageFeedbackRequest, requ
     access = require_authenticated_access_context(request)
     try:
         return MessageFeedbackResponse(active=_actions(request, db).toggle_feedback(message_id, payload.feedback, access))
-    except ChatActionError as exc:
-        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}) from exc
-
-
-@router.post("/chat/messages/{message_id}/export", response_model=MessageExportResponse)
-def export_message(message_id: uuid.UUID, payload: MessageExportRequest, request: Request, db: Session = Depends(get_db_session)) -> MessageExportResponse:
-    access = require_authenticated_access_context(request)
-    try:
-        name, url = _actions(request, db).export(message_id, payload, access)
-        return MessageExportResponse(filename=name, download_url=url)
     except ChatActionError as exc:
         raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}) from exc
