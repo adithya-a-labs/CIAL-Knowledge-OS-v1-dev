@@ -66,6 +66,9 @@ class KnowledgeOSConfig:
     reset_vectorstore: bool = False
     incremental_indexing_enabled: bool = True
     force_rebuild_index: bool = False
+    # Exact managed relative paths that must traverse the normal incremental
+    # replacement pipeline even when their content hash matches the manifest.
+    force_reindex_paths: tuple[str, ...] = ()
     ocr_enabled: bool = True
     ocr_engine: str = "tesseract"
     ocr_preprocessing: bool = True
