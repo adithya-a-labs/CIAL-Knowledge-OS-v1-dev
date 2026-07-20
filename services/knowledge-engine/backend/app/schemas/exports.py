@@ -58,3 +58,19 @@ class ExportJobResponse(BaseModel):
     file_size_bytes: int | None = None
     preview: ExportPreview | None = None
     download_url: str | None = None
+    suggested_workspace_filename: str | None = None
+
+class ExportWorkspaceSaveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    filename: str | None = Field(default=None, max_length=255)
+    folder_id: UUID | None = None
+
+class ExportWorkspaceSaveResponse(BaseModel):
+    document_id: UUID
+    filename: str
+    folder_id: UUID | None = None
+    file_type: Literal["pdf", "docx"]
+    size_bytes: int
+    indexing_status: str
+    indexing_job_id: UUID | None = None
+    open_url: str
