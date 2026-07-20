@@ -35,6 +35,10 @@ class KnowledgeOSConfig:
     sample_data_dir: Path | None = None
     raw_data_dir: Path | None = None
     knowledge_root: Path | None = None
+    # Additional approved managed storage roots that participate in the same
+    # production index (for example private user workspaces).  These are never
+    # discovered implicitly; the backend must provide each approved root.
+    additional_knowledge_roots: tuple[Path, ...] = ()
     repository_id: str | None = None
     legacy_pdf_root: Path | None = None
     # Deprecated compatibility alias. New code must use ``knowledge_root`` for
@@ -91,6 +95,11 @@ class KnowledgeOSConfig:
         self.knowledge_root = self._resolve(
             self.knowledge_root,
             self.data_dir / "files",
+        )
+        self.additional_knowledge_roots = tuple(
+            self._resolve(Path(value), self.project_root)
+            for value in self.additional_knowledge_roots
+            if Path(value).expanduser().resolve() != self.knowledge_root
         )
         legacy_pdf_value = (
             self.legacy_pdf_root
