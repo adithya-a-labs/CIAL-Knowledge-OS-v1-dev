@@ -79,6 +79,7 @@ export default function ChatPanel() {
     activeSession,
     updateActiveSession,
     updateSession,
+    appendMessage,
   } = useAssistantSessions();
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -435,6 +436,7 @@ export default function ChatPanel() {
       const anchor = document.createElement('a'); anchor.href = url; anchor.download = `cial-response-${message.id.slice(0, 8)}.md`; anchor.click(); URL.revokeObjectURL(url); return;
     }
     const generation = (actionGenerationRef.current[message.id] ?? 0) + 1; actionGenerationRef.current[message.id] = generation;
+    const actionSessionId = activeSession.id;
     setActionByMessage((current) => ({ ...current, [message.id]: action }));
     try {
       if (action === 'export_pdf' || action === 'export_docx') {
@@ -446,11 +448,11 @@ export default function ChatPanel() {
         if (actionGenerationRef.current[message.id] !== generation) return;
         const adapted = toAssistantMessage(response, { query: '', searchScope: message.metadata?.searchScope ?? searchScope, activeProfile: message.metadata?.activeProfile ?? activeProfile, selectedDocumentIds: [], selectedFolderIds: [], uploadedFileIds: [] });
         const regenerated: ChatMessageData = { id: response.assistant_message_id ?? crypto.randomUUID(), role: 'assistant', content: adapted.content, citations: adapted.citations, sources: adapted.sources, metadata: adapted.metadata, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
-        updateActiveSession({ messages: [...messages, regenerated] });
+        appendMessage(actionSessionId, regenerated);
       } else {
         const record = await transformMessage(message.id, action);
         if (actionGenerationRef.current[message.id] !== generation) return;
-        updateActiveSession({ messages: [...messages, responseFromRecord(record)] });
+        appendMessage(actionSessionId, responseFromRecord(record));
       }
     } catch (error) { toast({ title: 'Response action failed', description: error instanceof Error ? error.message : 'Please retry this action.' }); }
     finally { if (actionGenerationRef.current[message.id] === generation) setActionByMessage((current) => { const next = { ...current }; delete next[message.id]; return next; }); }
