@@ -42,6 +42,12 @@ class KnowledgeEngineInvalidRequest(ValueError):
     """Raised when a chat request asks for an invalid generation profile/scope."""
 
 
+class KnowledgeEngineDocumentsNotReady(KnowledgeEngineInvalidRequest):
+    def __init__(self, documents: list[dict[str, str]]) -> None:
+        super().__init__("One or more selected files are still being prepared.")
+        self.documents = documents
+
+
 @dataclass(frozen=True, slots=True)
 class ProfileSettings:
     profile: str
@@ -132,10 +138,12 @@ class KnowledgeEngineService:
 
     def __init__(self) -> None:
         self._pipeline: Any | None = None
+        self._retired_pipelines: list[Any] = []
         self._import_error: Exception | None = None
         self._phase4_config_cls: Any | None = None
         self._phase4_pipeline_cls: Any | None = None
         self._lock = RLock()
+        self._index_lock = RLock()
         self._load_engine_symbols()
 
     @property
@@ -147,9 +155,10 @@ class KnowledgeEngineService:
             old_pipeline = self._pipeline
             self._pipeline = pipeline
         if old_pipeline is not None and old_pipeline is not pipeline:
-            close = getattr(old_pipeline, "close", None)
-            if callable(close):
-                close()
+            # Readers may still hold the prior immutable snapshot. Retire it
+            # until service shutdown so an atomic swap cannot close a Qdrant
+            # client underneath an in-flight chat request.
+            self._retired_pipelines.append(old_pipeline)
 
     def is_ready(self) -> bool:
         with self._lock:
@@ -171,10 +180,18 @@ class KnowledgeEngineService:
         if not self.engine_available:
             raise KnowledgeEngineUnavailable(self._engine_error_message())
 
-        config = self.build_config(
-            response_length=response_length,
-            force_rebuild_index=force_rebuild_index,
-        )
+        with self._index_lock:
+            return self._prepare_pipeline_locked(
+                force_rebuild_index=force_rebuild_index,
+                response_length=response_length,
+                on_stage=on_stage,
+            )
+
+    def _prepare_pipeline_locked(
+        self, *, force_rebuild_index: bool, response_length: str,
+        on_stage: Callable[[str, dict[str, int]], None] | None,
+    ) -> dict[str, int]:
+        config = self.build_config(response_length=response_length, force_rebuild_index=force_rebuild_index)
         if _server_collection_requires_rebuild(config):
             logger.warning(
                 "qdrant_manifest_backend_mismatch_rebuild",
@@ -219,6 +236,10 @@ class KnowledgeEngineService:
             close = getattr(pipeline, "close", None)
             if callable(close):
                 close()
+        for retired in self._retired_pipelines:
+            close = getattr(retired, "close", None)
+            if callable(close): close()
+        self._retired_pipelines.clear()
 
     def answer_question(
         self,
@@ -380,7 +401,10 @@ class KnowledgeEngineService:
             project_root=REPO_ROOT,
             data_dir=settings.data_root_path,
             knowledge_root=settings.corpus_root_path,
-            repository_id=settings.corpus_repository_id,
+            additional_knowledge_roots=(settings.workspace_root_path,),
+            # The live collection is shared by enterprise and personal managed
+            # repositories. Per-document repository ids are hydrated from the DB.
+            repository_id=None,
             document_manifest_path=settings.indexes_path / "document_manifest.json",
             bm25_cache_dir=settings.bm25_path / "cial_phase4",
             output_root=settings.outputs_path / "batch_answers",
@@ -475,6 +499,8 @@ class KnowledgeEngineService:
     ) -> SelectedContextScope:
         document_ids = [value for value in request.selected_document_ids if value.strip()]
         folder_ids = [value for value in request.selected_folder_ids if value.strip()]
+        if request.search_scope == "current_upload" and not document_ids:
+            raise KnowledgeEngineInvalidRequest("Current Upload requires at least one uploaded document.")
         if not document_ids and not folder_ids:
             return SelectedContextScope(
                 applied=False,
@@ -487,6 +513,7 @@ class KnowledgeEngineService:
 
         relative_paths: set[str] = set()
         effective_document_ids: set[str] = set()
+        not_ready: list[dict[str, str]] = []
         with SessionLocal() as session:
             for value in document_ids:
                 document = self._document_for_context_id(
@@ -498,6 +525,10 @@ class KnowledgeEngineService:
                     raise KnowledgeEngineInvalidRequest(
                         f"Selected document was not found: {value}"
                     )
+                if not (document.indexed and document.indexing_status == "indexed" and document.lifecycle_status == "indexed"):
+                    not_ready.append({"document_id": str(document.id), "name": document.name,
+                                      "indexing_status": str(document.indexing_status or "pending")})
+                    continue
                 relative_paths.add(self._normalize_relative_path(document.relative_path))
                 effective_document_ids.add(str(document.id))
 
@@ -508,19 +539,29 @@ class KnowledgeEngineService:
                         f"Selected folder was not found: {value}"
                     )
                 folder_path = self._normalize_relative_path(folder.relative_path)
-                if folder_path:
+                if str(folder.repository_id or "").startswith("personal:"):
+                    statement = select(Document).where(
+                        Document.folder_id == folder.id,
+                        Document.indexing_status == "indexed", Document.indexed.is_(True),
+                        Document.lifecycle_status == "indexed",
+                    )
+                elif folder_path:
                     statement = select(Document).where(
                         Document.relative_path.like(f"{folder_path}/%"),
-                        Document.indexing_status != "deleted",
+                        Document.indexing_status == "indexed", Document.indexed.is_(True),
+                        Document.lifecycle_status == "indexed",
                     )
                 else:
-                    statement = select(Document).where(Document.indexing_status != "deleted")
+                    statement = select(Document).where(Document.indexing_status == "indexed", Document.indexed.is_(True), Document.lifecycle_status == "indexed")
                 statement = apply_document_access_filter(statement, access_context)
                 for document in session.scalars(statement):
                     relative_paths.add(
                         self._normalize_relative_path(document.relative_path)
                     )
                     effective_document_ids.add(str(document.id))
+
+        if not_ready:
+            raise KnowledgeEngineDocumentsNotReady(not_ready)
 
         if not relative_paths:
             raise KnowledgeEngineInvalidRequest(
@@ -564,10 +605,7 @@ class KnowledgeEngineService:
     @staticmethod
     def _folder_for_context_id(session: Any, value: str) -> Folder | None:
         try:
-            folder = session.get(Folder, uuid.UUID(value))
-            if folder is not None and folder.repository_id == settings.corpus_repository_id:
-                return folder
-            return None
+            return session.get(Folder, uuid.UUID(value))
         except ValueError:
             return session.scalar(
                 select(Folder).where(
