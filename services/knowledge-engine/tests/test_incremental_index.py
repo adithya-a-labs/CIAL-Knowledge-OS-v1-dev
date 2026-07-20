@@ -57,6 +57,25 @@ def _load_fake_pdfs(paths: list[Path], *, corpus_root: Path) -> list[Document]:
 
 
 class ManifestPlanningTests(unittest.TestCase):
+    def test_additional_approved_root_joins_manifest_and_temp_files_are_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            enterprise = base / "files"; personal = base / "user-workspaces"
+            enterprise.mkdir(); personal.mkdir()
+            (enterprise / "policy.pdf").write_bytes(b"enterprise")
+            private = personal / "org" / "user" / "personal_uploads" / "note.pdf"
+            private.parent.mkdir(parents=True); private.write_bytes(b"personal")
+            (private.parent / "partial.pdf.part").write_bytes(b"partial")
+            trash = personal / ".trash" / "deleted.pdf"; trash.parent.mkdir(); trash.write_bytes(b"deleted")
+
+            plan = create_indexing_plan(corpus_root=enterprise, additional_roots=(personal,),
+                manifest_path=base / "manifest.json", collection_name="shared")
+
+            self.assertEqual([entry.relative_path for entry in plan.new],
+                ["org/user/personal_uploads/note.pdf", "policy.pdf"])
+            self.assertEqual({Path(entry.source_root) for entry in plan.new},
+                {enterprise.resolve(), personal.resolve()})
+
     def test_classifies_new_unchanged_changed_deleted_and_force_rebuild(
         self,
     ) -> None:
@@ -133,6 +152,21 @@ class ManifestPlanningTests(unittest.TestCase):
 
 
 class IncrementalPipelineTests(unittest.TestCase):
+    def test_enterprise_and_personal_roots_share_dense_and_bm25_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); personal = root / "personal"
+            config = self._config(root, additional_knowledge_roots=(personal,))
+            enterprise_file = config.knowledge_root / "enterprise.pdf"
+            personal_file = personal / "org" / "user" / "personal_uploads" / "private.pdf"
+            enterprise_file.parent.mkdir(parents=True); personal_file.parent.mkdir(parents=True)
+            enterprise_file.write_text("enterprise runway procedure", encoding="utf-8")
+            personal_file.write_text("private apron checklist", encoding="utf-8")
+
+            pipeline = self._run_index(config)
+            paths = {chunk.metadata["relative_path"] for chunk in pipeline.chunks}
+            self.assertEqual(paths, {"enterprise.pdf", "org/user/personal_uploads/private.pdf"})
+            self.assertEqual(len(pipeline.bm25_retriever._chunks), len(pipeline.chunks))
+            pipeline.close()
     def _config(self, root: Path, **kwargs: object) -> Phase3Config:
         return Phase3Config(
             project_root=root,
