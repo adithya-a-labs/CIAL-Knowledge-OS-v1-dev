@@ -40,6 +40,10 @@ export interface UploadedFileContext {
   sourceType: 'upload';
   uploadStatus: 'uploading' | 'uploaded' | 'upload_failed';
   backendDocumentId?: string;
+  backendDocumentVersionId?: string;
+  indexingStatus?: 'pending' | 'indexing' | 'indexed' | 'failed' | 'deleted';
+  indexingStage?: string;
+  indexingSafeMessage?: string;
 }
 
 export interface ChatRequestPayload {

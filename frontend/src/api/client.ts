@@ -207,6 +207,9 @@ export function createAssistantExport(payload: { format: import('./types').Assis
 export function getAssistantExport(exportId: string, signal?: AbortSignal) {
   return request<import('./types').AssistantExportJob>(`/api/exports/${encodeURIComponent(exportId)}`, { signal });
 }
+export function saveAssistantExportToWorkspace(exportId: string, payload: import('./types').AssistantExportWorkspaceSaveRequest) {
+  return request<import('./types').AssistantExportWorkspaceSaveResponse>(`/api/exports/${encodeURIComponent(exportId)}/save-to-workspace`, { method: 'POST', body: JSON.stringify(payload) });
+}
 export async function cancelAssistantExport(exportId: string) {
   const response = await fetch(apiUrl(`/api/exports/${encodeURIComponent(exportId)}`), { method: 'DELETE', credentials: 'include' });
   if (!response.ok) throw new ApiError(`Cancel failed with status ${response.status}`, response.status, null);
@@ -283,6 +286,20 @@ export function uploadDocument(file: File) {
     method: 'POST',
     body: formData,
   });
+}
+
+export function uploadChatAttachment(file: File, sessionId?: string) {
+  const body = new FormData(); body.append('file', file);
+  if (sessionId) body.append('session_id', sessionId);
+  return request<import('./types').ChatAttachmentResponse>('/api/chat/attachments', { method: 'POST', body });
+}
+
+export function getDocumentIndexingStatus(documentId: string, signal?: AbortSignal) {
+  return request<import('./types').DocumentIndexingStatus>(`/api/documents/${encodeURIComponent(documentId)}/indexing-status`, { signal });
+}
+
+export function retryDocumentIndexing(documentId: string) {
+  return request<import('./types').DocumentIndexingStatus>(`/api/documents/${encodeURIComponent(documentId)}/retry-indexing`, { method: 'POST' });
 }
 
 export function rebuildIndex(force: boolean) {

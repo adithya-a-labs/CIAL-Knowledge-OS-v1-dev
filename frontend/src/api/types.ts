@@ -177,7 +177,10 @@ export interface AssistantExportJob {
   progress: { stage: string; percent: number }; error: { code: string; message: string } | null;
   filename?: string | null; mime_type?: string | null; file_size_bytes?: number | null;
   preview?: { type: 'pdf' | 'html'; url: string } | null; download_url?: string | null;
+  suggested_workspace_filename?: string | null;
 }
+export interface AssistantExportWorkspaceSaveRequest { filename?: string | null; folder_id?: string | null; }
+export interface AssistantExportWorkspaceSaveResponse { document_id: string; filename: string; folder_id?: string | null; file_type: AssistantExportFormat; size_bytes: number; indexing_status: string; indexing_job_id?: string | null; open_url: string; }
 
 export interface ChatHistorySession {
   id: string;
@@ -222,6 +225,22 @@ export interface ApiDocument {
   size_bytes: number;
   modified_at: string;
   indexed: boolean;
+  indexing_status?: 'pending' | 'indexing' | 'indexed' | 'failed' | 'deleted';
+  indexing_stage?: string | null;
+  indexing_safe_message?: string | null;
+}
+
+export interface ChatAttachmentResponse {
+  document_id: string; document_version_id: string; name: string; size_bytes: number;
+  mime_type?: string | null; indexing_status: 'pending' | 'indexing' | 'indexed' | 'failed';
+  indexing_job_id: string; indexing_safe_message?: string | null;
+}
+
+export interface DocumentIndexingStatus {
+  document_id: string; document_version_id?: string | null; name: string;
+  indexing_status: 'pending' | 'indexing' | 'indexed' | 'failed' | 'deleted';
+  indexing_stage?: string | null; indexing_safe_message?: string | null;
+  indexing_updated_at: string; retry_allowed: boolean;
 }
 
 export interface DocumentListResponse {
