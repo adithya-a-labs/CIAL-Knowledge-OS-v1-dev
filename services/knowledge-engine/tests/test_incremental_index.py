@@ -110,6 +110,15 @@ class ManifestPlanningTests(unittest.TestCase):
             )
             self.assertEqual(len(unchanged.unchanged), 2)
 
+            retry_plan = create_indexing_plan(
+                corpus_root=root,
+                manifest_path=manifest,
+                collection_name="test",
+                force_reindex_paths=("first.pdf",),
+            )
+            self.assertEqual([entry.relative_path for entry in retry_plan.changed], ["first.pdf"])
+            self.assertEqual([entry.relative_path for entry in retry_plan.unchanged], ["deleted.pdf"])
+
             first.write_bytes(b"changed")
             deleted.unlink()
             added = root / "new.pdf"
@@ -266,6 +275,38 @@ class IncrementalPipelineTests(unittest.TestCase):
                 indexed_paths,
             )
             second.close()
+
+    def test_manual_retry_forces_only_the_failed_file_through_dense_and_bm25_replacement(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            initial_config = self._config(root)
+            failed = initial_config.knowledge_root / "failed.pdf"
+            stable = initial_config.knowledge_root / "stable.pdf"
+            failed.parent.mkdir(parents=True)
+            failed.write_text("unique retried runway phrase", encoding="utf-8")
+            stable.write_text("unrelated stable phrase", encoding="utf-8")
+            initial = self._run_index(initial_config)
+            initial_count = len(initial.chunks)
+            initial.close()
+
+            retry_model = _EmbeddingModel()
+            retry = self._run_index_with_model(
+                self._config(root, force_reindex_paths=("failed.pdf",)), retry_model,
+            )
+            self.assertEqual(retry.indexing_summary["changed_files"], 1)
+            self.assertEqual(retry.indexing_summary["unchanged_files"], 1)
+            self.assertGreater(retry.indexing_summary["chunks_removed"], 0)
+            self.assertEqual(len(retry.chunks), initial_count)
+            self.assertTrue(all("unique retried runway phrase" in text for text in retry_model.encoded_texts))
+            self.assertEqual(
+                {item["metadata"]["relative_path"] for item in retry.bm25_retriever._chunks},
+                {"failed.pdf", "stable.pdf"},
+            )
+            self.assertEqual(
+                {chunk.metadata["relative_path"] for chunk in retry.chunks},
+                {"failed.pdf", "stable.pdf"},
+            )
+            retry.close()
 
     def test_new_unchanged_changed_and_deleted_files_update_both_indexes(
         self,
