@@ -120,10 +120,14 @@ class CorpusMetadataStore:
             document.content_hash,
         )
         if existing is not None:
+            if action in {"deleted", "moved"}:
+                existing.metadata_ = {**(existing.metadata_ or {}), "action": action,
+                                      "relative_path": document.relative_path}
+                existing.message = message
             logger.info(
-                "indexing_job_duplicate_skipped",
+                "index_job_deduplicated",
                 extra={
-                    "event": "indexing",
+                    "event": "index_job_deduplicated",
                     "document_id": str(document.id),
                     "content_hash": document.content_hash,
                     "existing_job_id": str(existing.id),
@@ -159,6 +163,8 @@ class CorpusMetadataStore:
             },
         )
         self.session.add(job)
+        logger.info("index_job_enqueued", extra={"event": "index_job_enqueued",
+            "job_id": str(job.id), "document_id": str(document.id)})
         return job
 
     def _find_active_job(
