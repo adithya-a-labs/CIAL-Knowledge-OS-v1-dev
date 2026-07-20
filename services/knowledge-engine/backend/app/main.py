@@ -52,6 +52,7 @@ async def lifespan(app: FastAPI):
 
     # Start background indexing worker
     app.state.indexing_worker.start()
+    app.state.export_service.start()
 
     startup_thread = Thread(
         target=app.state.startup_service.run_startup,
@@ -66,6 +67,7 @@ async def lifespan(app: FastAPI):
         if watcher is not None:
             watcher.stop()
         app.state.indexing_worker.stop()
+        app.state.export_service.stop()
         app.state.knowledge_engine.close()
 
 
