@@ -60,6 +60,7 @@ export function toAssistantMessageMetadata(
     citationCount: citations.length,
     confidence: citations.length > 0 ? 84 : 0,
     generationTimeSeconds: Number(metadata.latency_ms || 0) / 1000,
+    transformationLabel: typeof metadata.label === 'string' ? metadata.label : undefined,
   };
 }
 
