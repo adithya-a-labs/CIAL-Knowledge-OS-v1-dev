@@ -152,15 +152,6 @@ class MessageTransformRequest(BaseModel):
     operation: Literal["explain_simpler", "create_checklist"]
 
 
-class MessageExportRequest(BaseModel):
-    format: Literal["pdf", "docx"]
-    include_sources: bool = True
-    include_metadata: bool = True
-
-
-class MessageExportResponse(BaseModel):
-    filename: str
-    download_url: str
 
 
 class ChatSessionRecord(BaseModel):
