@@ -11,6 +11,7 @@ const contextChips = readFileSync(new URL('../src/components/assistant/ContextCh
 const corpusExplorer = readFileSync(new URL('../src/components/corpus/CorpusExplorer.tsx', import.meta.url), 'utf8');
 const fileStatus = readFileSync(new URL('../src/components/documents/FileIndexingStatus.tsx', import.meta.url), 'utf8');
 const statusHook = readFileSync(new URL('../src/hooks/useDocumentIndexingStatuses.ts', import.meta.url), 'utf8');
+const documentWorkspace = readFileSync(new URL('../src/pages/DocumentWorkspacePage.tsx', import.meta.url), 'utf8');
 
 test('copy uses the complete persisted Markdown answer and reports Copied', () => {
   assert.match(panel, /navigator\.clipboard\.writeText\(message\.content\)/);
@@ -149,4 +150,38 @@ test('document status polling starts for active work and stops at terminal state
   assert.match(statusHook, /retry: false/);
   assert.match(panel, /useDocumentIndexingStatuses/);
   assert.match(exportDialog, /useDocumentIndexingStatuses/);
+});
+
+test('failed status is a retry button only when the server allows it', () => {
+  assert.match(fileStatus, /status === 'failed' && retryAllowed && Boolean\(documentId\)/);
+  assert.match(fileStatus, /if \(canRetry\) return <button/);
+  assert.match(fileStatus, /aria-label=\{label\}/);
+  assert.match(fileStatus, /Retry indexing/);
+  assert.match(fileStatus, /return <span/);
+});
+
+test('retry is single-flight and changes to queued only after a successful response', () => {
+  assert.match(fileStatus, /requestLock\.current/);
+  assert.match(fileStatus, /if \(!canRetry \|\| requestLock\.current/);
+  assert.match(fileStatus, /const result = await retryDocumentIndexing\(documentId\)/);
+  assert.ok(fileStatus.indexOf('setAccepted(true)') > fileStatus.indexOf('await retryDocumentIndexing(documentId)'));
+  assert.match(fileStatus, /disabled=\{isRetrying\}/);
+  assert.match(fileStatus, /toast\(\{ title: 'Indexing restarted' \}\)/);
+  assert.match(fileStatus, /title: 'Indexing retry failed'/);
+  assert.match(fileStatus, /error instanceof Error \? error\.message/);
+});
+
+test('retry refreshes status consumers and preserves reduced-motion loading', () => {
+  assert.match(fileStatus, /invalidateQueries\(\{ queryKey: \['document-indexing-statuses'\] \}\)/);
+  assert.match(fileStatus, /invalidateQueries\(\{ queryKey: \['my-workspace-folder'\] \}\)/);
+  assert.match(fileStatus, /invalidateQueries\(\{ queryKey: \['corpus-folder'\] \}\)/);
+  assert.match(fileStatus, /animate-spin motion-reduce:animate-none/);
+});
+
+test('shared retry status is wired across workspace, chat, context, corpus, exports, and document view', () => {
+  for (const surface of [workspacePage, contextChips, corpusExplorer, exportDialog, documentWorkspace]) {
+    assert.match(surface, /retryAllowed=/);
+    assert.match(surface, /documentId=/);
+  }
+  assert.match(panel, /retryAllowed: status\.retry_allowed/);
 });

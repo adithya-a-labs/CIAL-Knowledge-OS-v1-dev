@@ -51,7 +51,8 @@ function formatBytes(bytes: number) {
 }
 
 function StatusPill({ file }: { file: WorkspaceFile }) {
-  return <FileIndexingStatus status={file.indexed ? 'indexed' : file.status} />;
+  return <FileIndexingStatus status={file.indexed ? 'indexed' : file.status} stage={file.indexing_stage}
+    safeMessage={file.indexing_safe_message} retryAllowed={file.retry_allowed} documentId={file.id} fileName={file.name} />;
 }
 
 function FolderRail({ folders, activeId, onSelect, onNew }: { folders: WorkspaceFolderNode[]; activeId: string | null; onSelect: (id: string | null) => void; onNew: () => void }) {

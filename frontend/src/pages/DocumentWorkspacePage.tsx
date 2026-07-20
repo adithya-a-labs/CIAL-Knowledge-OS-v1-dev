@@ -218,7 +218,9 @@ export default function DocumentWorkspacePage() {
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h1 className="safe-text min-w-0 text-base font-semibold text-slate-950 sm:text-lg">{title}</h1>
               <span className="ce-badge px-2 py-1 text-[11px]">{typeLabel}</span>
-              <FileIndexingStatus status={document?.indexing_status || 'pending'} />
+              <FileIndexingStatus status={document?.indexing_status || 'pending'} stage={document?.indexing_stage}
+                safeMessage={document?.indexing_safe_message} retryAllowed={document?.retry_allowed}
+                documentId={document?.id} fileName={document?.name} />
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
               <span>{formatBytes(document?.size_bytes)}</span>
