@@ -277,6 +277,17 @@ class CorpusSynchronizer:
                         message=f"Corpus document {action}: {existing.relative_path}",
                     )
                     jobs_created += 1
+                else:
+                    # A path-only move still changes manifest, source payload,
+                    # folder context, and citations, so it requires the shared
+                    # finalization workflow even when extraction can be reused.
+                    existing.indexed = False
+                    existing.indexing_status = PENDING_STATUS
+                    existing.lifecycle_status = PENDING_STATUS
+                    current = session.get(DocumentVersion, existing.current_version_id) if existing.current_version_id else None
+                    store.add_indexing_job(action=action, document=existing, document_version=current,
+                        message=f"Corpus document {action}: {existing.relative_path}")
+                    jobs_created += 1
             elif existing.indexing_status != DELETED_STATUS and existing.indexing_status != PENDING_STATUS:
                 existing.indexing_status = INDEXED_STATUS if existing.indexed else existing.indexing_status
                 if existing.indexed and existing.lifecycle_status != "archived":
@@ -289,6 +300,10 @@ class CorpusSynchronizer:
             document.indexing_status = DELETED_STATUS
             document.lifecycle_status = "deleted"
             document.deleted_at = datetime.now(timezone.utc)
+            current = session.get(DocumentVersion, document.current_version_id) if document.current_version_id else None
+            store.add_indexing_job(action="deleted", document=document, document_version=current,
+                message="Corpus document deleted.")
+            jobs_created += 1
             counters.files_removed += 1
 
         return jobs_created
