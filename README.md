@@ -10,6 +10,9 @@ Current structure:
 - `data/` - benchmark/manual QA assets and optional test corpus; runtime stores and enterprise corpus mounts must remain uncommitted.
 
 Metadata/control-plane storage uses PostgreSQL through SQLAlchemy and Alembic.
+Authenticated conversation history is authoritative in PostgreSQL
+`chat_sessions`/`chat_messages`; browser storage is limited to UI preferences
+and transient context handoff and must never seed or replace chat history.
 Original source files remain in the configured enterprise repository
 (`CIAL_CORPUS_ROOT`, `CORPUS_ROOT`, or `data/config/application.json`), and
 vectors/chunk embeddings remain in Qdrant. If no repository configuration

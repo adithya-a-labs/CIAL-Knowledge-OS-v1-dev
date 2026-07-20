@@ -9,7 +9,7 @@ PostgreSQL is the system of record for:
 - identity, organizations, departments, roles, and memberships
 - workspaces, folders, documents, versions, chunks, and ACL metadata
 - indexing jobs, ingestion runs, and audit history
-- chat session metadata and conversation summaries
+- authoritative chat sessions, messages, citations, sources, request/profile metadata, and conversation summaries
 - search metadata and retrieval telemetry
 
 PostgreSQL does not replace:
@@ -131,7 +131,15 @@ Migration `20260720_0009` adds `folders.system_key`, document JSON metadata for 
 
 `document_search_metadata` stores normalized search fields outside Qdrant, including title normalization, summary, keywords, entities, topics, language, and classification. Its unique constraint on `document_id` doubles as the primary lookup index.
 
-`retrieval_events` and `conversation_summaries` are schema foundations for future runtime wiring. They are intentionally lightweight and do not replace the current retrieval or chat flow.
+`retrieval_events` and `conversation_summaries` remain schema foundations for future runtime wiring. `chat_sessions` and `chat_messages`, however, are wired into the current authenticated chat flow and are the conversation-history system of record. Local/session storage and React/React Query state may cache UI data only; they cannot create seeded history or replace PostgreSQL results.
+
+Chat ownership invariants:
+
+- list, read, create, and message writes require an authenticated user;
+- session and message reads constrain through `chat_sessions.user_id`;
+- a client may supply a stable UUID for a new session, but cannot reuse another user's UUID;
+- successful turns persist the user message and assistant answer together with citations, sources, selected document/folder IDs, response profile, metadata, and timestamps;
+- empty history is a valid result and API errors never authorize destructive replacement or demo fallback.
 
 ## Deferred Runtime Wiring
 

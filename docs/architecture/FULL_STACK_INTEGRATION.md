@@ -134,6 +134,7 @@ unavailability does not block current chat or retrieval behavior.
 - `GET /api/corpus/document/{id}` returns document metadata from PostgreSQL metadata.
 - `POST /api/corpus/sync` scans the configured corpus repository, synchronizes PostgreSQL metadata, and queues indexing jobs for new/content-changed documents.
 - `POST /api/chat` first checks `runtime_state.engine_ready`. If false, it returns HTTP 503 with structured detail such as `no_documents_found`, `indexing_in_progress`, `qdrant_unavailable`, `model_unavailable`, or `startup_failed`. If ready, it calls `KnowledgeEngineService.answer_question()` and adapts the Phase 4 response into answer, citations, source chunks, and metadata.
+- `GET /api/chat/sessions` and `GET /api/chat/sessions/{session_id}` hydrate authenticated, user-owned conversation history from PostgreSQL. `POST /api/chat` accepts a stable client session UUID and atomically persists the successful user/assistant turn, citations, sources, profile/context metadata, and database timestamps through `ChatRepository`.
 - `GET /api/documents` lists files discovered under the configured corpus repository.
 - `POST /api/documents/upload` saves uploaded files to the configured corpus repository.
 - `POST /api/index/rebuild` runs the same deterministic Phase 4.5 initialization/indexing path used by startup.
@@ -170,6 +171,7 @@ If Qdrant, Ollama, embeddings, reranker weights, Python packages, or an index ar
 - Dashboard, analytics, experts, departments, FAQs, learning, and most Knowledge Center drive data still use `frontend/src/data/*`. My Workspace now prefers authenticated workspace APIs and uses labelled local preview data only when that API is unavailable.
 - `DocumentsPage` uses `GET /api/documents` when available, polls `GET /api/index/status`, and falls back to `DOCUMENTS`.
 - `ChatPanel` calls `GET /api/health`, shows a backend readiness banner, disables send until `engine_ready=true`, and then calls `POST /api/chat`.
+- Assistant history has no mock fallback. An empty database renders an empty state; a history API failure retains the currently displayed cache and exposes Retry. Hydration waits for resolved authentication, is user-scoped, and ignores aborted or superseded responses.
 - The document upload modal UI is still mostly presentational. The chat attachment control uses `POST /api/documents/upload`.
 
 ## Known Limitations

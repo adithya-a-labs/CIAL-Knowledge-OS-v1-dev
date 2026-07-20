@@ -6,6 +6,16 @@ This document describes the implemented repository state. `PROJECT_REQUIREMENTS.
 defines the binding requirements, while this file distinguishes completed
 capabilities from planned work.
 
+## Authenticated Conversation Persistence
+
+The current FastAPI integration persists authenticated conversation history in
+PostgreSQL `chat_sessions` and `chat_messages` through `ChatRepository`.
+Successful turns retain the stable session id, user and assistant messages,
+citations, sources, selected context ids, response profile/metadata, and
+timestamps. List and read queries are constrained by the authenticated user;
+another user's session id returns not found. Browser storage is not a history
+store, and an empty database or API failure does not activate demo data.
+
 ## Project Overview
 
 CIAL Knowledge OS is an enterprise-grade, fully offline, notebook-first

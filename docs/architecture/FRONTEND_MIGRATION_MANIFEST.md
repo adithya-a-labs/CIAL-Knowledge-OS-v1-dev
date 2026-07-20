@@ -59,7 +59,7 @@ Required. This is the main frontend source.
 | `src/components/ui` | Required | shadcn/Radix-style local component library. |
 | `src/components/dashboard` | Required | Dashboard hero, KPI row, dashboard blocks. |
 | `src/components/dashboard/blocks` | Required | Dashboard content block components. |
-| `src/components/assistant` | Required | AI Assistant mock UI: chat, citations, context manager, retrieval timeline. |
+| `src/components/assistant` | Required | AI Assistant UI with PostgreSQL-backed authenticated history, live chat, citations, context manager, and retrieval timeline. |
 | `src/components/documents` | Required | Document card/row/upload modal UI. |
 | `src/components/knowledge-center` | Required | Main Knowledge Center implementation. |
 | `src/components/workspace` | Required | My Workspace feature components. |
@@ -266,13 +266,13 @@ Other environment inputs used by config:
 
 ## 12. API Layer Status
 
-Current status: frontend is mocked/static.
+Current status: the frontend remains mixed integration/static overall. Authentication, corpus, personal workspace, live chat, and conversation history are integrated APIs; other areas documented below still use static data.
 
 Evidence:
 
 - Dashboard pages/components import from `@/data/*`.
 - `src/data/*` contains domain data for dashboard, documents, experts, FAQs, learning, analytics, admin, knowledge center, knowledge graph, knowledge gaps, assistant, SOPs, and workspace.
-- `src/components/assistant/ChatPanel.tsx` contains a TODO to replace the mock response path with a backend retrieval/chat call.
+- `src/components/assistant/ChatPanel.tsx` calls the authenticated backend chat API. `AssistantSessionContext.tsx` hydrates only after authentication resolves and treats PostgreSQL history as authoritative; it has no seeded/default conversation fallback.
 - `src/pages/DashboardPage.tsx` contains a TODO to replace mock homepage arrays with personalized API data.
 - `src/config/securityConfig.ts` and `src/config/userConfig.ts` contain TODOs for Microsoft Entra ID / Keycloak integration.
 - `@workspace/api-client-react` exists and exports React Query hooks generated from OpenAPI, but current dashboard source does not import it.
