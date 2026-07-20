@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -19,7 +21,9 @@ ChatProfile = Literal[
 
 
 class ChatRequest(BaseModel):
+    session_id: UUID | None = None
     question: str = Field(min_length=1)
+    search_scope: Literal["enterprise", "workspace", "hybrid", "current_upload"] = "hybrid"
     selected_document_ids: list[str] = Field(default_factory=list)
     selected_folder_ids: list[str] = Field(default_factory=list)
     response_length: ChatProfile = "standard"
@@ -112,8 +116,57 @@ class ChatMetadata(BaseModel):
 
 
 class ChatResponse(BaseModel):
+    session_id: UUID | None = None
+    user_message_id: UUID | None = None
+    assistant_message_id: UUID | None = None
     answer: str
     citations: list[ChatCitation] = Field(default_factory=list)
     sources: list[ChatSource] = Field(default_factory=list)
     metadata: ChatMetadata
     debug: dict[str, Any] | None = None
+
+
+class ChatMessageRecord(BaseModel):
+    id: UUID
+    role: Literal["user", "assistant"]
+    content: str
+    citations: list[dict[str, Any]] = Field(default_factory=list)
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    feedback: list[str] = Field(default_factory=list)
+
+
+class MessageFeedbackRequest(BaseModel):
+    feedback: Literal["helpful", "not_helpful", "incorrect", "missing_sources", "hallucination"]
+
+
+class MessageFeedbackResponse(BaseModel):
+    active: list[str] = Field(default_factory=list)
+
+
+class MessageTransformRequest(BaseModel):
+    operation: Literal["explain_simpler", "create_checklist"]
+
+
+class MessageExportRequest(BaseModel):
+    format: Literal["pdf", "docx"]
+    include_sources: bool = True
+    include_metadata: bool = True
+
+
+class MessageExportResponse(BaseModel):
+    filename: str
+    download_url: str
+
+
+class ChatSessionRecord(BaseModel):
+    id: UUID
+    title: str
+    messages: list[ChatMessageRecord] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatSessionList(BaseModel):
+    sessions: list[ChatSessionRecord] = Field(default_factory=list)
