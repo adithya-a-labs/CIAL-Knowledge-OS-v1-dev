@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Literal
 
 from pydantic import BaseModel, Field
+from datetime import datetime
+from uuid import UUID
 
 
 DocumentType = Literal[
@@ -52,3 +54,14 @@ class UploadResponse(BaseModel):
     content_hash: str | None = None
     duplicate_detected: bool = False
     message: str = "Upload accepted. Background indexing queued."
+
+
+class DocumentIndexingStatus(BaseModel):
+    document_id: UUID
+    document_version_id: UUID | None = None
+    name: str
+    indexing_status: Literal["pending", "indexing", "indexed", "failed", "deleted"]
+    indexing_stage: str | None = None
+    indexing_safe_message: str | None = None
+    indexing_updated_at: datetime
+    retry_allowed: bool = False

@@ -33,6 +33,17 @@ class ChatRequest(BaseModel):
     include_debug: bool = False
 
 
+class ChatAttachmentResponse(BaseModel):
+    document_id: UUID
+    document_version_id: UUID
+    name: str
+    size_bytes: int
+    mime_type: str | None = None
+    indexing_status: Literal["pending", "indexing", "indexed", "failed"]
+    indexing_job_id: UUID
+    indexing_safe_message: str | None = None
+
+
 class ChatCitation(BaseModel):
     id: str
     document_name: str
