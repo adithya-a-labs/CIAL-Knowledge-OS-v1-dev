@@ -26,6 +26,7 @@ from backend.app.services.export_service import ExportService
 from backend.app.services.indexing_service import IndexingService
 from backend.app.services.indexing_worker import IndexingWorker
 from backend.app.services.knowledge_engine_service import KnowledgeEngineService
+from backend.app.services.message_transformation_service import OllamaTransformationGenerator
 from backend.app.services.startup_service import StartupService
 from cial_knowledge_os.corpus.service import CorpusService
 from cial_knowledge_os.corpus.watcher import CorpusWatcher
@@ -107,6 +108,7 @@ def create_app() -> FastAPI:
     app.state.indexing_service = IndexingService(engine, runtime_state)
     app.state.evaluation_service = EvaluationService()
     app.state.export_service = ExportService()
+    app.state.transformation_generator = OllamaTransformationGenerator()
 
     app.include_router(health.router, prefix="/api", tags=["health"])
     app.include_router(auth.router, prefix="/api", tags=["auth"])
