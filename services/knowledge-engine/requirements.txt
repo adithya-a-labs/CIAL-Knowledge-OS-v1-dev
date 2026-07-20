@@ -36,8 +36,10 @@ pydantic-settings       # NEW
 pypdf                   # NEW
 pytest                  # NEW
 pytest-asyncio          # NEW
-python-docx             # NEW
-reportlab               # Chat response PDF export
+reportlab==5.0.0
+python-docx==1.2.0
+markdown-it-py==4.2.0
+bleach==6.4.0
 python-dotenv           # NEW
 PyYAML                  # NEW
 rapidfuzz               # NEW
