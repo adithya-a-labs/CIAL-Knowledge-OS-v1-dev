@@ -8,7 +8,15 @@ import {
 } from 'react';
 import type { ReactNode } from 'react';
 import type { AuthenticatedUser, LoginRequest, SignupRequest } from '@/api/types';
-import { AUTH_INVALIDATED_EVENT, getCurrentUser, logIn, logOut, signUp } from '@/api/client';
+import { ApiError } from '@/api/types';
+import {
+  AUTH_INVALIDATED_EVENT,
+  getCurrentUser,
+  logIn,
+  logOut,
+  resetAuthInvalidationGuard,
+  signUp,
+} from '@/api/client';
 import type { Role, User } from '@/types';
 import {
   aiNoticeAcknowledgementKey,
@@ -20,13 +28,14 @@ import {
   writeSessionEntryUserId,
 } from './storage';
 
-type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
+type AuthStatus = 'initializing' | 'authenticated' | 'unauthenticated' | 'error';
 
 interface AuthContextValue {
   status: AuthStatus;
   user: AuthenticatedUser | null;
   userView: User | null;
   isAuthenticated: boolean;
+  authError: string | null;
   login: (payload: LoginRequest) => Promise<AuthenticatedUser>;
   signup: (payload: SignupRequest) => Promise<AuthenticatedUser>;
   logout: () => Promise<void>;
@@ -71,21 +80,29 @@ function toUserView(user: AuthenticatedUser): User {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<AuthStatus>('loading');
+  const [status, setStatus] = useState<AuthStatus>('initializing');
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [showWelcome, setShowWelcome] = useState(false);
   const [aiNoticeAcknowledged, setAiNoticeAcknowledged] = useState(false);
 
   const loadSession = useCallback(async () => {
-    setStatus((current) => (current === 'authenticated' ? current : 'loading'));
+    setStatus((current) => (current === 'authenticated' ? current : 'initializing'));
+    setAuthError(null);
     try {
       const response = await getCurrentUser();
       setUser(response.user);
       setStatus('authenticated');
-    } catch {
-      setUser(null);
-      setStatus('unauthenticated');
-      clearSessionEntryUserId();
+      resetAuthInvalidationGuard();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        setUser(null);
+        setStatus('unauthenticated');
+        clearSessionEntryUserId();
+        return;
+      }
+      setAuthError(error instanceof Error ? error.message : 'Unable to restore your session.');
+      setStatus((current) => (current === 'authenticated' ? current : 'error'));
     }
   }, []);
 
@@ -97,6 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const handleInvalidation = () => {
       setUser(null);
       setStatus('unauthenticated');
+      setAuthError(null);
       setShowWelcome(false);
       clearSessionEntryUserId();
     };
@@ -120,7 +138,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const finalizeAuthentication = useCallback((nextUser: AuthenticatedUser) => {
     markWelcomePending();
     setUser(nextUser);
+    setAuthError(null);
     setStatus('authenticated');
+    resetAuthInvalidationGuard();
   }, []);
 
   const login = useCallback(async (payload: LoginRequest) => {
@@ -141,6 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       clearUserWorkspaceState();
       setUser(null);
+      setAuthError(null);
       setStatus('unauthenticated');
       setShowWelcome(false);
     }
@@ -164,6 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       userView,
       isAuthenticated: status === 'authenticated' && user !== null,
+      authError,
       login,
       signup,
       logout,
@@ -176,6 +198,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [
       acknowledgeAiNotice,
       aiNoticeAcknowledged,
+      authError,
       dismissWelcome,
       loadSession,
       login,

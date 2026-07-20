@@ -28,12 +28,32 @@ import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
 
-function AppBootScreen() {
+function AppBootScreen({
+  message = "Loading secure workspace...",
+  error,
+  onRetry,
+}: {
+  message?: string;
+  error?: string | null;
+  onRetry?: () => void;
+}) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#f5f8f3]">
       <div className="text-center">
         <img src="/favicon.svg" alt="CIAL" className="mx-auto h-12 w-12 animate-pulse" />
-        <p className="mt-4 text-sm font-medium text-slate-600">Loading secure workspace...</p>
+        <p className="mt-4 text-sm font-medium text-slate-600">{message}</p>
+        {error ? (
+          <p className="mx-auto mt-3 max-w-md text-sm text-red-700">{error}</p>
+        ) : null}
+        {onRetry ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-5 rounded-lg border border-[#b8c9b1] bg-white px-4 py-2 text-sm font-semibold text-[#25611f] shadow-sm transition hover:bg-[#f4f7f2]"
+          >
+            Retry
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -74,19 +94,19 @@ function ProtectedRouter() {
 }
 
 function AuthRouter() {
-  const { status, isAuthenticated } = useAuth();
+  const { status, isAuthenticated, authError, refreshSession } = useAuth();
   const [location, setLocation] = useLocation();
   const isAuthRoute = location === "/login" || location === "/signup";
 
   useEffect(() => {
-    if (status === "loading") {
+    if (status === "initializing" || status === "error") {
       return;
     }
 
     if (!isAuthenticated) {
       if (!isAuthRoute) {
         setPostAuthRedirect(location);
-        setLocation("/login");
+        setLocation("/login", { replace: true });
       }
       return;
     }
@@ -94,13 +114,23 @@ function AuthRouter() {
     if (isAuthRoute) {
       const nextLocation = consumePostAuthRedirect();
       if (nextLocation !== location) {
-        setLocation(nextLocation);
+        setLocation(nextLocation, { replace: true });
       }
     }
   }, [isAuthRoute, isAuthenticated, location, setLocation, status]);
 
-  if (status === "loading") {
+  if (status === "initializing") {
     return <AppBootScreen />;
+  }
+
+  if (status === "error") {
+    return (
+      <AppBootScreen
+        message="Unable to restore your session."
+        error={authError}
+        onRetry={() => void refreshSession()}
+      />
+    );
   }
 
   if (!isAuthenticated) {
