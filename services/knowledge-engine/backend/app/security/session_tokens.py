@@ -85,12 +85,15 @@ def verify_session_token(token: str) -> uuid.UUID | None:
 
 def session_cookie_settings() -> dict[str, Any]:
     max_age = settings.auth_session_ttl_hours * 60 * 60
+    same_site = str(settings.auth_cookie_samesite or "lax").strip().lower()
+    if same_site not in {"lax", "strict", "none"}:
+        same_site = "lax"
     return {
         "key": settings.auth_cookie_name,
         "httponly": True,
         "max_age": max_age,
         "expires": max_age,
         "path": "/",
-        "samesite": "lax",
+        "samesite": same_site,
         "secure": settings.auth_cookie_secure,
     }
