@@ -24,9 +24,11 @@ export function toApiResponseLength(value: UiResponseLength): ResponseLength {
   return value;
 }
 
-export function toChatRequest(payload: ChatRequestPayload) {
+export function toChatRequest(payload: ChatRequestPayload, sessionId?: string) {
   return {
+    session_id: sessionId,
     question: payload.query,
+    search_scope: payload.searchScope,
     selected_document_ids: [...payload.selectedDocumentIds],
     selected_folder_ids: [...payload.selectedFolderIds],
     response_length: toApiResponseLength(payload.activeProfile),
@@ -48,12 +50,14 @@ export function toAssistantMessageMetadata(
     latency_ms: 0,
     model: '',
   };
+  const documentIds = new Set([...sources, ...citations].map((item) => item.document_id || item.relative_path || item.document_name).filter(Boolean));
   return {
     searchScope: request.searchScope,
     activeProfile: request.activeProfile,
-    documentsSearched: request.selectedDocumentIds.length + request.uploadedFileIds.length + request.selectedFolderIds.length,
-    chunksRetrieved: sources.length,
-    sourcesUsed: citations.length,
+    documentsSearched: Number(metadata.effective_document_count || documentIds.size),
+    chunksRetrieved: Number(metadata.selected_evidence_count || metadata.context_sections || sources.length),
+    sourcesUsed: sources.length,
+    citationCount: citations.length,
     confidence: citations.length > 0 ? 84 : 0,
     generationTimeSeconds: Number(metadata.latency_ms || 0) / 1000,
   };

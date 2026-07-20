@@ -51,7 +51,9 @@ export interface HealthResponse {
 }
 
 export interface ChatRequest {
+  session_id?: string;
   question: string;
+  search_scope?: 'enterprise' | 'workspace' | 'hybrid' | 'current_upload';
   selected_document_ids: string[];
   selected_folder_ids?: string[];
   response_length: ResponseLength;
@@ -143,12 +145,39 @@ export interface ChatMetadata {
 }
 
 export interface ChatResponse {
+  session_id?: string | null;
+  user_message_id?: string | null;
+  assistant_message_id?: string | null;
   answer: string;
   citations: ChatCitation[];
   sources: ChatSource[];
   metadata: ChatMetadata;
   debug?: Record<string, unknown> | null;
 }
+
+export interface ChatHistoryMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  citations: Array<Record<string, unknown>>;
+  sources: Array<Record<string, unknown>>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  feedback?: string[];
+}
+
+export interface MessageFeedbackResponse { active: string[]; }
+export interface MessageExportResponse { filename: string; download_url: string; }
+
+export interface ChatHistorySession {
+  id: string;
+  title: string;
+  messages: ChatHistoryMessage[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChatHistoryList { sessions: ChatHistorySession[]; }
 
 export type ApiDocumentType =
   | 'pdf'

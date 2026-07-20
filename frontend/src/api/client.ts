@@ -185,6 +185,26 @@ export function askQuestion(payload: ChatRequest, signal?: AbortSignal) {
   });
 }
 
+export function listChatSessions(signal?: AbortSignal) {
+  return request<import('./types').ChatHistoryList>('/api/chat/sessions', { signal });
+}
+
+export function regenerateMessage(messageId: string, signal?: AbortSignal) {
+  return request<ChatResponse>(`/api/chat/messages/${encodeURIComponent(messageId)}/regenerate`, { method: 'POST', signal });
+}
+
+export function transformMessage(messageId: string, operation: 'explain_simpler' | 'create_checklist') {
+  return request<import('./types').ChatHistoryMessage>(`/api/chat/messages/${encodeURIComponent(messageId)}/transform`, { method: 'POST', body: JSON.stringify({ operation }) });
+}
+
+export function toggleMessageFeedback(messageId: string, feedback: string) {
+  return request<import('./types').MessageFeedbackResponse>(`/api/chat/messages/${encodeURIComponent(messageId)}/feedback`, { method: 'PUT', body: JSON.stringify({ feedback }) });
+}
+
+export function exportMessage(messageId: string, format: 'pdf' | 'docx') {
+  return request<import('./types').MessageExportResponse>(`/api/chat/messages/${encodeURIComponent(messageId)}/export`, { method: 'POST', body: JSON.stringify({ format, include_sources: true, include_metadata: true }) });
+}
+
 export function getCorpusTree() {
   return request<CorpusTreeResponse>('/api/corpus/tree');
 }
