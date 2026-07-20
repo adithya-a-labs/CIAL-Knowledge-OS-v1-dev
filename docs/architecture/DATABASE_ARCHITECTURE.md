@@ -47,6 +47,7 @@ Knowledge control plane:
 - `workspace_permissions`
 - `document_relationships`
 - `document_search_metadata`
+- `workspace_user_preferences`
 
 Operations and observability:
 
@@ -113,6 +114,8 @@ Important invariants:
 - `workspace_id` is mandatory only after migration backfill succeeds safely
 
 `relative_path` remains the stable bridge between the filesystem-backed corpus and PostgreSQL metadata.
+
+Migration `20260720_0009` adds `folders.system_key`, document JSON metadata for stable UI flags such as pinning, and `workspace_user_preferences`. The preference JSONB value is validated at the API boundary and stores stable widget ids rather than React component names. Personal file originals remain outside PostgreSQL under `CIAL_WORKSPACE_ROOT`.
 
 ## Versioning, Chunks, and Indexing
 

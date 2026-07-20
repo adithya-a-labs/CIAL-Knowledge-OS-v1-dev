@@ -73,16 +73,22 @@ The indexing pipeline now hydrates these fields into Qdrant payload metadata:
 
 That keeps the current retrieval flow unchanged while making future retrieval-time privacy filters possible.
 
-## Deferred Runtime Work
+## Runtime Status
 
-The schema is ready, but these are still application tasks:
+Implemented:
 
-- authenticated upload flows that stamp both workspace and owner
-- retrieval filters that exclude non-owned private documents
-- workspace and ACL management APIs
-- audit logging around sharing, transfer, and revocation
+- authenticated `GET /api/workspaces/me/*` discovery, folder browsing, summary, and validated preference APIs
+- personal uploads stamp workspace, organization, owner, private visibility, personal storage scope, department classification, version metadata, audit metadata, and an indexing job from authenticated context
+- originals are stored below `CIAL_WORKSPACE_ROOT`, separate from the enterprise corpus root; UUID storage names prevent user filenames becoming physical paths
+- shared preview/file endpoints fall back to authorized personal metadata and resolve personal files only below the workspace root
+- request-layer filters prevent non-owned personal documents from appearing in corpus, preview, file, or chat responses
 
-Current bridge behavior:
+Partially implemented:
 
-- request-layer access filtering now prevents personal documents from appearing in corpus and chat responses unless the request resolves to the owner or an allowed scope
-- the temporary access context is derived from backend request headers until a durable auth/session layer is added
+- indexing jobs are durable, but the incremental personal-document worker path still needs end-to-end production validation
+- widget preferences implement system/workspace/user precedence; a separate organization-default administration surface is deferred
+
+Deferred:
+
+- sharing, transfer, and revocation APIs and their audit lifecycle
+- durable chat-upload conversation folders and attachment association APIs

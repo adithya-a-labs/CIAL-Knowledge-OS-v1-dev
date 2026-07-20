@@ -84,12 +84,15 @@ The current system still depends on these document fields, so they remain in pla
 
 This avoids rewriting corpus sync, retrieval, or API behavior while the workspace abstraction is introduced.
 
+## Runtime Wiring
+
+Personal workspaces now have owner-scoped discovery, folder browsing/creation, upload, summary, and typed user-preference APIs. The service creates stable `chat_uploads` and `personal_uploads` system folders by `folders.system_key`; display names are not used for lookup. System defaults are merged with workspace metadata defaults and validated user preferences. Security-owned fields never come from preference or upload payloads.
+
 ## Deferred Runtime Wiring
 
 The schema is ready for:
 
-- workspace-level authorization
-- workspace management APIs
+- non-personal workspace management APIs
 - project and external knowledge spaces
 - inheritance between workspace, folder, and document ACLs
 

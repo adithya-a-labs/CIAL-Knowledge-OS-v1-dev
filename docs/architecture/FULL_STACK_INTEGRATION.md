@@ -167,7 +167,7 @@ If Qdrant, Ollama, embeddings, reranker weights, Python packages, or an index ar
 
 ## Mock Data Still In Use
 
-- Dashboard, analytics, experts, departments, FAQs, learning, workspace, and most Knowledge Center drive data still use `frontend/src/data/*`.
+- Dashboard, analytics, experts, departments, FAQs, learning, and most Knowledge Center drive data still use `frontend/src/data/*`. My Workspace now prefers authenticated workspace APIs and uses labelled local preview data only when that API is unavailable.
 - `DocumentsPage` uses `GET /api/documents` when available, polls `GET /api/index/status`, and falls back to `DOCUMENTS`.
 - `ChatPanel` calls `GET /api/health`, shows a backend readiness banner, disables send until `engine_ready=true`, and then calls `POST /api/chat`.
 - The document upload modal UI is still mostly presentational. The chat attachment control uses `POST /api/documents/upload`.

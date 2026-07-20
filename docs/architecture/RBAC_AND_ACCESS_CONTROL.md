@@ -120,9 +120,17 @@ The identity schema is ready for:
 
 ## Current Runtime Bridging
 
-Until a full auth/session layer is introduced, the backend runtime resolves access context from optional request headers:
+The development runtime uses backend-issued HttpOnly cookie sessions as the authoritative authenticated identity. `POST /api/auth/login` and `POST /api/auth/signup` set the configured session cookie, `GET /api/auth/me` restores the user from that cookie on frontend startup, and `POST /api/auth/logout` clears the same cookie attributes.
+
+`backend.app.security.access.require_authenticated_access_context` is the canonical server-side dependency for authenticated browser routes. `/api/auth/me` and `/api/workspaces/me/*` both use it, so My Workspace resolves the same cookie-backed user principal as session restoration. Workspace ownership is derived server-side from that principal; the frontend never sends `owner_user_id`.
+
+The frontend must call the API with credentials included. Protected routes stay in an initializing state until `/api/auth/me` confirms either an authenticated user or a missing/invalid session; unresolved restore errors do not redirect to `/login`. After login, `/api/workspaces/me/tree`, `/summary`, `/root`, and `/preferences` must all accept the same session cookie that `/api/auth/me` accepts.
+
+For development-only integration paths, the backend can still resolve access context from optional headers when `CIAL_AUTH_ALLOW_USER_HEADERS=true`:
 
 - `X-CIAL-User-Id`
 - `X-CIAL-Access-Scope`
 
-That keeps the API shape stable while allowing document, corpus, and chat routes to enforce the PostgreSQL access model consistently.
+Cookie identity takes precedence over those headers. In production, the header fallback should remain disabled.
+
+My Workspace routes require an authenticated principal and derive organization, workspace, owner, visibility, and storage scope exclusively from that principal. Folder ids are always constrained to the caller's personal workspace. Shared corpus preview/file/download routes apply the same document access filter before resolving a personal storage path; department membership does not satisfy that filter.

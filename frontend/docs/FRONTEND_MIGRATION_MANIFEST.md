@@ -253,7 +253,7 @@ From `artifacts/cial-dashboard/.env.example`:
 | `VITE_AI_API_ENDPOINT` | Future AI | Not currently wired. |
 | `VITE_AI_MODEL_VERSION` | Future AI | Not currently wired. |
 | `VITE_ENABLE_REAL_AI` | Feature flag | Defined, not currently wired. |
-| `VITE_ENABLE_AUTH` | Feature flag | Defined, not currently wired. |
+| `VITE_ENABLE_AUTH` | Feature flag | Defined for compatibility; auth is currently enforced through the backend HttpOnly cookie session. |
 
 Other environment inputs used by config:
 
@@ -285,7 +285,7 @@ API migration recommendation:
 - Regenerate API hooks from the Phase 4.5 backend OpenAPI spec.
 - Add one frontend API boundary, for example `src/api`, instead of scattering generated hook calls directly through all components.
 - Wire `VITE_API_BASE_URL` into the API client or Vite proxy strategy.
-- Replace mock auth/user config with real session provider once backend/auth architecture is finalized.
+- Keep `AuthProvider`, `frontend/src/api/client.ts`, and backend `/api/auth/*` aligned around the HttpOnly cookie session contract.
 
 ## 13. Risks During Migration
 
@@ -372,7 +372,7 @@ Recommended treatment:
 - [ ] Replace mock `src/data/*` calls with backend REST API calls.
 - [ ] Regenerate API client from Phase 4.5 backend OpenAPI spec.
 - [ ] Wire `VITE_API_BASE_URL`.
-- [ ] Wire real auth/session provider.
+- [x] Wire real auth/session provider.
 - [ ] Normalize encoding artifacts in migrated text.
 - [ ] Verify route parity for all current routes in `src/App.tsx`.
 - [ ] Verify visual parity for dashboard, assistant, knowledge center, workspace, admin, analytics, and mobile layout.

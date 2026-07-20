@@ -52,7 +52,7 @@ The initial migration seeds:
   `Reviewer`, `Viewer`
 - System user: `system@cial.local`
 
-No real authentication or login flow is added yet.
+The development login flow is backed by the `users` and `user_credentials` tables. Successful local signup/login issues an HttpOnly backend session cookie, and frontend startup restores identity through `GET /api/auth/me`.
 
 ## Non-Goals
 
@@ -62,4 +62,3 @@ No real authentication or login flow is added yet.
 - No prompt, retrieval, reranking, or generation behavior changes.
 - No Dockerization.
 - No Phase 5 functionality.
-

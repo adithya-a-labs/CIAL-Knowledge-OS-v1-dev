@@ -43,3 +43,6 @@ Citations / Sources
 - Folder context is expanded to document ids on the frontend while also passing folder ids for future backend support.
 - If the backend is unavailable, Knowledge Center and context picker show labeled demo data only.
 
+## My Workspace Integration
+
+My Workspace consumes `/api/workspaces/me/tree`, `/root`, `/folders/{id}`, `/summary`, and `/preferences`. It uses the shared `/knowledge/document/{id}` viewer route and Corpus preview/file endpoints rather than introducing a second viewer. If workspace APIs are unavailable, its static preview is explicitly labelled and preference persistence is clearly labelled browser-local.
