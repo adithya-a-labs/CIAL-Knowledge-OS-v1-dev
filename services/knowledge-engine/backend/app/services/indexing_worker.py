@@ -153,6 +153,9 @@ class IndexingWorker:
             if job is None or job.status != "running": return
             document_path = (job.metadata_ or {}).get("relative_path", "unknown")
             document_id = job.document_id
+            document_version_id = job.document_version_id
+            manual_retry = bool((job.metadata_ or {}).get("manual_retry"))
+            claimed_attempt = int(job.attempts or 0)
 
         logger.info(
             "indexing_job_started",
@@ -162,6 +165,9 @@ class IndexingWorker:
                 "document_path": document_path,
             },
         )
+        if manual_retry:
+            logger.info("index_retry_started", extra={"event": "index_retry_started", "job_id": str(job_id),
+                "document_id": str(document_id), "version_id": str(document_version_id), "attempt": claimed_attempt})
 
         started = perf_counter()
         try:
@@ -177,6 +183,7 @@ class IndexingWorker:
                 counts = self.engine.prepare_pipeline(
                     force_rebuild_index=False,
                     on_stage=lambda stage, _: self._mark_stage(job_id, stage),
+                    force_reindex_paths=(str(document_path),) if manual_retry else (),
                 )
             logger.info("pipeline_state_refreshed", extra={"event": "pipeline_state_refreshed", "job_id": str(job_id)})
             models_ready, model_message = self.engine.check_ollama_model()
@@ -198,6 +205,8 @@ class IndexingWorker:
                             document.indexed = True
                             document.indexing_status = document.lifecycle_status = "indexed"
                             document.indexed_at = datetime.now(timezone.utc)
+                            document.metadata_ = {**(document.metadata_ or {}), "indexing_error_code": None,
+                                "indexing_safe_message": None, "indexing_retry_allowed": False}
                 if job.document_version_id is not None:
                     version = session.get(DocumentVersion, job.document_version_id)
                     if version is not None:
@@ -231,6 +240,9 @@ class IndexingWorker:
                 )
 
             self.last_completed_job = str(job_id); self.last_error = None
+            if manual_retry:
+                logger.info("index_retry_completed", extra={"event": "index_retry_completed", "job_id": str(job_id),
+                    "document_id": str(document_id), "version_id": str(document_version_id), "outcome": "indexed"})
             logger.info(
                 "index_job_completed",
                 extra={
@@ -262,6 +274,10 @@ class IndexingWorker:
                         if document is not None:
                             if document.lifecycle_status != "deleted":
                                 document.indexing_status = document.lifecycle_status = "pending" if retry else "failed"
+                                document.metadata_ = {**(document.metadata_ or {}),
+                                    "indexing_error_code": type(exc).__name__,
+                                    "indexing_safe_message": "Preparation failed. You can retry this file.",
+                                    "indexing_retry_allowed": not retry}
                     if job is not None and job.document_version_id is not None:
                         version = session.get(DocumentVersion, job.document_version_id)
                         if version is not None:
@@ -274,6 +290,10 @@ class IndexingWorker:
                 logger.exception("indexing_job_fail_update_error")
 
             self.last_error = type(exc).__name__
+            if manual_retry:
+                logger.warning("index_retry_failed", extra={"event": "index_retry_failed", "job_id": str(job_id),
+                    "document_id": str(document_id), "version_id": str(document_version_id),
+                    "outcome": "retry_scheduled" if retry else "failed", "error_code": type(exc).__name__})
             logger.error(
                 "index_job_failed",
                 extra={
