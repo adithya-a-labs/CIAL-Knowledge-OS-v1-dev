@@ -126,6 +126,8 @@ The development runtime uses backend-issued HttpOnly cookie sessions as the auth
 
 The frontend must call the API with credentials included. Protected routes stay in an initializing state until `/api/auth/me` confirms either an authenticated user or a missing/invalid session; unresolved restore errors do not redirect to `/login`. After login, `/api/workspaces/me/tree`, `/summary`, `/root`, and `/preferences` must all accept the same session cookie that `/api/auth/me` accepts.
 
+For local browser development, `frontend/src/api/client.ts` normalizes loopback API hosts to the current page host. If the app is opened at `http://localhost:5173`, a loopback API base resolves to `http://localhost:8000`; if opened at `http://127.0.0.1:5173`, it resolves to `http://127.0.0.1:8000`. This prevents HttpOnly SameSite session cookies from being dropped by `localhost`/`127.0.0.1` origin mismatches.
+
 For development-only integration paths, the backend can still resolve access context from optional headers when `CIAL_AUTH_ALLOW_USER_HEADERS=true`:
 
 - `X-CIAL-User-Id`
