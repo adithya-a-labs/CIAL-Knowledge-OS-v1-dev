@@ -169,6 +169,15 @@ export interface ChatHistoryMessage {
 
 export interface MessageFeedbackResponse { active: string[]; }
 export interface MessageExportResponse { filename: string; download_url: string; }
+export type AssistantExportFormat = 'pdf' | 'docx';
+export type AssistantExportStatus = 'queued' | 'processing' | 'ready' | 'failed' | 'expired' | 'cancelled';
+export interface AssistantExportCreateResponse { export_id: string; status: 'queued'; }
+export interface AssistantExportJob {
+  export_id: string; format: AssistantExportFormat; status: AssistantExportStatus;
+  progress: { stage: string; percent: number }; error: { code: string; message: string } | null;
+  filename?: string | null; mime_type?: string | null; file_size_bytes?: number | null;
+  preview?: { type: 'pdf' | 'html'; url: string } | null; download_url?: string | null;
+}
 
 export interface ChatHistorySession {
   id: string;
