@@ -142,6 +142,7 @@ export interface ChatMetadata {
   selected_folder_count?: number;
   effective_document_count?: number;
   selected_context_filter_mode?: string | null;
+  label?: string;
 }
 
 export interface ChatResponse {

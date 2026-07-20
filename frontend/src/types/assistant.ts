@@ -116,6 +116,7 @@ export interface AssistantMessageMetadata {
   citationCount?: number;
   confidence: number;
   generationTimeSeconds: number;
+  transformationLabel?: string;
 }
 
 export interface AssistantSession {
