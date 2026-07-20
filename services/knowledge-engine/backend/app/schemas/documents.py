@@ -63,5 +63,6 @@ class DocumentIndexingStatus(BaseModel):
     indexing_status: Literal["pending", "indexing", "indexed", "failed", "deleted"]
     indexing_stage: str | None = None
     indexing_safe_message: str | None = None
+    indexing_error_code: str | None = None
     indexing_updated_at: datetime
     retry_allowed: bool = False
