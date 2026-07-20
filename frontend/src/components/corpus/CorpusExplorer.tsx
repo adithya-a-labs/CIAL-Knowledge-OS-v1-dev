@@ -204,7 +204,8 @@ function FileCard({
           <span className="rounded-full bg-[hsl(210_20%_98%)] px-2 py-1 font-semibold text-slate-700">{typeLabel}</span>
           <span>{formatBytes(file.size_bytes)}</span>
           <span>{formatDate(file.modified_at)}</span>
-          <FileIndexingStatus status={file.indexing_status} />
+          <FileIndexingStatus status={file.indexing_status} stage={file.indexing_stage} safeMessage={file.indexing_safe_message}
+            retryAllowed={file.retry_allowed} documentId={file.id} fileName={file.name} />
         </div>
       </article>
     );
@@ -217,7 +218,8 @@ function FileCard({
       <span>{typeLabel}</span>
       <span>{formatBytes(file.size_bytes)}</span>
       <span>{formatDate(file.modified_at)}</span>
-      <FileIndexingStatus status={file.indexing_status} />
+      <FileIndexingStatus status={file.indexing_status} stage={file.indexing_stage} safeMessage={file.indexing_safe_message}
+        retryAllowed={file.retry_allowed} documentId={file.id} fileName={file.name} />
     </div>
   );
 }

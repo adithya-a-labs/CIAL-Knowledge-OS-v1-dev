@@ -113,7 +113,9 @@ export default function ChatPanel() {
   const attachmentStatusQuery = useDocumentIndexingStatuses(uploadedDocumentIdsForStatus);
   const effectiveUploadedFiles = useMemo(() => uploadedFiles.map((file) => {
     const status = file.backendDocumentId ? attachmentStatusQuery.data?.[file.backendDocumentId] : undefined;
-    return status ? { ...file, indexingStatus: status.indexing_status, indexingStage: status.indexing_stage || undefined, indexingSafeMessage: status.indexing_safe_message || undefined } : file;
+    return status ? { ...file, indexingStatus: status.indexing_status, indexingStage: status.indexing_stage || undefined,
+      indexingSafeMessage: status.indexing_safe_message || undefined, indexingErrorCode: status.indexing_error_code || undefined,
+      retryAllowed: status.retry_allowed } : file;
   }), [attachmentStatusQuery.data, uploadedFiles]);
   const blockingAttachments = effectiveUploadedFiles.filter((file) => file.uploadStatus !== 'uploaded' || file.indexingStatus !== 'indexed');
   const feedbackByMessageId = activeSession.feedbackByMessageId;

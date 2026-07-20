@@ -106,7 +106,9 @@ export default function ContextChips({
               <span className="safe-text max-w-[12rem] truncate">
                 {file.name} ({formatFileSize(file.size)})
               </span>
-              <FileIndexingStatus status={file.uploadStatus === 'upload_failed' ? 'failed' : file.uploadStatus === 'uploading' ? 'pending' : file.indexingStatus || 'pending'} safeMessage={file.indexingSafeMessage} />
+              <FileIndexingStatus status={file.uploadStatus === 'upload_failed' ? 'failed' : file.uploadStatus === 'uploading' ? 'pending' : file.indexingStatus || 'pending'}
+                stage={file.indexingStage} safeMessage={file.indexingSafeMessage} retryAllowed={file.uploadStatus === 'uploaded' && file.retryAllowed}
+                documentId={file.backendDocumentId} fileName={file.name} />
               <button
                 type="button"
                 onClick={() => onRemoveFile(file.id)}
