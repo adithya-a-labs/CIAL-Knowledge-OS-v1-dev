@@ -10,7 +10,9 @@ import ContextManagerDialog from './ContextManagerDialog';
 import RetrievalTimeline from './RetrievalTimeline';
 import SourceViewerPanel from './SourceViewerPanel';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
-import { askQuestion, exportMessage, getCorpusTree, getHealth, regenerateMessage, toggleMessageFeedback, transformMessage, uploadDocument } from '@/api/client';
+import { askQuestion, createAssistantExport, getCorpusTree, getHealth, regenerateMessage, toggleMessageFeedback, transformMessage, uploadDocument } from '@/api/client';
+import type { AssistantExportFormat } from '@/api/types';
+import ExportPreviewDialog from './ExportPreviewDialog';
 import { flattenCorpusTree, toAssistantMessage, toChatRequest } from '@/api/adapters';
 import type { CorpusDocument, HealthResponse, SelectedContextItem } from '@/api/types';
 import { RETRIEVAL_STAGES } from '@/data/assistantData';
@@ -85,6 +87,9 @@ export default function ChatPanel() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [actionByMessage, setActionByMessage] = useState<Record<string, string>>({});
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [activeExportId, setActiveExportId] = useState<string | null>(null);
+  const exportSourceRef = useRef<{ sessionId: string; messageId: string; title: string } | null>(null);
   const actionGenerationRef = useRef<Record<string, number>>({});
   const [activeStageIndex, setActiveStageIndex] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -440,8 +445,11 @@ export default function ChatPanel() {
     setActionByMessage((current) => ({ ...current, [message.id]: action }));
     try {
       if (action === 'export_pdf' || action === 'export_docx') {
-        const result = await exportMessage(message.id, action === 'export_pdf' ? 'pdf' : 'docx');
-        window.location.assign(result.download_url); return;
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(message.id)) throw new Error('This response has not been persisted and cannot be exported yet.');
+        const title = activeSession.title || 'Assistant Response';
+        exportSourceRef.current = { sessionId: actionSessionId, messageId: message.id, title };
+        const result = await createAssistantExport({ format: action === 'export_pdf' ? 'pdf' : 'docx', session_id: actionSessionId, message_id: message.id, title });
+        setActiveExportId(result.export_id); setExportDialogOpen(true); return;
       }
       if (action === 'regenerate') {
         const response = await regenerateMessage(message.id);
@@ -456,6 +464,11 @@ export default function ChatPanel() {
       }
     } catch (error) { toast({ title: 'Response action failed', description: error instanceof Error ? error.message : 'Please retry this action.' }); }
     finally { if (actionGenerationRef.current[message.id] === generation) setActionByMessage((current) => { const next = { ...current }; delete next[message.id]; return next; }); }
+  };
+  const regenerateExport = async (format: AssistantExportFormat) => {
+    const source = exportSourceRef.current; if (!source) return;
+    try { const result = await createAssistantExport({ format, session_id: source.sessionId, message_id: source.messageId, title: source.title }); setActiveExportId(result.export_id); setExportDialogOpen(true); }
+    catch (error) { toast({ title: 'Export could not be started', description: error instanceof Error ? error.message : 'Please retry.' }); }
   };
 
   const handleFeedback = async (messageId: string, feedback: import('@/types/assistant').FeedbackType) => {
@@ -718,6 +731,7 @@ export default function ChatPanel() {
           onSelectSource={openSource}
         />
       )}
+      <ExportPreviewDialog open={exportDialogOpen} exportId={activeExportId} onOpenChange={setExportDialogOpen} onRegenerate={(format) => void regenerateExport(format)} />
     </div>
   );
 }
