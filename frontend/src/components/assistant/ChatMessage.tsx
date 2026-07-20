@@ -401,7 +401,7 @@ export default function ChatMessage({
       <div style={cardWidthStyle} className="space-y-3 pr-1 transition-all duration-200">
         <div className="rounded-[1.5rem] bg-white/95 px-5 py-4 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.4)] ring-1 ring-black/5 lg:px-6">
           <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Grounded response</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{message.metadata?.transformationLabel ?? 'Grounded response'}</p>
             <span className="ce-meta-text">{message.timestamp}</span>
           </div>
           <div className={`w-full ${fontSizeClass}`} data-testid="assistant-markdown">
@@ -464,7 +464,11 @@ export default function ChatMessage({
                 type="button"
                 onClick={() => onAction(message, action.action as Parameters<ChatMessageProps['onAction']>[1])}
                 disabled={Boolean(loadingAction)}
-                aria-label={action.label}
+                aria-label={loadingAction === action.action
+                  ? action.action === 'explain_simpler' ? 'Creating simpler explanation'
+                    : action.action === 'create_checklist' ? 'Creating action checklist'
+                      : action.label
+                  : action.label}
                 className="ce-action min-h-8 rounded-full px-3"
                 data-testid={`button-action-${action.label.toLowerCase().replace(/\s+/g, '-')}`}
               >
