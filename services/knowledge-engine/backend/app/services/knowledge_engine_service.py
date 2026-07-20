@@ -174,6 +174,7 @@ class KnowledgeEngineService:
         force_rebuild_index: bool,
         response_length: str = "standard",
         on_stage: Callable[[str, dict[str, int]], None] | None = None,
+        force_reindex_paths: tuple[str, ...] = (),
     ) -> dict[str, int]:
         """Run the deterministic Phase 4 startup sequence and keep it alive."""
 
@@ -185,13 +186,16 @@ class KnowledgeEngineService:
                 force_rebuild_index=force_rebuild_index,
                 response_length=response_length,
                 on_stage=on_stage,
+                force_reindex_paths=force_reindex_paths,
             )
 
     def _prepare_pipeline_locked(
         self, *, force_rebuild_index: bool, response_length: str,
         on_stage: Callable[[str, dict[str, int]], None] | None,
+        force_reindex_paths: tuple[str, ...] = (),
     ) -> dict[str, int]:
         config = self.build_config(response_length=response_length, force_rebuild_index=force_rebuild_index)
+        config.force_reindex_paths = tuple(force_reindex_paths)
         if _server_collection_requires_rebuild(config):
             logger.warning(
                 "qdrant_manifest_backend_mismatch_rebuild",
