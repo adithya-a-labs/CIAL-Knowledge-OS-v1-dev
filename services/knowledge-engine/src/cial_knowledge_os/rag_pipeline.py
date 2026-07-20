@@ -104,6 +104,7 @@ class BasicRAGPipeline:
             ),
             repository_id=getattr(self.config, "repository_id", None),
             additional_roots=getattr(self.config, "additional_knowledge_roots", ()),
+            force_reindex_paths=getattr(self.config, "force_reindex_paths", ()),
         )
         if self.config.incremental_indexing_enabled or self.indexing_plan.force_rebuild:
             entries_to_process = self.indexing_plan.files_to_process
