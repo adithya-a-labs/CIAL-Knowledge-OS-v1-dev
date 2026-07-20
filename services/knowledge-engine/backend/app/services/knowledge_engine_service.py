@@ -976,7 +976,33 @@ class KnowledgeEngineService:
             sources=sources,
             metadata=metadata,
             debug=debug,
+            evidence_snapshot=self._evidence_snapshot(compressed_chunks or selected_evidence),
         )
+
+    @staticmethod
+    def _evidence_snapshot(chunks: list[Any]) -> list[dict[str, Any]]:
+        """Freeze the exact final prompt evidence independently of the index."""
+        snapshot: list[dict[str, Any]] = []
+        for index, item in enumerate(chunks, start=1):
+            if not isinstance(item, Mapping):
+                continue
+            metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
+            text = str(item.get("text") or item.get("page_content") or item.get("content") or "")
+            if not text.strip():
+                continue
+            snapshot.append({
+                "reference_id": int(item.get("reference_id") or metadata.get("reference_id") or index),
+                "document_id": item.get("document_id") or metadata.get("document_id"),
+                "document_version_id": item.get("document_version_id") or metadata.get("document_version_id"),
+                "chunk_id": item.get("chunk_id") or metadata.get("chunk_id"),
+                "page": item.get("page_number") or item.get("page") or metadata.get("page_number") or metadata.get("page"),
+                "source_name": item.get("source_name") or item.get("source") or metadata.get("file_name") or metadata.get("source"),
+                "relative_path": item.get("relative_path") or metadata.get("relative_path"),
+                "text": text,
+                "score": item.get("reranker_score") or item.get("score") or item.get("rrf_score"),
+                "provenance": item.get("provenance") or metadata.get("provenance"),
+            })
+        return snapshot
 
     @staticmethod
     def _debug_payload(
