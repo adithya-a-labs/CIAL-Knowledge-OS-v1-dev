@@ -246,7 +246,7 @@ From `artifacts/cial-dashboard/.env.example`:
 
 | Variable | Classification | Current status |
 |---|---:|---|
-| `VITE_API_BASE_URL` | Required for future API integration | Defined but no current dashboard usage found. |
+| `VITE_API_BASE_URL` | Backend API base URL | Used by `frontend/src/api/client.ts`; loopback hosts are normalized to the current browser host for cookie-session reliability. |
 | `VITE_AUTH_CLIENT_ID` | Future auth | Not currently wired. |
 | `VITE_AUTH_TENANT_ID` | Future auth | Not currently wired. |
 | `VITE_AUTH_REDIRECT_URI` | Future auth | Not currently wired. |
@@ -284,7 +284,7 @@ API migration recommendation:
 - Replace `src/data/*` imports progressively with typed REST calls.
 - Regenerate API hooks from the Phase 4.5 backend OpenAPI spec.
 - Add one frontend API boundary, for example `src/api`, instead of scattering generated hook calls directly through all components.
-- Wire `VITE_API_BASE_URL` into the API client or Vite proxy strategy.
+- Keep `VITE_API_BASE_URL` wired through `frontend/src/api/client.ts`; local loopback hosts normalize to the current browser host to avoid `localhost`/`127.0.0.1` SameSite cookie loss.
 - Keep `AuthProvider`, `frontend/src/api/client.ts`, and backend `/api/auth/*` aligned around the HttpOnly cookie session contract.
 
 ## 13. Risks During Migration
@@ -371,7 +371,7 @@ Recommended treatment:
 - [ ] Review unused/legacy pages: `DocumentsPage.tsx`, `PoliciesSOPsPage.tsx`, `KnowledgeBasePage.tsx`.
 - [ ] Replace mock `src/data/*` calls with backend REST API calls.
 - [ ] Regenerate API client from Phase 4.5 backend OpenAPI spec.
-- [ ] Wire `VITE_API_BASE_URL`.
+- [x] Wire `VITE_API_BASE_URL`.
 - [x] Wire real auth/session provider.
 - [ ] Normalize encoding artifacts in migrated text.
 - [ ] Verify route parity for all current routes in `src/App.tsx`.
