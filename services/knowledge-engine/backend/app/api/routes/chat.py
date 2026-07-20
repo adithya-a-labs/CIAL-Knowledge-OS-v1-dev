@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -11,17 +11,43 @@ from sqlalchemy.orm import Session
 from backend.app.db.session import get_db_session
 from backend.app.models.conversations import ChatMessage, ChatSession
 from backend.app.repositories.chats import ChatRepository
-from backend.app.schemas.chat import ChatMessageRecord, ChatRequest, ChatResponse, ChatSessionList, ChatSessionRecord, MessageFeedbackRequest, MessageFeedbackResponse, MessageTransformRequest
+from backend.app.schemas.chat import ChatAttachmentResponse, ChatMessageRecord, ChatRequest, ChatResponse, ChatSessionList, ChatSessionRecord, MessageFeedbackRequest, MessageFeedbackResponse, MessageTransformRequest
 from backend.app.services.chat_action_service import ChatActionError, ChatActionService
 from backend.app.services.message_transformation_service import MessageTransformationError, MessageTransformationService
 from backend.app.security.access import require_authenticated_access_context
+from backend.app.services.personal_workspace_service import PersonalWorkspaceService, WorkspaceNotFound
 from backend.app.services.knowledge_engine_service import (
+    KnowledgeEngineDocumentsNotReady,
     KnowledgeEngineInvalidRequest,
     KnowledgeEngineUnavailable,
 )
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+@router.post("/chat/attachments", response_model=ChatAttachmentResponse, status_code=status.HTTP_201_CREATED)
+def upload_chat_attachment(request: Request, file: UploadFile = File(...), session_id: uuid.UUID | None = Form(default=None), db: Session = Depends(get_db_session)) -> ChatAttachmentResponse:
+    access = require_authenticated_access_context(request)
+    if session_id is not None:
+        existing = ChatRepository(db).get_session_for_user(session_id, access.principal.user_id)
+        if existing is None and db.get(ChatSession, session_id) is not None:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+    try:
+        payload = PersonalWorkspaceService(db).upload(
+            access, file.filename or "upload", file.file, metadata={"chat_session_id": str(session_id) if session_id else None},
+            source_type="chat_upload", audit_action="chat.attachment.uploaded", system_folder_key="chat_uploads",
+        )
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    worker = getattr(request.app.state, "indexing_worker", None)
+    if worker is not None: worker.enqueue(uuid.UUID(str(payload["indexing_job_id"])))
+    return ChatAttachmentResponse(document_id=payload["id"], document_version_id=payload["document_version_id"],
+        name=payload["name"], size_bytes=payload["size_bytes"], mime_type=payload.get("mime_type"),
+        indexing_status=payload["status"], indexing_job_id=payload["indexing_job_id"],
+        indexing_safe_message="Queued for preparation.")
 
 
 def _public_metadata(value: dict | None) -> dict:
@@ -121,6 +147,10 @@ def chat(payload: ChatRequest, request: Request, db: Session = Depends(get_db_se
         response.user_message_id = user_message.id
         response.assistant_message_id = assistant_message.id
         return response
+    except KnowledgeEngineDocumentsNotReady as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={
+            "code": "documents_not_ready", "message": str(exc), "documents": exc.documents,
+        }) from exc
     except KnowledgeEngineInvalidRequest as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
