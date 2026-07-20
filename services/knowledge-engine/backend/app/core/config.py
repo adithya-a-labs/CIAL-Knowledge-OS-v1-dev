@@ -27,7 +27,11 @@ def _parse_env_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     if not path.is_file():
         return values
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return values
+    for raw_line in lines:
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -88,6 +92,14 @@ def _env_str(*names: str, default: str = "") -> str:
     return default
 
 
+def _env_csv(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    value = os.getenv(name)
+    if value is None or not value.strip():
+        return default
+    parsed = tuple(item.strip() for item in value.split(",") if item.strip())
+    return parsed or default
+
+
 @dataclass
 class Settings:
     app_name: str = "cial-knowledge-os"
@@ -100,17 +112,19 @@ class Settings:
     startup_index_timeout_seconds: int = _env_int("CIAL_STARTUP_INDEX_TIMEOUT_SECONDS", 0)
     app_data_root: str = str(resolve_repo_path(_env_str("CIAL_APP_DATA_DIR", default=str(DATA_ROOT))))
     corpus_root: str = str(configured_corpus_root(DEFAULT_CORPUS_ROOT))
+    workspace_root: str = str(resolve_repo_path(_env_str("CIAL_WORKSPACE_ROOT", default="data/user-workspaces")))
+    workspace_quota_bytes: int = _env_int("CIAL_WORKSPACE_QUOTA_BYTES", 0)
     corpus_repository_id: str = configured_repository_id(DEFAULT_CORPUS_ROOT)
     outputs_root: str = str(resolve_repo_path(_env_str("CIAL_OUTPUTS_DIR", default=str(OUTPUTS_ROOT))))
     models_root: str = str(resolve_repo_path(_env_str("CIAL_MODELS_DIR", default="models")))
-    cors_origins: tuple[str, ...] = (
+    cors_origins: tuple[str, ...] = _env_csv("CIAL_CORS_ORIGINS", (
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5174",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-    )
+    ))
     qdrant_mode: str = _env_str("CIAL_QDRANT_MODE", "QDRANT_MODE", default="server")
     qdrant_url: str = _env_str("CIAL_QDRANT_URL", "QDRANT_URL", default="http://localhost:6335")
     qdrant_api_key: str | None = _env_str("CIAL_QDRANT_API_KEY", "QDRANT_API_KEY", default="") or None
@@ -152,6 +166,7 @@ class Settings:
         "CIAL_AUTH_COOKIE_SECURE",
         _env_str("CIAL_ENV", "ENV", default="development").casefold() == "production",
     )
+    auth_cookie_samesite: str = _env_str("CIAL_AUTH_COOKIE_SAMESITE", default="lax")
     auth_allow_user_headers: bool = _env_bool(
         "CIAL_AUTH_ALLOW_USER_HEADERS",
         _env_str("CIAL_ENV", "ENV", default="development").casefold() != "production",
@@ -180,6 +195,10 @@ class Settings:
     @property
     def data_files_path(self) -> Path:
         return self.corpus_root_path
+
+    @property
+    def workspace_root_path(self) -> Path:
+        return Path(self.workspace_root)
 
     @property
     def data_files_root(self) -> str:
