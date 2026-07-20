@@ -52,7 +52,8 @@ class ChatActionService:
             content=response.answer, citations=[x.model_dump(mode="json") for x in response.citations],
             sources=[x.model_dump(mode="json") for x in response.sources],
             metadata_={**response.metadata.model_dump(mode="json"), "generation_request": settings,
-                       "user_message_id": str(user_message.id), "regenerated_from": str(original.id)},
+                       "user_message_id": str(user_message.id), "regenerated_from": str(original.id),
+                       "evidence_snapshot": response.evidence_snapshot},
         )
         self.repository.add_message(replacement)
         self.db.commit(); self.db.refresh(replacement)
