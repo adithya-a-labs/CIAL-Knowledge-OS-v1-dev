@@ -6,6 +6,11 @@ const message = readFileSync(new URL('../src/components/assistant/ChatMessage.ts
 const panel = readFileSync(new URL('../src/components/assistant/ChatPanel.tsx', import.meta.url), 'utf8');
 const adapter = readFileSync(new URL('../src/api/adapters.ts', import.meta.url), 'utf8');
 const exportDialog = readFileSync(new URL('../src/components/assistant/ExportPreviewDialog.tsx', import.meta.url), 'utf8');
+const workspacePage = readFileSync(new URL('../src/pages/WorkspacePage.tsx', import.meta.url), 'utf8');
+const contextChips = readFileSync(new URL('../src/components/assistant/ContextChips.tsx', import.meta.url), 'utf8');
+const corpusExplorer = readFileSync(new URL('../src/components/corpus/CorpusExplorer.tsx', import.meta.url), 'utf8');
+const fileStatus = readFileSync(new URL('../src/components/documents/FileIndexingStatus.tsx', import.meta.url), 'utf8');
+const statusHook = readFileSync(new URL('../src/hooks/useDocumentIndexingStatuses.ts', import.meta.url), 'utf8');
 
 test('copy uses the complete persisted Markdown answer and reports Copied', () => {
   assert.match(panel, /navigator\.clipboard\.writeText\(message\.content\)/);
@@ -76,4 +81,72 @@ test('preview supports progress, cancellation, retry, format switch, and accessi
   assert.match(exportDialog, /Cancel/);
   assert.match(exportDialog, /Retry/);
   assert.match(exportDialog, /Switch to/);
+});
+
+test('ready exports expose an explicit editable Save to My Workspace confirmation', () => {
+  assert.match(exportDialog, /ready\?<Button[^>]*onClick=\{beginWorkspaceSave\}/);
+  assert.match(exportDialog, /suggested_workspace_filename/);
+  assert.match(exportDialog, /value=\{workspaceFilename\}/);
+  assert.match(exportDialog, /onChange=\{\(event\)=>setWorkspaceFilename/);
+  assert.match(exportDialog, /Save to My Workspace/);
+});
+
+test('workspace save uses the typed endpoint once and prevents duplicate submissions', () => {
+  const client = readFileSync(new URL('../src/api/client.ts', import.meta.url), 'utf8');
+  assert.match(client, /saveAssistantExportToWorkspace/);
+  assert.match(client, /\/save-to-workspace/);
+  assert.match(exportDialog, /saveLock\.current/);
+  assert.match(exportDialog, /disabled=\{saving \|\| !workspaceFilename\.trim\(\)\}/);
+  assert.doesNotMatch(exportDialog.split('confirmWorkspaceSave', 2)[1].split('const ready', 1)[0], /fetchAssistantExportArtifact|anchor\.click|uploadMyWorkspaceFiles/);
+});
+
+test('workspace save refreshes workspace queries and provides an open action', () => {
+  assert.match(exportDialog, /invalidateQueries\(\{queryKey:\['my-workspace-tree'\]\}\)/);
+  assert.match(exportDialog, /invalidateQueries\(\{queryKey:\['my-workspace-folder'\]\}\)/);
+  assert.match(exportDialog, /invalidateQueries\(\{queryKey:\['my-workspace-summary'\]\}\)/);
+  assert.match(exportDialog, /Saved to My Workspace/);
+  assert.match(exportDialog, /savedDocument\.filename/);
+  assert.match(exportDialog, /Open in My Workspace/);
+  assert.match(exportDialog, /error instanceof Error\?error\.message/);
+});
+
+test('workspace automatically polls only while files are pending or indexing', () => {
+  assert.match(workspacePage, /refetchInterval/);
+  assert.match(workspacePage, /\['pending', 'indexing'\]\.includes\(file\.status\)/);
+  assert.match(workspacePage, /\? 1500 : false/);
+  assert.doesNotMatch(workspacePage, /button-index|Index now|Manual sync/);
+});
+
+test('chat attachments use the persistent managed upload and final document id', () => {
+  assert.match(panel, /uploadChatAttachment\(file, activeSession\.id\)/);
+  assert.match(panel, /backendDocumentId: result\.value\.document_id/);
+  assert.match(panel, /backendDocumentVersionId: result\.value\.document_version_id/);
+  assert.doesNotMatch(panel, /uploadDocument\(file/);
+});
+
+test('chat generation stays blocked until every attachment is indexed', () => {
+  assert.match(panel, /blockingAttachments = effectiveUploadedFiles\.filter/);
+  assert.match(panel, /file\.indexingStatus !== 'indexed'/);
+  assert.match(panel, /if \(blockingAttachments\.length > 0\)/);
+  assert.match(panel, /disabled=\{!input\.trim\(\) \|\| isLoading \|\| !chatReady \|\| blockingAttachments\.length > 0\}/);
+  const handler = panel.split('const handleSend = async () => {', 2)[1].split('const handleRegenerate', 1)[0];
+  assert.ok(handler.indexOf('if (blockingAttachments.length > 0)') < handler.indexOf("setInput('')"));
+});
+
+test('shared file status renders stable accessible state icons across surfaces', () => {
+  assert.match(fileStatus, /animate-spin motion-reduce:animate-none/);
+  assert.match(fileStatus, /aria-label=\{`File status:/);
+  assert.match(fileStatus, /aria-live=\{terminal \? 'polite' : 'off'\}/);
+  for (const surface of [contextChips, workspacePage, corpusExplorer, exportDialog]) {
+    assert.match(surface, /FileIndexingStatus/);
+  }
+  assert.match(contextChips, /visibleUploads\.map/);
+});
+
+test('document status polling starts for active work and stops at terminal state', () => {
+  assert.match(statusHook, /item\.indexing_status === 'pending' \|\| item\.indexing_status === 'indexing'/);
+  assert.match(statusHook, /\? 1500 : false/);
+  assert.match(statusHook, /retry: false/);
+  assert.match(panel, /useDocumentIndexingStatuses/);
+  assert.match(exportDialog, /useDocumentIndexingStatuses/);
 });
