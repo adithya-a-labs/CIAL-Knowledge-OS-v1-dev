@@ -201,8 +201,20 @@ export function toggleMessageFeedback(messageId: string, feedback: string) {
   return request<import('./types').MessageFeedbackResponse>(`/api/chat/messages/${encodeURIComponent(messageId)}/feedback`, { method: 'PUT', body: JSON.stringify({ feedback }) });
 }
 
-export function exportMessage(messageId: string, format: 'pdf' | 'docx') {
-  return request<import('./types').MessageExportResponse>(`/api/chat/messages/${encodeURIComponent(messageId)}/export`, { method: 'POST', body: JSON.stringify({ format, include_sources: true, include_metadata: true }) });
+export function createAssistantExport(payload: { format: import('./types').AssistantExportFormat; session_id: string; message_id: string; title: string }) {
+  return request<import('./types').AssistantExportCreateResponse>('/api/exports', { method: 'POST', body: JSON.stringify({ ...payload, options: { include_sources: true, include_generated_timestamp: true, include_conversation_context: false, page_size: 'A4', document_style: 'professional' } }) });
+}
+export function getAssistantExport(exportId: string, signal?: AbortSignal) {
+  return request<import('./types').AssistantExportJob>(`/api/exports/${encodeURIComponent(exportId)}`, { signal });
+}
+export async function cancelAssistantExport(exportId: string) {
+  const response = await fetch(apiUrl(`/api/exports/${encodeURIComponent(exportId)}`), { method: 'DELETE', credentials: 'include' });
+  if (!response.ok) throw new ApiError(`Cancel failed with status ${response.status}`, response.status, null);
+}
+export async function fetchAssistantExportArtifact(path: string, signal?: AbortSignal) {
+  const response = await fetch(apiUrl(path), { credentials: 'include', signal });
+  if (!response.ok) throw new ApiError(`Export request failed with status ${response.status}`, response.status, null);
+  return response;
 }
 
 export function getCorpusTree() {
