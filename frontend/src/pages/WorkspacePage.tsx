@@ -13,6 +13,7 @@ import {
   getMyWorkspaceTree, resetMyWorkspacePreferences, saveMyWorkspacePreferences, uploadMyWorkspaceFiles,
 } from '@/api/client';
 import PrivacyBadge from '@/components/workspace/PrivacyBadge';
+import FileIndexingStatus from '@/components/documents/FileIndexingStatus';
 import WorkspaceCustomizeDrawer from '@/components/workspace/WorkspaceCustomizeDrawer';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -49,15 +50,8 @@ function formatBytes(bytes: number) {
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${unit}`;
 }
 
-function statusLabel(status: WorkspaceFile['status'], indexed: boolean) {
-  if (indexed || status === 'indexed') return 'Indexed';
-  return status[0].toUpperCase() + status.slice(1);
-}
-
 function StatusPill({ file }: { file: WorkspaceFile }) {
-  const label = statusLabel(file.status, file.indexed);
-  const tone = label === 'Indexed' ? 'bg-emerald-50 text-emerald-700' : label === 'Failed' || label === 'Unsupported' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700';
-  return <span className={cn('inline-flex rounded-full px-2 py-1 text-[11px] font-semibold', tone)}>{label}</span>;
+  return <FileIndexingStatus status={file.indexed ? 'indexed' : file.status} />;
 }
 
 function FolderRail({ folders, activeId, onSelect, onNew }: { folders: WorkspaceFolderNode[]; activeId: string | null; onSelect: (id: string | null) => void; onNew: () => void }) {
@@ -122,7 +116,11 @@ export default function WorkspacePage() {
   const preferencesQuery = useQuery({ queryKey: ['my-workspace-preferences'], queryFn: getMyWorkspacePreferences, retry: false });
   const fallback = treeQuery.isError || preferencesQuery.isError;
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
-  const folderQuery = useQuery({ queryKey: ['my-workspace-folder', activeFolder], queryFn: () => getMyWorkspaceFolder(activeFolder), retry: false, enabled: !fallback });
+  const folderQuery = useQuery({
+    queryKey: ['my-workspace-folder', activeFolder], queryFn: () => getMyWorkspaceFolder(activeFolder),
+    retry: false, enabled: !fallback,
+    refetchInterval: (query) => query.state.data?.documents.some((file) => ['pending', 'indexing'].includes(file.status)) ? 1500 : false,
+  });
   const [preferences, setPreferences] = useState(DEFAULT_WORKSPACE_PREFERENCES);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('files');
   const [view, setView] = useState<WorkspaceView>('list');
