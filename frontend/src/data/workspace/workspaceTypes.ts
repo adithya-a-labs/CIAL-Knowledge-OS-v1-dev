@@ -2,6 +2,63 @@ export type PrivateDocumentVisibility = 'private';
 export type FileType = 'pdf' | 'docx' | 'xlsx' | 'pptx' | 'txt' | 'other';
 export type AISearchMode = 'enterprise' | 'workspace' | 'hybrid';
 export type ActivityType = 'upload' | 'note' | 'chat' | 'bookmark' | 'delete';
+export type WorkspaceTab = 'overview' | 'files' | 'notes' | 'saved' | 'activity';
+export type WorkspaceView = 'list' | 'grid';
+export type WorkspaceDensity = 'compact' | 'comfortable' | 'spacious';
+export type WorkspaceWidgetId = 'storage_usage' | 'pinned_items' | 'recent_activity' | 'recent_notes' | 'recent_conversations' | 'indexing_status';
+export type WorkspaceDocumentStatus = 'uploading' | 'processing' | 'indexing' | 'indexed' | 'failed' | 'unsupported' | 'pending';
+
+export interface WorkspacePreferences {
+  version: number;
+  defaultTab: WorkspaceTab;
+  defaultView: WorkspaceView;
+  density: WorkspaceDensity;
+  rightRailVisible: boolean;
+  rightRailCollapsed: boolean;
+  visibleWidgets: WorkspaceWidgetId[];
+  widgetOrder: WorkspaceWidgetId[];
+  defaultSort: string;
+  pageSize: number;
+  recentItemLimit: number;
+}
+
+export interface WorkspaceFolderNode {
+  id: string;
+  parent_id: string | null;
+  name: string;
+  system_key: 'chat_uploads' | 'personal_uploads' | null;
+  document_count: number;
+}
+
+export interface WorkspaceFile {
+  id: string;
+  folder_id: string | null;
+  name: string;
+  file_type: string;
+  size_bytes: number;
+  modified_at: string;
+  status: WorkspaceDocumentStatus;
+  indexed: boolean;
+}
+
+export interface WorkspaceTreeResponse {
+  workspace: { id: string; name: string; workspace_type: 'personal'; visibility: 'private' };
+  folders: WorkspaceFolderNode[];
+}
+
+export interface WorkspaceFolderResponse {
+  folder_id: string | null;
+  folders: WorkspaceFolderNode[];
+  documents: WorkspaceFile[];
+}
+
+export interface WorkspaceSummaryResponse {
+  workspace: WorkspaceTreeResponse['workspace'];
+  storage: { used_bytes: number; quota_bytes: number | null; available: boolean };
+  pinned: WorkspaceFile[];
+  recent_activity: { id: string; action: string; created_at: string }[];
+  recent_conversations: { id: string; title: string; updated_at: string }[];
+}
 
 export interface WorkspaceDocument {
   id: string;
