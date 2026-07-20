@@ -20,5 +20,7 @@ def test_transform_is_evidence_gated_and_preserves_citations():
 
 def test_export_download_rejects_unsafe_filenames():
     source = (ROOT / "backend/app/api/routes/exports.py").read_text(encoding="utf-8")
-    assert "Path(filename).name" in source
-    assert 'filename.startswith("cial-response-")' in source
+    service = (ROOT / "backend/app/services/export_service.py").read_text(encoding="utf-8")
+    assert "export_id:uuid.UUID" in source
+    assert "if self.root not in path.parents" in service
+    assert "path.is_symlink()" in service
