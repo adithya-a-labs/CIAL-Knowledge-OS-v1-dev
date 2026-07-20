@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from backend.app.schemas.auth import (
     AuthResponse,
@@ -15,8 +15,8 @@ from backend.app.schemas.auth import (
 from backend.app.security.session_tokens import (
     issue_session_token,
     session_cookie_settings,
-    verify_session_token,
 )
+from backend.app.security.access import require_authenticated_access_context
 from backend.app.services.auth_service import (
     AuthConflictError,
     AuthInvalidCredentials,
@@ -69,12 +69,9 @@ def login(payload: LoginRequest, response: Response) -> AuthResponse:
 
 
 @router.get("/auth/me", response_model=AuthResponse)
-def me(request: Request) -> AuthResponse:
-    token = request.cookies.get(session_cookie_settings()["key"])
-    user_id = verify_session_token(token) if token else None
-    if user_id is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
-    profile = auth_service.get_user_profile(user_id)
+def me(access_context=Depends(require_authenticated_access_context)) -> AuthResponse:
+    user_id = access_context.principal.user_id
+    profile = auth_service.get_user_profile(user_id) if user_id is not None else None
     if profile is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
     return AuthResponse(user=profile, message="Authenticated.")
@@ -82,10 +79,11 @@ def me(request: Request) -> AuthResponse:
 
 @router.post("/auth/logout", response_model=LogoutResponse)
 def logout(response: Response) -> LogoutResponse:
+    cookie_settings = session_cookie_settings()
     response.delete_cookie(
-        key=session_cookie_settings()["key"],
-        path="/",
-        samesite="lax",
-        secure=session_cookie_settings()["secure"],
+        key=cookie_settings["key"],
+        path=cookie_settings["path"],
+        samesite=cookie_settings["samesite"],
+        secure=cookie_settings["secure"],
     )
     return LogoutResponse(message="Logged out successfully.")
