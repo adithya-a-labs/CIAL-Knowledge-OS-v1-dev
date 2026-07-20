@@ -29,12 +29,13 @@ export type ChatMessageData = AssistantChatMessage;
 interface ChatMessageProps {
   message: ChatMessageData;
   chatWidth?: number;
-  selectedFeedback?: FeedbackType;
+  selectedFeedback?: FeedbackType[];
   onCitationClick: (source: ChatSource) => void;
   onSourceOpen: (source: ChatSource) => void;
   onRelatedQuestionClick: (question: string) => void;
-  onCopy: (content: string) => void;
-  onUnavailableAction: (label: string) => void;
+  onCopy: (message: ChatMessageData) => Promise<void>;
+  onAction: (message: ChatMessageData, action: 'regenerate' | 'explain_simpler' | 'create_checklist' | 'export_pdf' | 'export_docx' | 'copy_formatted' | 'export_markdown') => void;
+  loadingAction?: string;
   onFeedback: (messageId: string, feedback: FeedbackType) => void;
 }
 
@@ -306,8 +307,8 @@ function MetadataPanel({ metadata }: { metadata: AssistantMessageMetadata }) {
   return (
     <div className="rounded-2xl bg-[hsl(210_20%_98%)] px-3 py-2 text-[11px] font-medium leading-5 text-muted-foreground ring-1 ring-black/5">
       {SEARCH_SCOPE_LABELS[metadata.searchScope]} / {RESPONSE_LENGTH_LABELS[metadata.activeProfile]} /{' '}
-      {metadata.documentsSearched} docs / {metadata.chunksRetrieved} chunks / {metadata.sourcesUsed} sources /{' '}
-      {metadata.confidence}% confidence / {metadata.generationTimeSeconds.toFixed(1)}s
+      {metadata.documentsSearched} documents / {metadata.chunksRetrieved} chunks / {metadata.citationCount ?? metadata.sourcesUsed} citations /{' '}
+      {metadata.confidence}% evidence confidence / {metadata.generationTimeSeconds.toFixed(1)}s
     </div>
   );
 }
@@ -357,7 +358,8 @@ export default function ChatMessage({
   onSourceOpen,
   onRelatedQuestionClick,
   onCopy,
-  onUnavailableAction,
+  onAction,
+  loadingAction,
   onFeedback,
 }: ChatMessageProps) {
   if (message.role === 'user') {
@@ -437,30 +439,37 @@ export default function ChatMessage({
         <div className="flex flex-wrap gap-2 px-1">
           <button
             type="button"
-            onClick={() => onCopy(message.content)}
+            onClick={() => void onCopy(message)}
+            disabled={!message.content || Boolean(loadingAction)}
+            aria-label="Copy complete response as Markdown"
             className="ce-action min-h-8 rounded-full px-3 text-primary"
             data-testid={`button-copy-${message.id}`}
           >
             <Clipboard size={13} />
-            Copy
+            {loadingAction === 'copied' ? 'Copied' : 'Copy'}
           </button>
           {[
-            { label: 'Regenerate', icon: RefreshCcw },
-            { label: 'Export', icon: Download },
-            { label: 'Explain simpler', icon: Sparkles },
-            { label: 'Create checklist', icon: CheckSquare },
+            { label: 'Regenerate', action: 'regenerate', icon: RefreshCcw },
+            { label: 'Export PDF', action: 'export_pdf', icon: Download },
+            { label: 'Export DOCX', action: 'export_docx', icon: Download },
+            { label: 'Markdown file', action: 'export_markdown', icon: Download },
+            { label: 'Copy formatted', action: 'copy_formatted', icon: Clipboard },
+            { label: 'Explain simpler', action: 'explain_simpler', icon: Sparkles },
+            { label: 'Create checklist', action: 'create_checklist', icon: CheckSquare },
           ].map((action) => {
             const Icon = action.icon;
             return (
               <button
                 key={action.label}
                 type="button"
-                onClick={() => onUnavailableAction(action.label)}
+                onClick={() => onAction(message, action.action as Parameters<ChatMessageProps['onAction']>[1])}
+                disabled={Boolean(loadingAction)}
+                aria-label={action.label}
                 className="ce-action min-h-8 rounded-full px-3"
                 data-testid={`button-action-${action.label.toLowerCase().replace(/\s+/g, '-')}`}
               >
                 <Icon size={13} />
-                {action.label}
+                {loadingAction === action.action ? 'Working…' : action.label}
               </button>
             );
           })}
@@ -470,7 +479,7 @@ export default function ChatMessage({
           <span className="text-[11px] text-muted-foreground">Feedback</span>
           {feedbackOptions.map((option) => {
             const Icon = option.icon;
-            const active = selectedFeedback === option.value;
+            const active = selectedFeedback?.includes(option.value) ?? false;
             return (
               <button
                 key={option.value}
@@ -484,6 +493,8 @@ export default function ChatMessage({
                     : 'border-border bg-white text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
                 data-testid={`button-feedback-${option.value}-${message.id}`}
+                aria-pressed={active}
+                aria-label={option.label}
               >
                 <Icon size={12} />
                 {option.label}

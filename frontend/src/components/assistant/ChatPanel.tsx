@@ -10,13 +10,10 @@ import ContextManagerDialog from './ContextManagerDialog';
 import RetrievalTimeline from './RetrievalTimeline';
 import SourceViewerPanel from './SourceViewerPanel';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
-import { askQuestion, getCorpusTree, getHealth, uploadDocument } from '@/api/client';
+import { askQuestion, exportMessage, getCorpusTree, getHealth, regenerateMessage, toggleMessageFeedback, transformMessage, uploadDocument } from '@/api/client';
 import { flattenCorpusTree, toAssistantMessage, toChatRequest } from '@/api/adapters';
 import type { CorpusDocument, HealthResponse, SelectedContextItem } from '@/api/types';
-import {
-  MOCK_CHAT_SOURCES,
-  RETRIEVAL_STAGES,
-} from '@/data/assistantData';
+import { RETRIEVAL_STAGES } from '@/data/assistantData';
 import { suggestedPrompts } from '@/data/homePageData';
 import { toast } from '@/hooks/use-toast';
 import type {
@@ -81,10 +78,13 @@ export default function ChatPanel() {
   const {
     activeSession,
     updateActiveSession,
+    updateSession,
   } = useAssistantSessions();
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [actionByMessage, setActionByMessage] = useState<Record<string, string>>({});
+  const actionGenerationRef = useRef<Record<string, number>>({});
   const [activeStageIndex, setActiveStageIndex] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [contextManagerOpen, setContextManagerOpen] = useState(false);
@@ -297,6 +297,7 @@ export default function ChatPanel() {
         .map((file) => file.backendDocumentId)
         .filter((value): value is string => Boolean(value));
 
+    const requestSessionId = activeSession.id;
     const requestPayload: ChatRequestPayload = {
       query: input.trim(),
       searchScope,
@@ -313,7 +314,7 @@ export default function ChatPanel() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
-    updateActiveSession({
+    updateSession(requestSessionId, {
       messages: [...messages, userMsg],
     });
     setInput('');
@@ -327,10 +328,11 @@ export default function ChatPanel() {
     console.debug('[chat-request]', { requestId, status: 'started' });
 
     try {
-      const response = await askQuestion(toChatRequest(requestPayload), controller.signal);
+      const response = await askQuestion(toChatRequest(requestPayload, requestSessionId), controller.signal);
       const adapted = toAssistantMessage(response, requestPayload);
+      const persistedUserMsg = response.user_message_id ? { ...userMsg, id: response.user_message_id } : userMsg;
       const aiMsg: ChatMessageData = {
-        id: `ai-${Date.now()}`,
+        id: response.assistant_message_id ?? `ai-${Date.now()}`,
         role: 'assistant',
         content: adapted.content,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -340,8 +342,8 @@ export default function ChatPanel() {
         relatedQuestions: adapted.relatedQuestions,
       };
 
-      updateActiveSession({
-        messages: [...messages, userMsg, aiMsg],
+      updateSession(requestSessionId, {
+        messages: [...messages, persistedUserMsg, aiMsg],
       });
     } catch (error) {
       const cancelled = controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
@@ -411,13 +413,57 @@ export default function ChatPanel() {
     toast({ title: 'Upload saved', description: 'The file is now available to scoped retrieval.' });
   };
 
-  const handleCopy = async (content: string) => {
+  const copyResponse = async (message: ChatMessageData) => {
     try {
-      await navigator.clipboard.writeText(content);
-      toast({ title: 'Copied response' });
-    } catch {
-      toast({ title: 'Copy failed', description: 'Clipboard permission is unavailable.' });
+      await navigator.clipboard.writeText(message.content);
+      setActionByMessage((current) => ({ ...current, [message.id]: 'copied' }));
+      window.setTimeout(() => setActionByMessage((current) => { const next = { ...current }; delete next[message.id]; return next; }), 1400);
+    } catch { toast({ title: 'Copy failed', description: 'Clipboard permission is unavailable.' }); }
+  };
+
+  const responseFromRecord = (record: Awaited<ReturnType<typeof transformMessage>>): ChatMessageData => {
+    const payload = { answer: record.content, citations: record.citations as never[], sources: record.sources as never[], metadata: record.metadata as never };
+    const requestPayload: ChatRequestPayload = { query: '', searchScope, activeProfile, selectedDocumentIds: [], selectedFolderIds: [], uploadedFileIds: [] };
+    const adapted = toAssistantMessage(payload, requestPayload);
+    return { id: record.id, role: 'assistant', content: adapted.content, citations: adapted.citations, sources: adapted.sources, metadata: adapted.metadata, timestamp: new Date(record.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+  };
+
+  const handleResponseAction = async (message: ChatMessageData, action: 'regenerate' | 'explain_simpler' | 'create_checklist' | 'export_pdf' | 'export_docx' | 'copy_formatted' | 'export_markdown') => {
+    if (action === 'copy_formatted') return void copyResponse(message);
+    if (action === 'export_markdown') {
+      const blob = new Blob([message.content], { type: 'text/markdown;charset=utf-8' }); const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = `cial-response-${message.id.slice(0, 8)}.md`; anchor.click(); URL.revokeObjectURL(url); return;
     }
+    const generation = (actionGenerationRef.current[message.id] ?? 0) + 1; actionGenerationRef.current[message.id] = generation;
+    setActionByMessage((current) => ({ ...current, [message.id]: action }));
+    try {
+      if (action === 'export_pdf' || action === 'export_docx') {
+        const result = await exportMessage(message.id, action === 'export_pdf' ? 'pdf' : 'docx');
+        window.location.assign(result.download_url); return;
+      }
+      if (action === 'regenerate') {
+        const response = await regenerateMessage(message.id);
+        if (actionGenerationRef.current[message.id] !== generation) return;
+        const adapted = toAssistantMessage(response, { query: '', searchScope: message.metadata?.searchScope ?? searchScope, activeProfile: message.metadata?.activeProfile ?? activeProfile, selectedDocumentIds: [], selectedFolderIds: [], uploadedFileIds: [] });
+        const regenerated: ChatMessageData = { id: response.assistant_message_id ?? crypto.randomUUID(), role: 'assistant', content: adapted.content, citations: adapted.citations, sources: adapted.sources, metadata: adapted.metadata, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+        updateActiveSession({ messages: [...messages, regenerated] });
+      } else {
+        const record = await transformMessage(message.id, action);
+        if (actionGenerationRef.current[message.id] !== generation) return;
+        updateActiveSession({ messages: [...messages, responseFromRecord(record)] });
+      }
+    } catch (error) { toast({ title: 'Response action failed', description: error instanceof Error ? error.message : 'Please retry this action.' }); }
+    finally { if (actionGenerationRef.current[message.id] === generation) setActionByMessage((current) => { const next = { ...current }; delete next[message.id]; return next; }); }
+  };
+
+  const handleFeedback = async (messageId: string, feedback: import('@/types/assistant').FeedbackType) => {
+    const previous = feedbackByMessageId[messageId] ?? [];
+    let optimistic = previous.includes(feedback) ? previous.filter((x) => x !== feedback) : [...previous, feedback];
+    if (feedback === 'helpful') optimistic = optimistic.filter((x) => x !== 'not_helpful');
+    if (feedback === 'not_helpful') optimistic = optimistic.filter((x) => x !== 'helpful');
+    updateActiveSession({ feedbackByMessageId: { ...feedbackByMessageId, [messageId]: optimistic } });
+    try { const result = await toggleMessageFeedback(messageId, feedback); updateActiveSession({ feedbackByMessageId: { ...feedbackByMessageId, [messageId]: result.active as import('@/types/assistant').FeedbackType[] } }); }
+    catch (error) { updateActiveSession({ feedbackByMessageId: { ...feedbackByMessageId, [messageId]: previous } }); toast({ title: 'Feedback was not saved', description: error instanceof Error ? error.message : 'Please retry.' }); }
   };
 
   const visibleSuggestedPrompts =
@@ -425,13 +471,10 @@ export default function ChatPanel() {
   const hasSelectedSource = Boolean(selectedSource);
   const showSourceReopen = hasSelectedSource && !sourceViewerOpen;
   const showDesktopSourcePane = hasSelectedSource && sourceViewerOpen && isDesktopViewport;
-  const sourceViewerSources =
-      allVisibleSources.length > 0
-          ? allVisibleSources.map((source) => ({
+  const sourceViewerSources = allVisibleSources.map((source) => ({
             ...source,
             documentId: toUuidDocumentId(source.documentId) ?? source.documentId,
-          }))
-          : MOCK_CHAT_SOURCES;
+          }));
   const chatWorkspace = (
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-testid="chat-panel">
         <div
@@ -474,18 +517,10 @@ export default function ChatPanel() {
                         onCitationClick={openSource}
                         onSourceOpen={openSource}
                         onRelatedQuestionClick={setInput}
-                        onCopy={handleCopy}
-                        onUnavailableAction={(label) => {
-                          toast({ title: `${label} is coming soon` });
-                        }}
-                        onFeedback={(messageId, feedback) =>
-                            updateActiveSession({
-                              feedbackByMessageId: {
-                                ...feedbackByMessageId,
-                                [messageId]: feedback,
-                              },
-                            })
-                        }
+                        onCopy={copyResponse}
+                        onAction={handleResponseAction}
+                        loadingAction={actionByMessage[msg.id]}
+                        onFeedback={handleFeedback}
                     />
                 ))}
 
