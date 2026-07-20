@@ -132,3 +132,38 @@ class RetrievalEvent(UUIDPrimaryKeyMixin, Base):
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     result_count: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class ExportJob(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "export_jobs"
+    __table_args__ = (
+        Index("ix_export_jobs_user_id", "user_id"),
+        Index("ix_export_jobs_status", "status"),
+        Index("ix_export_jobs_created_at", "created_at"),
+        Index("ix_export_jobs_expires_at", "expires_at"),
+        CheckConstraint("format in ('pdf', 'docx')", name="ck_export_jobs_format"),
+        CheckConstraint("status in ('queued','processing','ready','failed','expired','cancelled')", name="ck_export_jobs_status"),
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False)
+    message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False)
+    format: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="queued")
+    progress_stage: Mapped[str] = mapped_column(Text, nullable=False, server_default="queued")
+    progress_percent: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    options: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    source_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    source_content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    output_filename: Mapped[str | None] = mapped_column(Text)
+    output_mime_type: Mapped[str | None] = mapped_column(Text)
+    storage_key: Mapped[str | None] = mapped_column(Text)
+    preview_storage_key: Mapped[str | None] = mapped_column(Text)
+    file_size_bytes: Mapped[int | None] = mapped_column(Integer)
+    error_code: Mapped[str | None] = mapped_column(Text)
+    safe_error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    downloaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
