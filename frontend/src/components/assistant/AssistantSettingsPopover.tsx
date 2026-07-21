@@ -215,15 +215,15 @@ function SettingsPopover<T extends string>({
         <button
           type="button"
           disabled={disabled}
-          className="flex h-7 min-w-0 items-center gap-1.5 rounded-md border border-[#dce4d8] bg-white px-2 text-left transition hover:bg-[#f8faf7] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-white"
+          className="flex h-8 min-w-0 shrink-0 items-center gap-2 rounded-lg px-2 text-left transition hover:bg-[#f1f6ee] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:text-slate-700 disabled:opacity-100"
           aria-label={`Open ${title} selector`}
           aria-haspopup="dialog"
         >
-          <TriggerIcon size={14} className="shrink-0 text-primary" />
-          <span className="hidden text-[10px] font-semibold uppercase text-muted-foreground lg:inline">
-            {eyebrow}
+          <TriggerIcon size={14} className="sr-only" />
+          <span className="sr-only">
+            {eyebrow}:
           </span>
-          <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
             {selectedOption.title}
           </span>
           <ChevronDown size={13} className="shrink-0 text-muted-foreground" />

@@ -1,10 +1,9 @@
-import { Folder, FileText, Paperclip, UploadCloud, X } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, FileText, Folder, Settings2, ShieldCheck, UploadCloud, X } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import FileIndexingStatus from '@/components/documents/FileIndexingStatus';
 import type { SelectedContextItem } from '@/api/types';
-import type {
-  SearchScope,
-  UploadedFileContext,
-} from '@/types/assistant';
+import type { SearchScope, UploadedFileContext } from '@/types/assistant';
 
 interface ContextChipsProps {
   selectedContextItems: SelectedContextItem[];
@@ -12,7 +11,7 @@ interface ContextChipsProps {
   searchScope: SearchScope;
   onRemoveContext: (id: string) => void;
   onRemoveFile: (id: string) => void;
-  onClearAll?: () => void;
+  onManageContext: () => void;
 }
 
 function formatFileSize(size: number) {
@@ -27,108 +26,103 @@ export default function ContextChips({
   searchScope,
   onRemoveContext,
   onRemoveFile,
-  onClearAll,
+  onManageContext,
 }: ContextChipsProps) {
-  const visibleContext = selectedContextItems.slice(0, 3);
-  const hiddenContextCount = Math.max(0, selectedContextItems.length - visibleContext.length);
-  const visibleUploads = uploadedFiles.slice(0, 2);
-  const hiddenUploadCount = Math.max(0, uploadedFiles.length - visibleUploads.length);
-  const hasAnyContext = selectedContextItems.length > 0 || uploadedFiles.length > 0;
+  const [open, setOpen] = useState(false);
+  const totalContextCount = selectedContextItems.length + uploadedFiles.length;
+  const hasAnyContext = totalContextCount > 0;
   const showUploadWarning = searchScope === 'current_upload' && uploadedFiles.length === 0;
 
-  if (!hasAnyContext && !showUploadWarning) {
-    return null;
-  }
-
   return (
-    <div className="space-y-1.5 px-3 pb-1.5 sm:px-4" data-testid="chat-context-area">
-      {showUploadWarning && (
-        <div className="rounded-md border border-[#e4c691] bg-[#fffaf2] px-2.5 py-1.5 text-[11px] font-medium text-[#7c4b0c]">
-          Current Upload Only is selected, but no files have been attached yet.
-        </div>
-      )}
-
-      {hasAnyContext && (
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              <span className="flex items-center gap-2">
-                <Paperclip size={12} />
-                Attached context
-              </span>
-              <span className="rounded-sm bg-[#eef5e8] px-1.5 py-0.5 text-[10px] text-primary">
-                Hard retrieval boundary
-              </span>
-            </div>
-            {onClearAll ? (
-              <button type="button" onClick={onClearAll} className="text-[11px] font-medium text-muted-foreground transition hover:text-foreground">
-                Clear all
-              </button>
-            ) : null}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg px-2 text-sm font-medium text-slate-700 transition hover:bg-[#f1f6ee] hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          aria-label={`Manage selected context: ${totalContextCount} document${totalContextCount === 1 ? '' : 's'}`}
+          data-testid="button-context-selector"
+        >
+          <ShieldCheck size={17} className="text-primary" />
+          <span>{totalContextCount} document{totalContextCount === 1 ? '' : 's'}</span>
+          <ChevronDown size={14} className="text-slate-500" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" side="top" sideOffset={10} className="w-[min(calc(100vw-2rem),23rem)] rounded-xl border-border bg-white p-0 shadow-lg" data-testid="context-selector-popover">
+        <div className="flex items-start justify-between gap-3 border-b border-[#e8ede6] px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-foreground">Selected context</p>
+            <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">Selected items form a hard retrieval boundary.</p>
           </div>
+          <ShieldCheck size={17} className="mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+        </div>
 
-          <div className="flex flex-wrap gap-1.5">
-          {visibleContext.map((item) => (
-            <span
-              key={item.id}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[#dce4d8] bg-[#f7faf5] px-2 py-0.5 text-[11px] text-slate-700"
-            >
-              {item.type === 'folder' ? (
-                <Folder size={12} className="shrink-0 text-[#8a5b13]" />
-              ) : (
-                <FileText size={12} className="shrink-0 text-primary" />
-              )}
-              <span className="safe-text max-w-[13rem] truncate">{item.title}</span>
+        <div className="max-h-64 overflow-y-auto p-2">
+          {showUploadWarning ? (
+            <p className="mb-2 rounded-lg bg-[#fffaf2] px-3 py-2 text-xs text-[#7c4b0c]">Attach a file to use Current Upload Only.</p>
+          ) : null}
+          {!hasAnyContext ? (
+            <p className="px-2 py-5 text-center text-sm text-muted-foreground">No documents or folders selected.</p>
+          ) : null}
+
+          {selectedContextItems.map((item) => (
+            <div key={item.id} className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-2 hover:bg-[#f7faf5]" data-testid="context-selector-item">
+              {item.type === 'folder' ? <Folder size={15} className="shrink-0 text-[#8a5b13]" /> : <FileText size={15} className="shrink-0 text-primary" />}
+              <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{item.title}</span>
               <button
                 type="button"
                 onClick={() => onRemoveContext(item.id)}
-                className="rounded-sm p-0.5 text-muted-foreground hover:bg-white hover:text-primary"
+                className="ce-icon-button h-7 min-h-7 w-7 min-w-7"
                 aria-label={`Remove ${item.title}`}
                 data-testid={`button-remove-context-${item.id}`}
               >
-                <X size={12} />
+                <X size={13} />
               </button>
-            </span>
+            </div>
           ))}
 
-          {hiddenContextCount > 0 && (
-            <span className="inline-flex items-center rounded-md border border-[#dce4d8] bg-[#f1f6ee] px-2 py-0.5 text-[11px] font-medium text-primary">
-              +{hiddenContextCount} more
-            </span>
-          )}
-
-          {visibleUploads.map((file) => (
-            <span
-              key={file.id}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[#d8e5ef] bg-[#f5fafe] px-2 py-0.5 text-[11px] text-slate-700"
-            >
-              <UploadCloud size={12} className="shrink-0 text-[#346c96]" />
-              <span className="safe-text max-w-[12rem] truncate">
-                {file.name} ({formatFileSize(file.size)})
+          {uploadedFiles.map((file) => (
+            <div key={file.id} className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-2 hover:bg-[#f7faf5]" data-testid="context-selector-upload">
+              <UploadCloud size={15} className="shrink-0 text-[#346c96]" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-slate-700">{file.name}</span>
+                <span className="block text-[10px] text-muted-foreground">{formatFileSize(file.size)}</span>
               </span>
-              <FileIndexingStatus status={file.uploadStatus === 'upload_failed' ? 'failed' : file.uploadStatus === 'uploading' ? 'pending' : file.indexingStatus || 'pending'}
-                stage={file.indexingStage} safeMessage={file.indexingSafeMessage} retryAllowed={file.uploadStatus === 'uploaded' && file.retryAllowed}
-                documentId={file.backendDocumentId} fileName={file.name} />
+              <FileIndexingStatus
+                status={file.uploadStatus === 'upload_failed' ? 'failed' : file.uploadStatus === 'uploading' ? 'pending' : file.indexingStatus || 'pending'}
+                stage={file.indexingStage}
+                safeMessage={file.indexingSafeMessage}
+                retryAllowed={file.uploadStatus === 'uploaded' && file.retryAllowed}
+                documentId={file.backendDocumentId}
+                fileName={file.name}
+              />
               <button
                 type="button"
                 onClick={() => onRemoveFile(file.id)}
-                className="rounded-sm p-0.5 text-muted-foreground hover:bg-white hover:text-[#346c96]"
+                className="ce-icon-button h-7 min-h-7 w-7 min-w-7"
                 aria-label={`Remove ${file.name}`}
                 data-testid={`button-remove-upload-${file.id}`}
               >
-                <X size={12} />
+                <X size={13} />
               </button>
-            </span>
+            </div>
           ))}
-
-          {hiddenUploadCount > 0 && (
-            <span className="inline-flex items-center rounded-md border border-[#d8e5ef] bg-[#eef6fc] px-2 py-0.5 text-[11px] font-medium text-[#346c96]">
-              +{hiddenUploadCount} upload{hiddenUploadCount === 1 ? '' : 's'}
-            </span>
-          )}
-          </div>
         </div>
-      )}
-    </div>
+
+        <div className="border-t border-[#e8ede6] p-2">
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onManageContext();
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-primary transition hover:bg-[#f1f6ee] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            data-testid="button-manage-context"
+          >
+            <Settings2 size={15} />
+            Manage context
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

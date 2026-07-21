@@ -1,76 +1,148 @@
-import { useState } from 'react';
-import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
+import { useId, useState } from 'react';
+import { ChevronDown, ExternalLink, FileText } from 'lucide-react';
 import type { ChatSource } from '@/types/assistant';
 
 interface SourceCitationCardProps {
   sources: ChatSource[];
   onOpenSource: (source: ChatSource) => void;
+  includeExcerpts?: boolean;
+}
+
+export interface GroupedSource {
+  key: string;
+  documentTitle: string;
+  sourceType: ChatSource['sourceType'];
+  department?: string;
+  pages: number[];
+  citationIds: number[];
+  sources: ChatSource[];
+  excerpt?: string;
+}
+
+function normalizedSourceIdentity(source: ChatSource) {
+  const stableId = source.documentId?.trim();
+  if (stableId) return `id:${stableId}`;
+
+  const fallback = (source.relativePath || source.documentTitle)
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/')
+    .toLocaleLowerCase();
+  return `path:${fallback}`;
+}
+
+export function groupSourcesByDocument(sources: ChatSource[]): GroupedSource[] {
+  const groups = new Map<string, GroupedSource>();
+
+  for (const source of sources) {
+    const key = normalizedSourceIdentity(source);
+    const existing = groups.get(key);
+    const page = typeof source.pageNumber === 'number' && source.pageNumber > 0
+      ? Math.trunc(source.pageNumber)
+      : typeof source.pageIndex === 'number' && source.pageIndex >= 0
+        ? Math.trunc(source.pageIndex) + 1
+        : undefined;
+
+    if (!existing) {
+      groups.set(key, {
+        key,
+        documentTitle: source.documentTitle,
+        sourceType: source.sourceType,
+        department: source.department,
+        pages: page === undefined ? [] : [page],
+        citationIds: [source.citationIndex],
+        sources: [source],
+        excerpt: source.previewText || source.highlightText || source.excerpt,
+      });
+      continue;
+    }
+
+    existing.sources.push(source);
+    if (page !== undefined && !existing.pages.includes(page)) existing.pages.push(page);
+    if (!existing.citationIds.includes(source.citationIndex)) existing.citationIds.push(source.citationIndex);
+    if (!existing.excerpt) existing.excerpt = source.previewText || source.highlightText || source.excerpt;
+  }
+
+  return Array.from(groups.values());
 }
 
 function getSourceTypeStyles(sourceType: ChatSource['sourceType']) {
-  if (sourceType === 'enterprise') {
-    return { label: 'Enterprise', className: 'ce-badge-accent' };
-  }
-  if (sourceType === 'workspace') {
-    return { label: 'Workspace', className: 'bg-[#eef6fc] text-[#346c96] border-[#c7d8e8]' };
-  }
-  return { label: 'Upload', className: 'bg-[#fff5e8] text-[#8a5208] border-[#efd8b5]' };
+  if (sourceType === 'enterprise') return { label: 'Enterprise', className: 'ce-badge-accent' };
+  if (sourceType === 'workspace') return { label: 'Workspace', className: 'border-[#c7d8e8] bg-[#eef6fc] text-[#346c96]' };
+  return { label: 'Upload', className: 'border-[#efd8b5] bg-[#fff5e8] text-[#8a5208]' };
 }
 
-export default function SourceCitationCard({ sources, onOpenSource }: SourceCitationCardProps) {
+function summaryDocumentLabel(groups: GroupedSource[]) {
+  if (groups.length === 1) return groups[0].documentTitle;
+  return `${groups.length} documents`;
+}
+
+export default function SourceCitationCard({ sources, onOpenSource, includeExcerpts = true }: SourceCitationCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const contentId = useId();
+  const groups = groupSourcesByDocument(sources);
 
-  if (sources.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-border bg-white p-3 text-xs text-muted-foreground" data-testid="source-citation-card-empty">
-        No sources available for this response.
-      </div>
-    );
-  }
+  if (sources.length === 0) return null;
 
-  const visibleSources = expanded ? sources : sources.slice(0, 2);
-  const hiddenCount = Math.max(0, sources.length - visibleSources.length);
+  const pages = Array.from(new Set(groups.flatMap((group) => group.pages)));
 
   return (
-    <div className="rounded-2xl bg-white/90 p-3 ring-1 ring-black/5" data-testid="source-citation-card">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Sources</p>
-        {sources.length > 2 ? (
-          <button
-            type="button"
-            onClick={() => setExpanded((current) => !current)}
-            className="inline-flex items-center gap-1 rounded-full border border-border bg-white px-2 py-1 text-[11px] font-semibold text-primary hover:bg-muted"
-            data-testid="button-toggle-sources"
-          >
-            {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-            {expanded ? 'Collapse' : `Show ${hiddenCount} more`}
-          </button>
+    <div className="overflow-hidden rounded-[1.15rem] border border-[#dfe6dc] bg-white" data-testid="source-summary-accordion">
+      <button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        className="flex w-full min-w-0 items-center gap-3 px-3.5 py-3 text-left transition hover:bg-[#f8faf7] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring sm:px-4"
+        aria-expanded={expanded}
+        aria-controls={contentId}
+        data-testid="button-toggle-sources"
+      >
+        <FileText size={17} className="shrink-0 text-slate-500" />
+        <span className="shrink-0 text-sm font-semibold text-foreground">
+          {sources.length} source{sources.length === 1 ? '' : 's'}
+        </span>
+        <span aria-hidden="true" className="text-xs text-slate-400">•</span>
+        <span className="min-w-0 truncate text-sm text-slate-600">{summaryDocumentLabel(groups)}</span>
+        {pages.length > 0 ? (
+          <>
+            <span aria-hidden="true" className="hidden text-xs text-slate-400 sm:inline">•</span>
+            <span className="hidden min-w-0 truncate text-sm text-slate-600 sm:inline">
+              Pages {pages.join(', ')}
+            </span>
+          </>
         ) : null}
-      </div>
+        <span className="ml-auto inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-primary">
+          <span className="hidden sm:inline">View sources</span>
+          <ChevronDown size={16} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        </span>
+      </button>
 
-      <div className="mt-3 space-y-2">
-        {visibleSources.map((source) => {
-          const badge = getSourceTypeStyles(source.sourceType);
+      <div id={contentId} hidden={!expanded} className="border-t border-[#e8ede6] bg-[#fbfcfa]" data-testid="grouped-source-list">
+        {groups.map((group) => {
+          const badge = getSourceTypeStyles(group.sourceType);
           return (
-            <article key={source.id} className="rounded-xl bg-[hsl(210_20%_98%)] p-3 ring-1 ring-black/5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="mb-1 flex flex-wrap items-center gap-2">
-                    <span className="ce-badge ce-badge-accent">[{source.citationIndex}]</span>
+            <article key={group.key} className="border-b border-[#e8ede6] px-3.5 py-3 last:border-b-0 sm:px-4" data-testid="grouped-source-row">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <h3 className="safe-text text-sm font-semibold text-foreground">{group.documentTitle}</h3>
                     <span className={`ce-badge ${badge.className}`}>{badge.label}</span>
-                    {source.pageNumber !== undefined && source.pageNumber > 0 ? <span className="ce-meta-text font-semibold">p. {source.pageNumber}</span> : null}
                   </div>
-                  <h3 className="safe-text text-sm font-semibold text-foreground">{source.documentTitle}</h3>
-                  {source.department ? <p className="mt-1 text-[11px] text-muted-foreground">{source.department}</p> : null}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                    {group.pages.length > 0 ? <span>Pages {group.pages.join(', ')}</span> : null}
+                    <span>Citations {group.citationIds.map((id) => `[${id}]`).join(', ')}</span>
+                    {group.department ? <span>{group.department}</span> : null}
+                  </div>
+                  {includeExcerpts && group.excerpt ? <p className="safe-text mt-2 line-clamp-2 text-xs leading-5 text-slate-600">{group.excerpt}</p> : null}
                 </div>
                 <button
                   type="button"
-                  onClick={() => onOpenSource(source)}
-                  className="ce-action min-h-8 shrink-0 rounded-full px-3 text-primary"
-                  data-testid={`button-open-source-${source.citationIndex}`}
+                  onClick={() => onOpenSource(group.sources[0])}
+                  className="ce-action min-h-8 shrink-0 px-2.5 text-primary"
+                  data-testid={`button-open-source-${group.sources[0].citationIndex}`}
+                  aria-label={`Open ${group.documentTitle} at citation ${group.sources[0].citationIndex}`}
                 >
                   <ExternalLink size={12} />
-                  Open
+                  <span className="hidden sm:inline">Open</span>
                 </button>
               </div>
             </article>

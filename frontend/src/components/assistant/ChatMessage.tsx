@@ -19,7 +19,6 @@ import {
 import type {
   AssistantChatMessage,
   AssistantMessageMetadata,
-  ChatCitation,
   ChatSource,
   FeedbackType,
 } from '@/types/assistant';
@@ -37,6 +36,8 @@ interface ChatMessageProps {
   onAction: (message: ChatMessageData, action: 'regenerate' | 'explain_simpler' | 'create_checklist' | 'export_pdf' | 'export_docx' | 'copy_formatted' | 'export_markdown') => void;
   loadingAction?: string;
   onFeedback: (messageId: string, feedback: FeedbackType) => void;
+  includeSourceExcerpts: boolean;
+  showRetrievalDetails: boolean;
 }
 
 type MarkdownNode = {
@@ -305,47 +306,10 @@ function createMarkdownComponents(
 
 function MetadataPanel({ metadata }: { metadata: AssistantMessageMetadata }) {
   return (
-    <div className="rounded-2xl bg-[hsl(210_20%_98%)] px-3 py-2 text-[11px] font-medium leading-5 text-muted-foreground ring-1 ring-black/5">
+    <div className="px-3 text-[11px] font-medium leading-5 text-muted-foreground">
       {SEARCH_SCOPE_LABELS[metadata.searchScope]} / {RESPONSE_LENGTH_LABELS[metadata.activeProfile]} /{' '}
       {metadata.documentsSearched} documents / {metadata.chunksRetrieved} chunks / {metadata.citationCount ?? metadata.sourcesUsed} citations /{' '}
       {metadata.confidence}% evidence confidence / {metadata.generationTimeSeconds.toFixed(1)}s
-    </div>
-  );
-}
-
-function CitationList({
-  citations,
-  sources,
-  onCitationClick,
-}: {
-  citations: ChatCitation[];
-  sources: ChatSource[];
-  onCitationClick: (source: ChatSource) => void;
-}) {
-  if (citations.length === 0) return null;
-
-  return (
-    <div className="rounded-2xl bg-white/90 p-2.5 ring-1 ring-black/5" data-testid="assistant-citations">
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Citations</p>
-      <div className="flex flex-wrap gap-2">
-        {citations.map((citation) => {
-          const source = sources.find((candidate) => candidate.citationIndex === citation.citationIndex);
-          return (
-            <button
-              key={citation.id}
-              type="button"
-              disabled={!source}
-              onClick={() => source && onCitationClick(source)}
-              className="inline-flex max-w-full items-center gap-1 rounded-full border border-[hsl(95_28%_78%)] bg-[hsl(95_24%_94%)] px-2.5 py-1.5 text-left text-[11px] font-semibold text-primary hover:bg-accent disabled:cursor-default disabled:opacity-70"
-              data-testid={`citation-chip-${citation.citationIndex}`}
-            >
-              <span>[{citation.citationIndex}]</span>
-              <span className="truncate">{citation.documentTitle}</span>
-              {citation.pageNumber !== undefined && citation.pageNumber > 0 ? <span className="text-muted-foreground">p. {citation.pageNumber}</span> : null}
-            </button>
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -361,12 +325,14 @@ export default function ChatMessage({
   onAction,
   loadingAction,
   onFeedback,
+  includeSourceExcerpts,
+  showRetrievalDetails,
 }: ChatMessageProps) {
   if (message.role === 'user') {
     return (
       <div className="flex justify-end" data-testid={`chat-message-user-${message.id}`}>
         <div className="max-w-[92%] sm:max-w-[76%] lg:max-w-[70%]">
-          <div className="safe-text rounded-[1.35rem] bg-[linear-gradient(135deg,hsl(95_50%_33%)_0%,hsl(95_45%_28%)_100%)] px-4 py-3 text-sm text-white shadow-[0_18px_38px_-26px_rgba(47,109,37,0.8)]">
+          <div className="safe-text rounded-[1.35rem] bg-primary px-4 py-3 text-sm text-white shadow-sm">
             {message.content}
           </div>
           <p className="mt-1 text-right text-[11px] text-muted-foreground">{message.timestamp}</p>
@@ -376,8 +342,8 @@ export default function ChatMessage({
   }
 
   const sources = message.sources ?? [];
-  const citations = message.citations ?? [];
   const answer = message.content?.trim() || 'No answer returned.';
+  const hasCitations = (message.citations?.length ?? 0) > 0;
   const markdownComponents = createMarkdownComponents(sources, onCitationClick);
   const width = chatWidth ?? 800;
 
@@ -399,23 +365,26 @@ export default function ChatMessage({
   return (
     <div className={`flex w-full ${isCentered ? 'justify-center' : 'justify-start'}`} data-testid={`chat-message-ai-${message.id}`}>
       <div style={cardWidthStyle} className="space-y-3 pr-1 transition-all duration-200">
-        <div className="rounded-[1.5rem] bg-white/95 px-5 py-4 shadow-[0_18px_40px_-34px_rgba(15,23,42,0.4)] ring-1 ring-black/5 lg:px-6">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{message.metadata?.transformationLabel ?? 'Grounded response'}</p>
-            <span className="ce-meta-text">{message.timestamp}</span>
-          </div>
-          <div className={`w-full ${fontSizeClass}`} data-testid="assistant-markdown">
-            <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm, remarkCitationLinks]}>
-              {answer}
-            </ReactMarkdown>
+        <div className="rounded-[1.5rem] border border-[#dfe6dc] bg-white px-5 py-4 shadow-sm lg:px-6">
+          <div className="flex items-start gap-4">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white" aria-hidden="true"><Sparkles size={17} /></span>
+            <div className="min-w-0 flex-1">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{message.metadata?.transformationLabel ?? 'Grounded response'}</p>
+                <span className="ce-meta-text">{message.timestamp}</span>
+              </div>
+              <div className={`w-full ${fontSizeClass}`} data-testid="assistant-markdown">
+                <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm, remarkCitationLinks]}>
+                  {answer}
+                </ReactMarkdown>
+              </div>
+            </div>
           </div>
         </div>
 
-        <CitationList citations={citations} sources={sources} onCitationClick={onCitationClick} />
+        {showRetrievalDetails && message.metadata ? <MetadataPanel metadata={message.metadata} /> : null}
 
-        <SourceCitationCard sources={sources} onOpenSource={onSourceOpen} />
-
-        {message.metadata && <MetadataPanel metadata={message.metadata} />}
+        {hasCitations ? <SourceCitationCard sources={sources} onOpenSource={onSourceOpen} includeExcerpts={includeSourceExcerpts} /> : null}
 
         {message.relatedQuestions && message.relatedQuestions.length > 0 && (
           <div className="rounded-2xl bg-white/90 p-3 ring-1 ring-black/5">

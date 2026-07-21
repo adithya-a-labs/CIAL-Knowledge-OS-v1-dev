@@ -5,6 +5,7 @@ import type { ChatHistorySession, SelectedContextItem } from '@/api/types';
 import { toUiChatCitations, toUiChatSources } from '@/api/adapters';
 import { useAuth } from '@/auth/AuthContext';
 import type { AssistantChatMessage, AssistantSession, FeedbackType, ResponseLength, SearchScope, UploadedFileContext } from '@/types/assistant';
+import { DEFAULT_RESPONSE_LENGTH, DEFAULT_SEARCH_SCOPE } from '@/data/assistantData';
 
 const ASSISTANT_CONTEXT_STORAGE_KEY = 'cial-assistant-selected-context';
 const ASSISTANT_NEW_SESSION_PENDING_STORAGE_KEY = 'cial-new-conversation-pending';
@@ -28,7 +29,7 @@ const AssistantSessionsContext = createContext<AssistantSessionsValue | null>(nu
 
 function buildSession(value: Partial<AssistantSession> = {}): AssistantSession {
   const now = new Date().toISOString();
-  return { id: value.id ?? crypto.randomUUID(), title: value.title ?? 'New conversation', messages: value.messages ?? [], selectedContextItems: value.selectedContextItems ?? [], uploadedFiles: value.uploadedFiles ?? [], searchScope: value.searchScope ?? 'hybrid', activeProfile: value.activeProfile ?? 'detailed', feedbackByMessageId: value.feedbackByMessageId ?? {}, createdAt: value.createdAt ?? now, updatedAt: value.updatedAt ?? now };
+  return { id: value.id ?? crypto.randomUUID(), title: value.title ?? 'New conversation', messages: value.messages ?? [], selectedContextItems: value.selectedContextItems ?? [], uploadedFiles: value.uploadedFiles ?? [], searchScope: value.searchScope ?? DEFAULT_SEARCH_SCOPE, activeProfile: value.activeProfile ?? DEFAULT_RESPONSE_LENGTH, feedbackByMessageId: value.feedbackByMessageId ?? {}, createdAt: value.createdAt ?? now, updatedAt: value.updatedAt ?? now };
 }
 
 function fromApi(session: ChatHistorySession): AssistantSession {
