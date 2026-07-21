@@ -156,6 +156,17 @@ export interface ChatResponse {
   debug?: Record<string, unknown> | null;
 }
 
+export interface GenerationEvent {
+  request_id: string;
+  type: 'stage' | 'token' | 'citation' | 'result' | 'error' | 'cancelled';
+  stage_id: string;
+  status: 'started' | 'completed' | 'failed';
+  elapsed_ms: number;
+  metrics?: Record<string, number | string | boolean>;
+  delta?: string;
+  payload?: ChatResponse | { message?: string };
+}
+
 export interface ChatHistoryMessage {
   id: string;
   role: 'user' | 'assistant';

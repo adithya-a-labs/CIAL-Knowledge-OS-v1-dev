@@ -22,7 +22,7 @@ import type {
   SignupRequest,
   AuthResponse,
 } from './types';
-import type { WorkspaceFolderResponse, WorkspacePreferences, WorkspaceSummaryResponse, WorkspaceTreeResponse } from '@/data/workspace/workspaceTypes';
+import type { WorkspaceFolderResponse, WorkspaceNote, WorkspaceNoteList, WorkspacePreferences, WorkspaceSummaryResponse, WorkspaceTreeResponse } from '@/data/workspace/workspaceTypes';
 import { ApiError } from './types';
 
 const CONFIGURED_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '');
@@ -175,6 +175,35 @@ export function uploadMyWorkspaceFiles(files: File[], folderId?: string | null) 
   }));
 }
 
+export function listMyNotes(params: { query?: string; filter?: string; cursor?: string | null } = {}) {
+  const query = new URLSearchParams(); if (params.query) query.set('query', params.query); if (params.filter) query.set('filter', params.filter); if (params.cursor) query.set('cursor', params.cursor);
+  return request<WorkspaceNoteList>(`/api/workspaces/me/notes${query.size ? `?${query}` : ''}`);
+}
+export function createMyNote(title = 'Untitled') { return request<WorkspaceNote>('/api/workspaces/me/notes', { method: 'POST', body: JSON.stringify({ title }) }); }
+export function updateMyNote(id: string, payload: Partial<WorkspaceNote> & { expected_revision: number }) { return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }); }
+export async function deleteMyNote(id: string) { const response = await fetch(apiUrl(`/api/workspaces/me/notes/${encodeURIComponent(id)}`), { method: 'DELETE', credentials: 'include' }); if (!response.ok) throw new ApiError('Could not delete note.', response.status, null); }
+export function restoreMyNote(id: string) { return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(id)}/restore`, { method: 'POST' }); }
+export function duplicateMyNote(id: string) { return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(id)}/duplicate`, { method: 'POST' }); }
+export function getNoteExportUrl(id: string) { return apiUrl(`/api/workspaces/me/notes/${encodeURIComponent(id)}/export?format=markdown`); }
+
+export interface SummaryRecord {
+  id:string; title:string; summary_type:string; summary_length:string; multi_document_mode:string; status:string; content_markdown:string|null;
+  citation_count:number; document_count:number; prompt_name:string; prompt_version:string; created_at:string; completed_at:string|null;
+  sources:Array<{id:string;source_type:string;source_id:string|null;title:string;version_id:string|null}>;
+  citations:Array<{citation_id:string;document_id:string|null;note_id:string|null;page_number:number|null;section:string|null;chunk_id:string|null;excerpt:string|null}>; stale:boolean;
+}
+export interface SummaryCreatePayload { sources:Array<{source_type:'document'|'note'|'conversation';source_id:string}>; summary_type:'executive'|'detailed'|'key_points'|'action_items'; summary_length:'brief'|'standard'|'detailed'; multi_document_mode:'together'|'separate'|'compare'; custom_instructions?:string|null; }
+export interface SummaryStreamEvent { request_id:string; type:'stage'|'result'|'error'; stage_id:string; status:string; metrics?:Record<string,number|string>; payload?:SummaryRecord|{message?:string}; }
+export async function streamSummary(payload: SummaryCreatePayload,onEvent:(event:SummaryStreamEvent)=>void,signal?:AbortSignal) {
+  const response=await fetch(apiUrl('/api/summaries/stream'),{method:'POST',credentials:'include',signal,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(!response.ok||!response.body)throw new ApiError(`Summary request failed with status ${response.status}`,response.status,null);
+  const reader=response.body.getReader();const decoder=new TextDecoder();let buffer='';let result:SummaryRecord|null=null;
+  while(true){const {value,done}=await reader.read();buffer+=decoder.decode(value,{stream:!done});const lines=buffer.split('\n');buffer=lines.pop()??'';for(const line of lines){if(!line.trim())continue;const event=JSON.parse(line) as SummaryStreamEvent;onEvent(event);if(event.type==='result')result=event.payload as SummaryRecord;if(event.type==='error')throw new Error((event.payload as {message?:string})?.message||'Summary generation failed.');}if(done)break;}
+  if(!result)throw new Error('Summary stream ended without an artifact.');return result;
+}
+export function saveSummaryToNote(id:string,title?:string){return request<WorkspaceNote>(`/api/summaries/${encodeURIComponent(id)}/save-to-note`,{method:'POST',body:JSON.stringify({title:title??null})});}
+export function getSummaryExportUrl(id:string){return apiUrl(`/api/summaries/${encodeURIComponent(id)}/export?format=markdown`);}
+
 export function askQuestion(payload: ChatRequest, signal?: AbortSignal) {
   // Chat generation deliberately has no deadline. The caller supplies a
   // per-request signal solely for an explicit user Stop action.
@@ -183,6 +212,27 @@ export function askQuestion(payload: ChatRequest, signal?: AbortSignal) {
     body: JSON.stringify(payload),
     signal,
   });
+}
+
+export async function streamQuestion(payload: ChatRequest, onEvent: (event: import('./types').GenerationEvent) => void, signal?: AbortSignal) {
+  const response = await fetch(apiUrl('/api/chat/stream'), { method: 'POST', credentials: 'include', signal,
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  if (!response.ok || !response.body) throw new ApiError(`Request failed with status ${response.status}`, response.status, null);
+  const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let result: import('./types').ChatResponse | null = null;
+  while (true) {
+    const { value, done } = await reader.read(); buffer += decoder.decode(value, { stream: !done });
+    const lines = buffer.split('\n'); buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line) as import('./types').GenerationEvent; onEvent(event);
+      if (event.type === 'result') result = event.payload as import('./types').ChatResponse;
+      if (event.type === 'error') throw new Error((event.payload as { message?: string })?.message || 'Generation failed.');
+      if (event.type === 'cancelled') throw new DOMException('Generation stopped', 'AbortError');
+    }
+    if (done) break;
+  }
+  if (!result) throw new Error('The generation stream ended before a result was received.');
+  return result;
 }
 
 export function listChatSessions(signal?: AbortSignal) {
