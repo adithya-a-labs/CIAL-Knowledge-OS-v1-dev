@@ -69,6 +69,7 @@ class KnowledgeOSConfig:
     # Exact managed relative paths that must traverse the normal incremental
     # replacement pipeline even when their content hash matches the manifest.
     force_reindex_paths: tuple[str, ...] = ()
+    require_authorization_metadata: bool = False
     ocr_enabled: bool = True
     ocr_engine: str = "tesseract"
     ocr_preprocessing: bool = True
