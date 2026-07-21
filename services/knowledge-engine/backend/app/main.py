@@ -15,7 +15,7 @@ from backend.app.core.paths import KNOWLEDGE_ENGINE_SRC
 if str(KNOWLEDGE_ENGINE_SRC) not in sys.path:
     sys.path.insert(0, str(KNOWLEDGE_ENGINE_SRC))
 
-from backend.app.api.routes import auth, chat, corpus, documents, evaluation, exports, health, indexing, settings as settings_routes, workspaces
+from backend.app.api.routes import auth, chat, corpus, documents, evaluation, exports, health, indexing, notes, summaries, settings as settings_routes, workspaces
 from backend.app.core.config import settings
 from backend.app.core.logging import configure_logging
 from backend.app.core.runtime_state import RuntimeState
@@ -127,6 +127,8 @@ def create_app() -> FastAPI:
     app.include_router(indexing.router, prefix="/api", tags=["indexing"])
     app.include_router(settings_routes.router, prefix="/api", tags=["settings"])
     app.include_router(workspaces.router, prefix="/api", tags=["workspaces"])
+    app.include_router(notes.router, prefix="/api", tags=["notes"])
+    app.include_router(summaries.router, prefix="/api", tags=["summaries"])
     app.include_router(evaluation.router, prefix="/api", tags=["evaluation"])
     app.include_router(exports.router, prefix="/api", tags=["exports"])
     return app
