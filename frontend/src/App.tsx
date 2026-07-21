@@ -13,6 +13,7 @@ import AIAssistantPage from "@/pages/AIAssistantPage";
 import DocumentWorkspacePage from "@/pages/DocumentWorkspacePage";
 import KnowledgeCenterPage from "@/pages/KnowledgeCenterPage";
 import WorkspacePage from "@/pages/WorkspacePage";
+import SummaryWorkspacePage from "@/pages/SummaryWorkspacePage";
 import DocumentsPage from "@/pages/DocumentsPage";
 import FAQsPage from "@/pages/FAQsPage";
 import ExpertDirectoryPage from "@/pages/ExpertDirectoryPage";
@@ -84,6 +85,7 @@ function ProtectedRouter() {
           <Route path="/admin" component={AdminSettingsPage} />
           <Route path="/admin/:sub" component={AdminSettingsPage} />
           <Route path="/workspace" component={WorkspacePage} />
+          <Route path="/workspace/summaries/new" component={SummaryWorkspacePage} />
           <Route path="/workspace/:sub" component={WorkspacePage} />
           <Route component={NotFound} />
         </Switch>
