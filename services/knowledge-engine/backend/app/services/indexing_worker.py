@@ -22,6 +22,14 @@ logger = logging.getLogger(__name__)
 _SENTINEL = object()
 
 
+class IndexingMetadataInvalid(RuntimeError):
+    code = "indexing_metadata_invalid"
+
+
+class IndexingTargetMissing(RuntimeError):
+    code = "indexing_target_missing"
+
+
 class IndexingWorker:
     """Single-threaded FIFO worker that processes indexing jobs sequentially.
 
@@ -155,6 +163,7 @@ class IndexingWorker:
             document_id = job.document_id
             document_version_id = job.document_version_id
             manual_retry = bool((job.metadata_ or {}).get("manual_retry"))
+            job_action = (job.metadata_ or {}).get("action")
             claimed_attempt = int(job.attempts or 0)
 
         logger.info(
@@ -178,13 +187,19 @@ class IndexingWorker:
                 except Exception:
                     logger.exception("indexing_worker_corpus_sync_failed")
 
-            # Run incremental pipeline (this uses manifest to index only changed files)
+            # A ready backend updates one version in-place and reuses its loaded
+            # models/client. Broad preparation remains a bootstrap/admin path.
             with self._pipeline_lock:
-                counts = self.engine.prepare_pipeline(
-                    force_rebuild_index=False,
-                    on_stage=lambda stage, _: self._mark_stage(job_id, stage),
-                    force_reindex_paths=(str(document_path),) if manual_retry else (),
-                )
+                if document_id is not None and document_version_id is not None and self.engine.is_ready() and job_action != "deleted":
+                    counts = self.engine.prepare_document_version(
+                        document_id, document_version_id,
+                        on_stage=lambda stage, _: self._mark_stage(job_id, stage),
+                    )
+                else:
+                    counts = self.engine.prepare_pipeline(
+                        force_rebuild_index=False,
+                        on_stage=lambda stage, _: self._mark_stage(job_id, stage),
+                    )
             logger.info("pipeline_state_refreshed", extra={"event": "pipeline_state_refreshed", "job_id": str(job_id)})
             models_ready, model_message = self.engine.check_ollama_model()
 
@@ -257,16 +272,17 @@ class IndexingWorker:
         except Exception as exc:
             elapsed_ms = int((perf_counter() - started) * 1000)
             error_message = str(exc)
+            error_code = self._error_code(exc)
 
             # --- Mark failed ---
             try:
                 with SessionLocal() as session:
                     job = session.get(IndexingJob, job_id)
-                    retry = job is not None and int(job.attempts or 0) < self.max_attempts and not isinstance(exc, (ValueError, ImportError))
+                    retry = job is not None and int(job.attempts or 0) < self.max_attempts and self._is_transient(exc)
                     if job is not None:
                         job.status = "pending" if retry else "failed"
                         job.message = "Retry scheduled after transient indexing failure." if retry else "Indexing failed."
-                        job.error_detail = type(exc).__name__
+                        job.error_detail = error_code
                         job.updated_at = datetime.now(timezone.utc)
                         job.completed_at = None if retry else datetime.now(timezone.utc)
                     if job is not None and job.document_id is not None:
@@ -275,8 +291,8 @@ class IndexingWorker:
                             if document.lifecycle_status != "deleted":
                                 document.indexing_status = document.lifecycle_status = "pending" if retry else "failed"
                                 document.metadata_ = {**(document.metadata_ or {}),
-                                    "indexing_error_code": type(exc).__name__,
-                                    "indexing_safe_message": "Preparation failed. You can retry this file.",
+                                    "indexing_error_code": error_code,
+                                    "indexing_safe_message": self._safe_error_message(error_code),
                                     "indexing_retry_allowed": not retry}
                     if job is not None and job.document_version_id is not None:
                         version = session.get(DocumentVersion, job.document_version_id)
@@ -289,11 +305,11 @@ class IndexingWorker:
             except Exception:
                 logger.exception("indexing_job_fail_update_error")
 
-            self.last_error = type(exc).__name__
+            self.last_error = error_code
             if manual_retry:
                 logger.warning("index_retry_failed", extra={"event": "index_retry_failed", "job_id": str(job_id),
                     "document_id": str(document_id), "version_id": str(document_version_id),
-                    "outcome": "retry_scheduled" if retry else "failed", "error_code": type(exc).__name__})
+                    "outcome": "retry_scheduled" if retry else "failed", "error_code": error_code})
             logger.error(
                 "index_job_failed",
                 extra={
@@ -305,6 +321,32 @@ class IndexingWorker:
                 },
                 exc_info=True,
             )
+
+    @staticmethod
+    def _error_code(exc: Exception) -> str:
+        if getattr(exc, "code", None) == "indexing_metadata_invalid": return "indexing_metadata_invalid"
+        if isinstance(exc, IndexingMetadataInvalid): return exc.code
+        if isinstance(exc, IndexingTargetMissing): return exc.code
+        if type(exc).__name__ == "OutOfMemoryError" or "out of memory" in str(exc).casefold(): return "resource_exhausted"
+        if isinstance(exc, (ValueError, ImportError)): return "indexing_file_invalid"
+        module = type(exc).__module__.casefold(); message = str(exc).casefold()
+        if "qdrant" in module or any(value in message for value in ("connection refused", "connection reset", "timed out")):
+            return "indexing_backend_unavailable"
+        return "indexing_failed"
+
+    @classmethod
+    def _is_transient(cls, exc: Exception) -> bool:
+        # OOM is not immediately retried: another model allocation in the same
+        # exhausted process creates a retry storm. Manual retry remains available.
+        return cls._error_code(exc) == "indexing_backend_unavailable"
+
+    @staticmethod
+    def _safe_error_message(code: str) -> str:
+        if code == "indexing_metadata_invalid": return "Preparation failed because the indexed security metadata was incomplete. You can retry after the service is corrected."
+        if code == "resource_exhausted": return "Preparation paused because indexing resources were exhausted. Retry after resources are available."
+        if code == "indexing_file_invalid": return "The file could not be extracted safely. You can retry if the file has been corrected."
+        if code == "indexing_backend_unavailable": return "The indexing service is temporarily unavailable. A bounded retry is scheduled."
+        return "Preparation failed. You can retry this file."
 
     def _recover_interrupted_jobs(self) -> None:
         if SessionLocal is None: return
@@ -331,38 +373,58 @@ class IndexingWorker:
         logger.info("index_stage_changed", extra={"event":"index_stage_changed", "job_id":str(job_id), "stage":mapped})
 
     def _persist_and_verify(self, session, job: IndexingJob) -> None:
-        """Verify live dense/BM25 state and persist stable chunk metadata."""
+        """Verify only the target version across Qdrant, BM25, and live lookup."""
         from backend.app.models.knowledge import DocumentChunk
+        from backend.app.services.chunk_metadata_contract import validate_chunk_metadata
+        from cial_knowledge_os.vectorstore import _stable_point_id, load_document_chunks
         pipeline = self.engine._pipeline
         metadata = job.metadata_ or {}
         action = metadata.get("action")
         document_id = str(job.document_id) if job.document_id else None
         version_id = str(job.document_version_id) if job.document_version_id else None
-        chunks = [chunk for chunk in (getattr(pipeline, "chunks", None) or [])
+        live_chunks = [chunk for chunk in (getattr(pipeline, "chunks", None) or [])
                   if str(chunk.metadata.get("document_id")) == document_id
                   and str(chunk.metadata.get("document_version_id")) == version_id]
         lexical = getattr(getattr(pipeline, "bm25_retriever", None), "_chunks", []) or []
         lexical_matches = [chunk for chunk in lexical
                            if str((chunk.get("metadata") or {}).get("document_id")) == document_id
                            and str((chunk.get("metadata") or {}).get("document_version_id")) == version_id]
+        vector_records = load_document_chunks(
+            pipeline.client, pipeline.config, document_id=document_id,
+            document_version_id=None if action == "deleted" else version_id,
+        ) if document_id else []
+        vector_chunks = [chunk for _, chunk in vector_records]
         if action == "deleted":
-            if chunks or lexical_matches: raise RuntimeError("Deleted document remains in live retrieval state")
+            if live_chunks or lexical_matches or vector_chunks:
+                raise IndexingTargetMissing("Deleted document remains in live retrieval state")
             if job.document_id: session.query(DocumentChunk).filter(DocumentChunk.document_id == job.document_id).delete(synchronize_session=False)
             return
-        if not chunks or not lexical_matches:
-            raise RuntimeError("Current document is absent from dense or BM25 live state")
-        required = {"document_id", "document_version_id", "workspace_id", "storage_scope",
-                    "department_id", "visibility", "lifecycle_status", "repository_id", "relative_path"}
-        for chunk in chunks:
-            missing = {field for field in required if chunk.metadata.get(field) in (None, "")}
-            if chunk.metadata.get("storage_scope") == "personal" and not chunk.metadata.get("owner_user_id"):
-                missing.add("owner_user_id")
-            if missing: raise RuntimeError("Current vectors lack required authorization metadata")
+        if not vector_chunks or not live_chunks or not lexical_matches:
+            logger.error("index_target_verification_missing", extra={"event": "index_target_verification_missing",
+                "document_id": document_id, "version_id": version_id, "qdrant_count": len(vector_chunks),
+                "live_count": len(live_chunks), "bm25_count": len(lexical_matches)})
+            raise IndexingTargetMissing("The current version is absent from one or more retrieval indexes")
+        invalid_points = []
+        for point_id, chunk in vector_records:
+            validation = validate_chunk_metadata(chunk.metadata)
+            if not validation.valid:
+                invalid_points.append({"point_id": point_id, "missing": list(validation.missing), "invalid": list(validation.invalid)})
+        if invalid_points:
+            logger.error("index_target_metadata_invalid", extra={"event": "index_target_metadata_invalid",
+                "document_id": document_id, "version_id": version_id, "affected_points": invalid_points})
+            raise IndexingMetadataInvalid("Current-version vectors contain incomplete authorization metadata")
+        vector_chunk_ids = {str(chunk.metadata.get("chunk_id")) for chunk in vector_chunks}
+        live_chunk_ids = {str(chunk.metadata.get("chunk_id")) for chunk in live_chunks}
+        lexical_chunk_ids = {str((chunk.get("metadata") or {}).get("chunk_id")) for chunk in lexical_matches}
+        if vector_chunk_ids != live_chunk_ids or vector_chunk_ids != lexical_chunk_ids:
+            logger.error("index_target_chunk_set_mismatch", extra={"event": "index_target_chunk_set_mismatch",
+                "document_id": document_id, "version_id": version_id,
+                "qdrant_count": len(vector_chunk_ids), "live_count": len(live_chunk_ids), "bm25_count": len(lexical_chunk_ids)})
+            raise IndexingTargetMissing("Current-version retrieval indexes do not agree")
         if job.document_id:
             session.query(DocumentChunk).filter(DocumentChunk.document_id == job.document_id).delete(synchronize_session=False)
-        for index, chunk in enumerate(chunks):
+        for index, chunk in enumerate(live_chunks):
             item = chunk.metadata
-            from cial_knowledge_os.vectorstore import _stable_point_id
             session.add(DocumentChunk(
                 document_id=job.document_id, document_version_id=job.document_version_id,
                 chunk_id=str(item.get("chunk_id") or f"{document_id}:{index}"), chunk_index=index,
