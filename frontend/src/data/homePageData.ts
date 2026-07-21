@@ -45,7 +45,7 @@ export const quickActions = [
   { title: 'Ask AI', subtitle: 'Get instant answers', path: '/assistant', icon: MessageSquare, tone: 'green' },
   { title: 'Browse Knowledge', subtitle: 'Explore documents', path: '/knowledge-center', icon: FolderOpen, tone: 'blue' },
   { title: 'Upload File', subtitle: 'Add documents', path: '/workspace/documents', icon: UploadCloud, tone: 'violet' },
-  { title: 'Create Summary', subtitle: 'Summarize anything', path: '/assistant', icon: Sparkles, tone: 'rose' },
+  { title: 'Create Summary', subtitle: 'Summarize anything', path: '/workspace/summaries/new', icon: FileText, tone: 'rose' },
 ];
 
 export const continueWorking = [

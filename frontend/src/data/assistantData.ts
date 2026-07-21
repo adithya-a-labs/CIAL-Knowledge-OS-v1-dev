@@ -6,6 +6,9 @@ import type {
   SearchScope,
 } from '@/types/assistant';
 
+export const DEFAULT_SEARCH_SCOPE: SearchScope = 'hybrid';
+export const DEFAULT_RESPONSE_LENGTH: ResponseLength = 'detailed';
+
 export const SEARCH_SCOPE_LABELS: Record<SearchScope, string> = {
   enterprise: 'Enterprise Only',
   workspace: 'My Workspace Only',
