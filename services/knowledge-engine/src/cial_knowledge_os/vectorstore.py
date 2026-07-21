@@ -18,6 +18,7 @@ from qdrant_client.models import (
     Filter,
     FilterSelector,
     MatchValue,
+    PointIdsList,
     PointStruct,
     VectorParams,
 )
@@ -237,6 +238,15 @@ def index_chunks(
         )
     if not chunks:
         return
+    # Managed chunks must satisfy the same contract at the final payload
+    # boundary; metadata-free notebook/test documents retain legacy support.
+    from backend.app.services.chunk_metadata_contract import ChunkMetadataContractError, validate_chunk_metadata
+    require_contract = bool(getattr(config, "require_authorization_metadata", False))
+    for chunk in chunks:
+        if require_contract or "storage_scope" in chunk.metadata or "workspace_id" in chunk.metadata:
+            validation = validate_chunk_metadata(chunk.metadata)
+            if not validation.valid:
+                raise ChunkMetadataContractError(validation)
 
     batch_size = config.qdrant_batch_size
     total_points = len(chunks)
@@ -318,6 +328,57 @@ def index_chunks(
                 source="vectorstore.index_chunks",
             )
         points = []
+
+
+def load_document_chunks(
+    client: QdrantClient,
+    config: KnowledgeOSConfig,
+    *,
+    document_id: str,
+    document_version_id: str | None = None,
+) -> list[tuple[str, Document]]:
+    """Load only one document/version from Qdrant for targeted verification."""
+    must = [FieldCondition(key="metadata.document_id", match=MatchValue(value=document_id))]
+    if document_version_id is not None:
+        must.append(FieldCondition(key="metadata.document_version_id", match=MatchValue(value=document_version_id)))
+    records: list[tuple[str, Document]] = []
+    offset: Any | None = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=config.qdrant_collection_name, scroll_filter=Filter(must=must),
+            limit=256, offset=offset, with_payload=True, with_vectors=False,
+        )
+        for point in points:
+            payload = point.payload or {}
+            records.append((str(point.id), Document(
+                page_content=str(payload.get("text", "")), metadata=dict(payload.get("metadata") or {}),
+            )))
+        if offset is None:
+            break
+    return records
+
+
+def replace_document_chunks(
+    client: QdrantClient,
+    chunks: list[Document],
+    embeddings: np.ndarray,
+    config: KnowledgeOSConfig,
+    *,
+    document_id: str,
+    execution_manager: Any | None = None,
+) -> int:
+    """Upsert one current version, then remove only stale points for that document."""
+    previous = load_document_chunks(client, config, document_id=document_id)
+    current_ids = {_stable_point_id(chunk) for chunk in chunks}
+    index_chunks(client, chunks, embeddings, config, execution_manager=execution_manager)
+    stale_ids = [point_id for point_id, _ in previous if point_id not in current_ids]
+    if stale_ids:
+        client.delete(
+            collection_name=config.qdrant_collection_name,
+            points_selector=PointIdsList(points=stale_ids),
+            wait=True,
+        )
+    return len(stale_ids)
 
 
 def _document_filter(
