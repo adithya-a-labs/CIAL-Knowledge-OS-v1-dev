@@ -60,13 +60,14 @@ def embed_texts(
     if not texts:
         dimension = get_embedding_dimension(model)
         return np.empty((0, dimension), dtype=np.float32)
-    vectors = model.encode(
-        texts,
-        batch_size=batch_size,
-        normalize_embeddings=True,
-        show_progress_bar=False,
-        convert_to_numpy=True,
-    )
+    with torch.inference_mode():
+        vectors = model.encode(
+            texts,
+            batch_size=batch_size,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
     return np.asarray(vectors, dtype=np.float32)
 
 
