@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { FileText, Paperclip, Send, Sparkles, Square } from 'lucide-react';
+import { Bot, Paperclip, Send } from 'lucide-react';
 import { ApiError } from '@/api/types';
 import { useAssistantSessions } from './AssistantSessionContext';
 import ChatControlBar from './ChatControlBar';
@@ -10,12 +10,12 @@ import ContextManagerDialog from './ContextManagerDialog';
 import RetrievalTimeline from './RetrievalTimeline';
 import SourceViewerPanel from './SourceViewerPanel';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
-import { askQuestion, createAssistantExport, getCorpusTree, getHealth, regenerateMessage, toggleMessageFeedback, transformMessage, uploadChatAttachment } from '@/api/client';
-import type { AssistantExportFormat } from '@/api/types';
+import { createAssistantExport, getCorpusTree, getHealth, regenerateMessage, streamQuestion, toggleMessageFeedback, transformMessage, uploadChatAttachment } from '@/api/client';
+import type { AssistantExportFormat, GenerationEvent } from '@/api/types';
 import ExportPreviewDialog from './ExportPreviewDialog';
 import { flattenCorpusTree, toAssistantMessage, toChatRequest } from '@/api/adapters';
 import type { CorpusDocument, HealthResponse, SelectedContextItem } from '@/api/types';
-import { RETRIEVAL_STAGES } from '@/data/assistantData';
+import { DEFAULT_RESPONSE_LENGTH, DEFAULT_SEARCH_SCOPE } from '@/data/assistantData';
 import { suggestedPrompts } from '@/data/homePageData';
 import { toast } from '@/hooks/use-toast';
 import type {
@@ -92,9 +92,11 @@ export default function ChatPanel() {
   const [activeExportId, setActiveExportId] = useState<string | null>(null);
   const exportSourceRef = useRef<{ sessionId: string; messageId: string; title: string } | null>(null);
   const actionGenerationRef = useRef<Record<string, number>>({});
-  const [activeStageIndex, setActiveStageIndex] = useState(0);
+  const [generationEvents, setGenerationEvents] = useState<GenerationEvent[]>([]);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [contextManagerOpen, setContextManagerOpen] = useState(false);
+  const [includeSourceExcerpts, setIncludeSourceExcerpts] = useState(true);
+  const [showRetrievalDetails, setShowRetrievalDetails] = useState(true);
   const [selectedSource, setSelectedSource] = useState<ChatSource | null>(null);
   const [sourceViewerOpen, setSourceViewerOpen] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(() => window.innerWidth >= 1024);
@@ -193,20 +195,7 @@ export default function ChatPanel() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading, activeStageIndex]);
-
-  useEffect(() => {
-    if (!isLoading) {
-      setActiveStageIndex(0);
-      return;
-    }
-
-    const interval = window.setInterval(() => {
-      setActiveStageIndex((current) => Math.min(current + 1, RETRIEVAL_STAGES.length - 1));
-    }, 220);
-
-    return () => window.clearInterval(interval);
-  }, [isLoading]);
+  }, [messages, isLoading, generationEvents]);
 
   useEffect(() => {
     if (!isLoading) {
@@ -341,6 +330,7 @@ export default function ChatPanel() {
     });
     setInput('');
     setIsLoading(true);
+    setGenerationEvents([]);
     setErrorMessage(null);
     const controller = new AbortController();
     const requestId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -350,7 +340,9 @@ export default function ChatPanel() {
     console.debug('[chat-request]', { requestId, status: 'started' });
 
     try {
-      const response = await askQuestion(toChatRequest(requestPayload, requestSessionId), controller.signal);
+      const response = await streamQuestion(toChatRequest(requestPayload, requestSessionId), (event) => {
+        if (event.type === 'stage') setGenerationEvents((current) => [...current, event].slice(-30));
+      }, controller.signal);
       const adapted = toAssistantMessage(response, requestPayload);
       const persistedUserMsg = response.user_message_id ? { ...userMsg, id: response.user_message_id } : userMsg;
       const aiMsg: ChatMessageData = {
@@ -503,7 +495,6 @@ export default function ChatPanel() {
   const visibleSuggestedPrompts =
       input.trim().length === 0 && !isLoading ? suggestedPrompts.slice(0, 5) : [];
   const hasSelectedSource = Boolean(selectedSource);
-  const showSourceReopen = hasSelectedSource && !sourceViewerOpen;
   const showDesktopSourcePane = hasSelectedSource && sourceViewerOpen && isDesktopViewport;
   const sourceViewerSources = allVisibleSources.map((source) => ({
             ...source,
@@ -513,13 +504,13 @@ export default function ChatPanel() {
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-testid="chat-panel">
         <div
             ref={chatMessagesRef}
-            className="scrollbar-soft min-h-0 flex-1 overflow-y-auto bg-[linear-gradient(180deg,#fbfcfa_0%,#ffffff_16rem)] px-3 py-4 sm:px-4 xl:px-5"
+            className="scrollbar-soft min-h-0 flex-1 overflow-y-auto bg-[#fbfcfa] px-3 py-4 sm:px-4 xl:px-5"
             data-testid="chat-messages"
         >
           {messages.length === 0 ? (
               <div className="mx-auto flex h-full min-h-[36vh] max-w-2xl flex-col items-center justify-center px-4 py-10 text-center">
                 <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[#25611f]/10 text-[#25611f]">
-                  <Sparkles size={22} className="animate-pulse" />
+                  <Bot size={22} />
                 </div>
                 <h2 className="text-xl font-semibold tracking-tight text-slate-900">How can I help you today?</h2>
                 <p className="mb-6 mt-2 text-sm text-slate-500">
@@ -555,19 +546,13 @@ export default function ChatPanel() {
                         onAction={handleResponseAction}
                         loadingAction={actionByMessage[msg.id]}
                         onFeedback={handleFeedback}
+                        includeSourceExcerpts={includeSourceExcerpts}
+                        showRetrievalDetails={showRetrievalDetails}
                     />
                 ))}
 
             {isLoading && (
-              <div className="flex flex-col items-start gap-2">
-                <RetrievalTimeline activeStageIndex={activeStageIndex} />
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <span>Generating locally · {Math.floor(elapsedSeconds / 60)}m {String(elapsedSeconds % 60).padStart(2, '0')}s</span>
-                  <button type="button" onClick={stopGenerating} className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-1 font-medium text-red-700 hover:bg-red-50" data-testid="button-stop-generating">
-                    <Square size={11} fill="currentColor" /> Stop generating
-                  </button>
-                </div>
-              </div>
+              <RetrievalTimeline events={generationEvents} elapsedSeconds={elapsedSeconds} onStop={stopGenerating} />
             )}
 
             {errorMessage && (
@@ -580,66 +565,8 @@ export default function ChatPanel() {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="border-t border-[#e3e9e1] bg-white">
-        <div className="flex flex-wrap items-center gap-1.5 border-b border-[#eef2eb] px-3 py-1.5 sm:px-4">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <ChatControlBar
-              searchScope={searchScope}
-              activeProfile={activeProfile}
-              selectedContextCount={selectedContextItems.length}
-              uploadedFileCount={uploadedFiles.length}
-              onSearchScopeChange={(value) => updateActiveSession({ searchScope: value })}
-              onActiveProfileChange={(value) => updateActiveSession({ activeProfile: value })}
-              onManageContext={() => setContextManagerOpen(true)}
-              onClearContext={clearActiveContext}
-            />
-
-            {showSourceReopen && (
-              <button
-                type="button"
-                onClick={() => setSourceViewerOpen(true)}
-                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[#d8e5ef] bg-[#f5fafe] px-2 text-[11px] font-medium text-[#346c96] transition hover:bg-[#eef6fc]"
-                data-testid="button-reopen-source-panel"
-              >
-                <FileText size={13} />
-                Source
-              </button>
-            )}
-
-            <div
-              className="inline-flex h-7 items-center gap-1.5 rounded-md px-1.5 text-[11px] font-medium text-slate-500"
-              data-testid="backend-status-chip"
-              title={chatReady ? 'Connected' : healthLabel}
-              aria-label={chatReady ? 'Connected' : healthLabel}
-            >
-              <span className={`h-2 w-2 rounded-full ${chatReady ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-              <span className="hidden sm:inline">{chatReady ? 'Ready' : healthLabel}</span>
-            </div>
-          </div>
-        </div>
-
-        <ContextChips
-          selectedContextItems={selectedContextItems}
-          uploadedFiles={effectiveUploadedFiles}
-          searchScope={searchScope}
-          onRemoveContext={(id) =>
-            updateActiveSession({
-              selectedContextItems: selectedContextItems.filter((context) => context.id !== id),
-            })
-          }
-          onRemoveFile={(id) =>
-            updateActiveSession({
-              uploadedFiles: uploadedFiles.filter((file) => file.id !== id),
-            })
-          }
-          onClearAll={clearActiveContext}
-        />
-
-        <div className="border-t border-[#f0f3ee] px-3 py-1.5 text-[11px] leading-5 text-slate-500 sm:px-4">
-          CIAL Knowledge OS uses AI to assist with enterprise knowledge. Responses may contain mistakes. Verify critical information against the cited source documents.
-        </div>
-
-        <div className="flex min-w-0 items-end gap-1.5 px-3 py-2 sm:px-4">
+      <div className="shrink-0 bg-white px-2 pb-2 pt-1 sm:px-4 sm:pb-3">
+        <div className="mx-auto grid min-h-[108px] max-w-6xl grid-cols-[minmax(0,1fr)_auto] grid-rows-[minmax(3rem,auto)_auto] rounded-[1.4rem] border border-[#dfe6dc] bg-white shadow-sm transition focus-within:border-[#c8d7c3]" data-testid="compact-chat-composer">
           <input
             ref={fileInputRef}
             type="file"
@@ -649,17 +576,7 @@ export default function ChatPanel() {
             onChange={(event) => handleFileChange(event.target.files)}
             data-testid="input-file-upload"
           />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#dce4d8] bg-[#f7faf5] text-slate-600 transition hover:bg-[#eef5e8] hover:text-primary"
-            aria-label="Attach files"
-            data-testid="button-attach-file"
-          >
-            <Paperclip size={14} />
-          </button>
-
-          <div className="flex min-w-0 flex-1 items-end gap-1.5 rounded-md border border-[#dce4d8] bg-[#fbfcfa] px-2.5 py-1.5">
+          <div className="col-start-1 row-start-1 min-w-0 px-5 pb-1 pt-4 sm:px-7">
             <textarea
               ref={composerTextareaRef}
               value={input}
@@ -671,22 +588,72 @@ export default function ChatPanel() {
                 }
               }}
               rows={1}
-              placeholder={chatReady ? 'Ask a grounded question' : 'Backend readiness pending'}
-              className="max-h-40 min-h-[1.5rem] flex-1 resize-none overflow-y-auto bg-transparent py-0.5 text-sm leading-5 text-foreground outline-none placeholder:text-muted-foreground"
+              placeholder="Ask a grounded question"
+              className="block max-h-40 min-h-9 w-full resize-none overflow-y-auto bg-transparent py-1 text-[15px] leading-6 text-foreground outline-none placeholder:text-slate-500 sm:text-base"
               data-testid="input-chat"
             />
+          </div>
 
+          <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-1 px-3 pb-3 sm:px-5">
             <button
               type="button"
-              onClick={() => void handleSend()}
-              disabled={!input.trim() || isLoading || !chatReady || blockingAttachments.length > 0}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition hover:opacity-95 disabled:bg-gray-300"
-              data-testid="button-send"
-              aria-label="Send message"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-600 transition hover:bg-[#f1f6ee] hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              aria-label="Attach files"
+              title="Attach files"
+              data-testid="button-attach-file"
             >
-              <Send size={15} />
+              <Paperclip size={18} />
             </button>
+            <div className="scrollbar-soft min-w-0 flex-1 overflow-x-auto pb-0.5" data-testid="composer-control-scroll">
+              <ChatControlBar
+                searchScope={searchScope}
+                activeProfile={activeProfile}
+                selectedContextCount={selectedContextItems.length}
+                uploadedFileCount={uploadedFiles.length}
+                onSearchScopeChange={(value) => updateActiveSession({ searchScope: value })}
+                onActiveProfileChange={(value) => updateActiveSession({ activeProfile: value })}
+                onManageContext={() => setContextManagerOpen(true)}
+                onClearContext={clearActiveContext}
+                includeSourceExcerpts={includeSourceExcerpts}
+                showRetrievalDetails={showRetrievalDetails}
+                onIncludeSourceExcerptsChange={setIncludeSourceExcerpts}
+                onShowRetrievalDetailsChange={setShowRetrievalDetails}
+                onResetQuerySettings={() => {
+                  updateActiveSession({ searchScope: DEFAULT_SEARCH_SCOPE, activeProfile: DEFAULT_RESPONSE_LENGTH });
+                  setIncludeSourceExcerpts(true);
+                  setShowRetrievalDetails(true);
+                }}
+                attachedContext={(
+                  <ContextChips
+                    selectedContextItems={selectedContextItems}
+                    uploadedFiles={effectiveUploadedFiles}
+                    searchScope={searchScope}
+                    onRemoveContext={(id) => updateActiveSession({ selectedContextItems: selectedContextItems.filter((context) => context.id !== id) })}
+                    onRemoveFile={(id) => updateActiveSession({ uploadedFiles: uploadedFiles.filter((file) => file.id !== id) })}
+                    onManageContext={() => setContextManagerOpen(true)}
+                  />
+                )}
+              />
+            </div>
           </div>
+
+          <button
+            type="button"
+            onClick={() => void handleSend()}
+            disabled={!input.trim() || isLoading || !chatReady || blockingAttachments.length > 0}
+            className="col-start-2 row-span-2 row-start-1 mb-3 mr-3 inline-flex h-11 w-11 self-end items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition hover:bg-[#285f22] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:bg-[#d9dfd7] disabled:text-slate-500 disabled:shadow-none sm:h-12 sm:w-12"
+            data-testid="button-send"
+            aria-label={chatReady ? 'Send message' : healthLabel}
+            title={chatReady ? 'Send message' : healthLabel}
+          >
+            <Send size={18} />
+          </button>
+        </div>
+
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-1 pt-1.5 text-[11px] leading-4 text-slate-500">
+          <span>CIAL Knowledge OS uses AI to assist with enterprise knowledge. Responses may contain mistakes.</span>
+          <span className="hidden shrink-0 sm:inline">Verify critical information against cited sources.</span>
         </div>
       </div>
 
