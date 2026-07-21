@@ -141,7 +141,7 @@ test('shared file status renders stable accessible state icons across surfaces',
   for (const surface of [contextChips, workspacePage, corpusExplorer, exportDialog]) {
     assert.match(surface, /FileIndexingStatus/);
   }
-  assert.match(contextChips, /visibleUploads\.map/);
+  assert.match(contextChips, /uploadedFiles\.map/);
 });
 
 test('document status polling starts for active work and stops at terminal state', () => {
