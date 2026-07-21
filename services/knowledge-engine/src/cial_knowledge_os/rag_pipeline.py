@@ -220,7 +220,8 @@ class BasicRAGPipeline:
             from sqlalchemy import select
 
             from backend.app.db.session import SessionLocal
-            from backend.app.models.knowledge import Document as MetadataDocument
+            from backend.app.models.knowledge import Document as MetadataDocument, DocumentVersion
+            from backend.app.services.chunk_metadata_contract import build_chunk_metadata
         except Exception:
             return
         if SessionLocal is None:
@@ -230,33 +231,22 @@ class BasicRAGPipeline:
             rows = session.scalars(
                 select(MetadataDocument).where(MetadataDocument.relative_path.in_(relative_paths))
             ).all()
+            versions = {
+                row.current_version_id: session.get(DocumentVersion, row.current_version_id)
+                for row in rows if row.current_version_id is not None
+            }
         by_path = {row.relative_path: row for row in rows}
         for document in documents:
             relative_path = str(document.metadata.get("relative_path") or "").strip()
             row = by_path.get(relative_path)
             if row is None:
                 continue
-            document.metadata.update(
-                {
-                    "document_id": str(row.id),
-                    "document_version_id": str(row.current_version_id) if row.current_version_id else None,
-                    "repository_id": row.repository_id,
-                    "organization_id": str(row.organization_id),
-                    "department_id": str(row.department_id),
-                    "workspace_id": str(row.workspace_id),
-                    "folder_id": str(row.folder_id) if row.folder_id else None,
-                    "storage_scope": row.storage_scope,
-                    "owner_user_id": str(row.owner_user_id) if row.owner_user_id else None,
-                    "visibility": row.visibility,
-                    # This candidate pipeline is only swapped into live service
-                    # after all index stages succeed; its payload represents the
-                    # committed retrieval lifecycle, not the transient DB job state.
-                    "lifecycle_status": "indexed" if row.lifecycle_status != "deleted" else "deleted",
-                    "file_type": row.file_type,
-                    "mime_type": row.mime_type,
-                    "page_count": row.page_count,
-                }
-            )
+            version = versions.get(row.current_version_id)
+            if version is None:
+                continue
+            document.metadata.update(build_chunk_metadata(
+                row, version, lifecycle_status="indexed" if row.lifecycle_status != "deleted" else "deleted",
+            ))
 
     def chunk(self) -> list[Document]:
         if not self.documents and self.indexing_plan is None:
