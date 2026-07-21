@@ -278,6 +278,36 @@ def write_manifest(
     return entries
 
 
+def update_manifest_entry(
+    *,
+    manifest_path: Path,
+    corpus_root: Path,
+    managed_root: Path,
+    source_path: Path,
+    collection_name: str,
+    chunk_count: int,
+    repository_id: str | None = None,
+) -> DocumentManifestEntry:
+    """Atomically update one successfully indexed file without scanning the corpus."""
+    entries = load_manifest(manifest_path, corpus_root=corpus_root, collection_name=collection_name)
+    fresh = _fingerprint(source_path, managed_root, repository_id=repository_id)
+    value = asdict(fresh)
+    value.update({"chunk_count": int(chunk_count), "indexed_at": _now_iso()})
+    entry = DocumentManifestEntry(**value)
+    entries[entry.relative_path] = entry
+    payload = {
+        "version": MANIFEST_VERSION, "corpus_root": str(corpus_root.resolve()),
+        "collection_name": collection_name, "repository_id": repository_id,
+        "updated_at": _now_iso(),
+        "documents": [asdict(entries[key]) for key in sorted(entries, key=str.casefold)],
+    }
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = manifest_path.with_name(f".{manifest_path.name}.{os.getpid()}.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.replace(manifest_path)
+    return entry
+
+
 def entry_paths(
     plan: IndexingPlan,
     entries: Iterable[DocumentManifestEntry],
