@@ -7,7 +7,7 @@ from dataclasses import dataclass
 import logging
 from pathlib import Path
 import sys
-from threading import RLock
+from threading import Lock, RLock
 import time
 from typing import Any, Callable
 import uuid
@@ -15,7 +15,7 @@ import uuid
 from backend.app.core.config import settings
 from backend.app.core.paths import KNOWLEDGE_ENGINE_SRC, REPO_ROOT
 from backend.app.db.session import SessionLocal
-from backend.app.models.knowledge import Document, DocumentChunk, Folder
+from backend.app.models.knowledge import Document, DocumentChunk, DocumentVersion, Folder
 from backend.app.security.access import (
     RequestAccessContext,
     anonymous_access_context,
@@ -144,6 +144,8 @@ class KnowledgeEngineService:
         self._phase4_pipeline_cls: Any | None = None
         self._lock = RLock()
         self._index_lock = RLock()
+        self._target_update_lock = Lock()
+        self._embedding_lock = Lock()
         self._load_engine_symbols()
 
     @property
@@ -159,6 +161,12 @@ class KnowledgeEngineService:
             # until service shutdown so an atomic swap cannot close a Qdrant
             # client underneath an in-flight chat request.
             self._retired_pipelines.append(old_pipeline)
+            # Bound retained clients/snapshots. Shared neural resources are
+            # injected into replacement pipelines and are never duplicated here.
+            while len(self._retired_pipelines) > 1:
+                retired = self._retired_pipelines.pop(0)
+                close = getattr(retired, "close", None)
+                if callable(close): close()
 
     def is_ready(self) -> bool:
         with self._lock:
@@ -207,7 +215,14 @@ class KnowledgeEngineService:
                 },
             )
             config.force_rebuild_index = True
-        pipeline = self._phase4_pipeline_cls(config)
+        with self._lock:
+            active = self._pipeline
+        shared = {}
+        if active is not None:
+            for name in ("embedding_model", "llm", "reranker"):
+                value = getattr(active, name, None)
+                if value is not None: shared[name] = value
+        pipeline = self._phase4_pipeline_cls(config, **shared)
         try:
             self._emit_stage(on_stage, "load", pipeline)
             pipeline.load()
@@ -231,6 +246,114 @@ class KnowledgeEngineService:
             raise
         self.set_pipeline(pipeline)
         return self._pipeline_counts(pipeline)
+
+    def prepare_document_version(
+        self,
+        document_id: uuid.UUID,
+        document_version_id: uuid.UUID,
+        *,
+        on_stage: Callable[[str, dict[str, int]], None] | None = None,
+    ) -> dict[str, int]:
+        """Index one managed current version using the active models and client."""
+        with self._target_update_lock:
+            pipeline = self._ready_pipeline("standard")
+            if SessionLocal is None:
+                raise KnowledgeEngineUnavailable("Targeted indexing requires the metadata database.")
+            with SessionLocal() as session:
+                document = session.get(Document, document_id)
+                version = session.get(DocumentVersion, document_version_id)
+                if document is None or version is None or version.document_id != document.id or document.current_version_id != version.id:
+                    raise ValueError("The current document version is unavailable for indexing.")
+                trusted_metadata = self._trusted_chunk_metadata(document, version)
+                root = settings.workspace_root_path.resolve() if document.storage_scope == "personal" else settings.corpus_root_path.resolve()
+                storage_key = str(version.storage_key or document.relative_path or "")
+                candidate = root / storage_key
+                if candidate.is_symlink(): raise ValueError("The managed artifact cannot be accessed safely.")
+                try: artifact = candidate.resolve(strict=True)
+                except (OSError, RuntimeError): raise ValueError("The managed artifact is unavailable.") from None
+                if root not in artifact.parents or not artifact.is_file():
+                    raise ValueError("The managed artifact cannot be accessed safely.")
+
+            from cial_knowledge_os.chunking import chunk_documents
+            from cial_knowledge_os.embeddings import embed_texts
+            from cial_knowledge_os.fusion import ReciprocalRankFusion
+            from cial_knowledge_os.incremental_index import update_manifest_entry
+            from cial_knowledge_os.loaders import load_pdf_paths
+            from cial_knowledge_os.retrievers import BM25Retriever, DenseRetriever, HybridRetriever
+            from cial_knowledge_os.vectorstore import replace_document_chunks
+
+            self._emit_stage(on_stage, "load", pipeline)
+            documents = load_pdf_paths([artifact], corpus_root=root, config=pipeline.config)
+            if not documents:
+                raise ValueError("The managed artifact did not produce indexable content.")
+            for item in documents: item.metadata.update(trusted_metadata)
+            self._emit_stage(on_stage, "loaded", pipeline)
+            self._emit_stage(on_stage, "chunk", pipeline)
+            chunks = chunk_documents(documents, pipeline.config)
+            if not chunks: raise ValueError("The managed artifact did not produce indexable chunks.")
+            self._emit_stage(on_stage, "chunked", pipeline)
+            self._emit_stage(on_stage, "embed", pipeline)
+            with self._embedding_lock:
+                embeddings = embed_texts(
+                    pipeline.embedding_model, [chunk.page_content for chunk in chunks],
+                    batch_size=pipeline.config.embedding_batch_size,
+                )
+            self._emit_stage(on_stage, "embedded", pipeline)
+
+            # Build the replacement lexical snapshot before touching shared state.
+            current_chunks = [
+                chunk for chunk in list(pipeline.chunks or [])
+                if str(chunk.metadata.get("document_id")) != str(document_id)
+            ]
+            updated_chunks = [*current_chunks, *chunks]
+            lexical = BM25Retriever(
+                k1=pipeline.config.bm25_k1, b=pipeline.config.bm25_b,
+                cache_path=Path(pipeline.config.bm25_cache_dir) / pipeline.config.bm25_cache_filename,
+            )
+            lexical.index(updated_chunks)
+            old_lexical = getattr(pipeline, "bm25_retriever", None)
+            lexical.set_allowed_relative_paths(getattr(old_lexical, "allowed_relative_paths", None))
+
+            self._emit_stage(on_stage, "index", pipeline)
+            removed = replace_document_chunks(
+                pipeline.client, chunks, embeddings, pipeline.config,
+                document_id=str(document_id), execution_manager=pipeline.execution_manager,
+            )
+            update_manifest_entry(
+                manifest_path=pipeline.config.document_manifest_path,
+                corpus_root=pipeline.config.knowledge_root, managed_root=root, source_path=artifact,
+                collection_name=pipeline.config.qdrant_collection_name, chunk_count=len(chunks),
+                repository_id=getattr(pipeline.config, "repository_id", None),
+            )
+
+            with self._lock:
+                if self._pipeline is not pipeline:
+                    raise RuntimeError("The live retrieval snapshot changed during targeted indexing.")
+                pipeline.chunks = updated_chunks
+                pipeline.documents = documents
+                pipeline.embeddings = embeddings
+                pipeline.bm25_retriever = lexical
+                pipeline._ensure_retrievers()
+                dense = pipeline._retrievers.get("dense") or DenseRetriever(pipeline._dense_search)
+                pipeline._retrievers = {**pipeline._retrievers, "dense": dense, "bm25": lexical}
+                pipeline.hybrid_retriever = HybridRetriever(
+                    [dense, lexical],
+                    fuser=ReciprocalRankFusion(rank_constant=pipeline.config.rrf_k,
+                        weights={"dense": pipeline.config.dense_weight, "bm25": pipeline.config.bm25_weight}),
+                    candidate_limits={"dense": pipeline.config.dense_top_k, "bm25": pipeline.config.bm25_top_k},
+                    parallel=pipeline.config.parallel_retrieval,
+                )
+            self._emit_stage(on_stage, "indexed", pipeline)
+            self._emit_stage(on_stage, "ready", pipeline)
+            logger.info("document_version_index_refreshed", extra={"event": "document_version_index_refreshed",
+                "document_id": str(document_id), "version_id": str(document_version_id),
+                "chunks_indexed": len(chunks), "stale_points_removed": removed})
+            return {"documents_seen": 1, "documents_indexed": 1, "chunks_indexed": len(chunks)}
+
+    @staticmethod
+    def _trusted_chunk_metadata(document: Document, version: DocumentVersion) -> dict[str, Any]:
+        from backend.app.services.chunk_metadata_contract import build_chunk_metadata
+        return build_chunk_metadata(document, version, lifecycle_status="indexed")
 
     def close(self) -> None:
         with self._lock:
@@ -429,6 +552,7 @@ class KnowledgeEngineService:
                 if force_rebuild_index is None
                 else force_rebuild_index
             ),
+            require_authorization_metadata=True,
             max_answer_words=settings.max_answer_words,
             generation_retries=settings.generation_retries,
             retry_cooldown_seconds=settings.retry_cooldown_seconds,
