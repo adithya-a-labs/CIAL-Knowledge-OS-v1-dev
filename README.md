@@ -19,6 +19,10 @@ vectors/chunk embeddings remain in Qdrant. If no repository configuration
 exists, the backend falls back to the development path `data/files`. See
 `docs/architecture/METADATA_DATABASE.md`.
 
+Private Notes, immutable grounded Summary artifacts, and authenticated NDJSON
+generation progress are documented in
+`docs/architecture/NOTES_SUMMARIES_STREAMING.md`.
+
 The backend Corpus layer synchronizes the configured repository into PostgreSQL
 metadata and exposes `GET /api/corpus/*` endpoints for Knowledge Center-style
 browsing. The frontend should consume the Corpus API rather than scanning the
