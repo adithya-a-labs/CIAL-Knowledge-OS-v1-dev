@@ -1,5 +1,17 @@
 version: 1
 prompts:
+  summaries.section_v1:
+    file: summaries/section_v1.md
+    version: v1
+    category: summaries
+    description: Grounded per-source summary map prompt.
+    variables: [summary_type, summary_length, custom_instructions, source_material]
+  summaries.merge_v1:
+    file: summaries/merge_v1.md
+    version: v1
+    category: summaries
+    description: Grounded cross-source summary reduce prompt.
+    variables: [summary_type, multi_document_mode, summary_length, custom_instructions, source_summaries]
   generation.grounded_qa:
     file: generation/phase4/grounded_qa.md
     version: phase4
