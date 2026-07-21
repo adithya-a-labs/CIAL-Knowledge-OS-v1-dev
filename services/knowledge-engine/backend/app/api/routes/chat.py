@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import StreamingResponse
+import json
 import logging
+import queue
+import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
@@ -24,6 +30,10 @@ from backend.app.services.knowledge_engine_service import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+class _StreamCancelled(RuntimeError):
+    pass
 
 
 @router.post("/chat/attachments", response_model=ChatAttachmentResponse, status_code=status.HTTP_201_CREATED)
@@ -72,6 +82,47 @@ def _record(session: ChatSession, repository: ChatRepository) -> ChatSessionReco
         ],
         created_at=session.created_at, updated_at=session.updated_at,
     )
+
+
+@router.post("/chat/stream")
+def stream_chat(payload: ChatRequest, request: Request, db: Session = Depends(get_db_session)):
+    """Stream actual pipeline boundary events and one final compatible result."""
+    runtime_state=request.app.state.runtime_state
+    if not runtime_state.snapshot()["engine_ready"]:
+        raise HTTPException(503,detail=runtime_state.chat_unavailable_detail())
+    access=require_authenticated_access_context(request); user_id=access.principal.user_id
+    request_id=str(uuid.uuid4()); events:queue.Queue=queue.Queue(); cancelled=threading.Event(); started=time.monotonic()
+    def progress(stage_id,status_value,metrics):
+        if cancelled.is_set(): raise _StreamCancelled()
+        events.put({"request_id":request_id,"type":"stage","stage_id":stage_id,"status":status_value,"elapsed_ms":int((time.monotonic()-started)*1000),"metrics":metrics})
+    def run():
+        repository=ChatRepository(db)
+        try:
+            chat_session=repository.get_session_for_user(payload.session_id,user_id) if payload.session_id else None
+            if payload.session_id and chat_session is None and db.get(ChatSession,payload.session_id) is not None: raise WorkspaceNotFound("Conversation not found.")
+            if chat_session is None: chat_session=repository.add_session(ChatSession(id=payload.session_id or uuid.uuid4(),user_id=user_id,title=payload.question.strip()[:72]))
+            response=request.app.state.knowledge_engine.answer_question(payload,access_context=access,progress_callback=progress)
+            if cancelled.is_set(): raise _StreamCancelled()
+            progress("persistence.saving","started",{})
+            user_message=repository.add_message(ChatMessage(session_id=chat_session.id,user_id=user_id,role="user",content=payload.question,metadata_={"selected_document_ids":payload.selected_document_ids,"selected_folder_ids":payload.selected_folder_ids,"profile":payload.profile or payload.response_length,"response_length":payload.response_length,"max_answer_words":payload.max_answer_words}))
+            assistant_message=repository.add_message(ChatMessage(session_id=chat_session.id,user_id=user_id,role="assistant",content=response.answer,citations=[item.model_dump(mode="json") for item in response.citations],sources=[item.model_dump(mode="json") for item in response.sources],metadata_={**response.metadata.model_dump(mode="json"),"generation_request":payload.model_dump(mode="json",exclude={"question","session_id","include_debug"}),"user_message_id":str(user_message.id),"evidence_snapshot":response.evidence_snapshot}))
+            chat_session.updated_at=datetime.now(timezone.utc); db.commit(); response.session_id=chat_session.id; response.user_message_id=user_message.id; response.assistant_message_id=assistant_message.id
+            progress("persistence.saving","completed",{}); events.put({"request_id":request_id,"type":"result","stage_id":"complete","status":"completed","elapsed_ms":response.metadata.latency_ms,"payload":jsonable_encoder(response)})
+        except _StreamCancelled:
+            db.rollback(); events.put({"request_id":request_id,"type":"cancelled","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"metrics":{}})
+        except Exception:
+            logger.exception("chat_stream_failed", extra={"request_id": request_id})
+            db.rollback(); events.put({"request_id":request_id,"type":"error","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"payload":{"message":"The assistant could not complete this request."}})
+        finally: events.put(None)
+    threading.Thread(target=run,name=f"chat-{request_id}",daemon=True).start()
+    def body():
+        try:
+            while True:
+                item=events.get()
+                if item is None: break
+                yield json.dumps(item,separators=(",",":"))+"\n"
+        finally: cancelled.set()
+    return StreamingResponse(body(),media_type="application/x-ndjson",headers={"Cache-Control":"no-store","X-Accel-Buffering":"no"})
 
 
 @router.get("/chat/sessions", response_model=ChatSessionList)

@@ -373,7 +373,13 @@ class KnowledgeEngineService:
         request: ChatRequest,
         *,
         access_context: RequestAccessContext | None = None,
+        progress_callback: Any | None = None,
     ) -> ChatResponse:
+        def progress(stage_id: str, status: str, **metrics: Any) -> None:
+            if progress_callback is not None:
+                progress_callback(stage_id, status, metrics)
+
+        progress("request.validating", "started")
         if not self.engine_available:
             raise KnowledgeEngineUnavailable(self._engine_error_message())
 
@@ -388,13 +394,17 @@ class KnowledgeEngineService:
             request,
             access_context=access_context,
         )
+        progress("request.validating", "completed")
+        progress("context.building", "started")
         access_relative_paths = self._accessible_relative_paths(access_context)
         effective_relative_paths = self._effective_relative_paths(
             access_relative_paths,
             selected_scope,
         )
+        progress("context.building", "completed", documents_searched=len(effective_relative_paths or ()))
         started_at = time.perf_counter()
         try:
+            progress("retrieval.searching", "started", documents_searched=len(effective_relative_paths or ()))
             if selected_scope.applied or access_relative_paths is not None:
                 response = self._run_with_relative_path_filter(
                     pipeline,
@@ -432,12 +442,17 @@ class KnowledgeEngineService:
                 )
             else:
                 response = pipeline.run(request.question)
+            retrieved = response.get("retrieved") if isinstance(response, Mapping) else None
+            selected = response.get("selected_evidence") if isinstance(response, Mapping) else None
+            progress("retrieval.searching", "completed", candidates=len(retrieved) if isinstance(retrieved, list) else 0)
+            progress("evidence.selecting", "completed", selected_evidence=len(selected) if isinstance(selected, list) else 0)
         except Exception as exc:  # noqa: BLE001 - convert local runtime failures to API errors.
             logger.exception("knowledge_engine_answer_failed")
             raise KnowledgeEngineUnavailable(str(exc)) from exc
 
         latency_ms = int((time.perf_counter() - started_at) * 1000)
-        return self._to_chat_response(
+        progress("citations.linking", "started")
+        result = self._to_chat_response(
             response,
             config=pipeline.config,
             profile=profile.profile,
@@ -448,6 +463,8 @@ class KnowledgeEngineService:
             access_context=access_context,
             allowed_relative_paths=effective_relative_paths if effective_relative_paths else None,
         )
+        progress("citations.linking", "completed", citations=len(result.citations))
+        return result
 
     def rebuild_index(self, *, force: bool) -> tuple[bool, str, int, int]:
         if not self.engine_available:
