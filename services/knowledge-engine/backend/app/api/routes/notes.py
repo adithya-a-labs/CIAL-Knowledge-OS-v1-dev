@@ -2,6 +2,7 @@
 from __future__ import annotations
 import re, uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from backend.app.db.session import get_db_session
 from backend.app.schemas.notes import LinkDocumentCreate, NoteCreate, NoteList, NoteRecord, NoteUpdate, TagCreate, TagUpdate
@@ -11,11 +12,15 @@ from backend.app.services.personal_workspace_service import WorkspaceNotFound
 
 router=APIRouter()
 def service(db:Session=Depends(get_db_session)): return NoteService(db)
+def conflict_detail(exc:NoteConflict):
+    current=NoteRecord.model_validate(exc.current).model_dump(mode="json")
+    return jsonable_encoder({"code":"revision_conflict","message":str(exc),"current":current})
 def call(request:Request, svc:NoteService, method:str,*args):
     access=require_authenticated_access_context(request)
     try: return getattr(svc,method)(access,*args)
     except WorkspaceNotFound as exc: raise HTTPException(404,detail=str(exc)) from exc
-    except NoteConflict as exc: raise HTTPException(409,detail={"code":"revision_conflict","message":str(exc),"current":exc.current}) from exc
+    except NoteConflict as exc:
+        raise HTTPException(409,detail=conflict_detail(exc)) from exc
     except ValueError as exc: raise HTTPException(422,detail=str(exc)) from exc
 def enqueue(request:Request,svc:NoteService):
     worker=getattr(request.app.state,"indexing_worker",None)

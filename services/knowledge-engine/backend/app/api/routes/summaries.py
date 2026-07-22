@@ -8,7 +8,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from backend.app.db.session import get_db_session
-from backend.app.schemas.summaries import SaveSummaryNote, SummaryCreate, SummaryFollowUp, SummaryList, SummaryRecord
+from backend.app.schemas.summaries import SaveSummaryNote, SummaryConfig, SummaryCreate, SummaryFollowUp, SummaryList, SummaryRecord
 from backend.app.security.access import require_authenticated_access_context
 from backend.app.services.personal_workspace_service import WorkspaceNotFound
 from backend.app.services.summary_service import SummaryCancelled, SummaryError, SummaryService
@@ -27,6 +27,12 @@ def invoke(request,service,method,*args):
 def create_summary(payload:SummaryCreate,request:Request,service:SummaryService=Depends(svc)): return invoke(request,service,"create",payload)
 @router.get("/summaries",response_model=SummaryList)
 def list_summaries(request:Request,service:SummaryService=Depends(svc)): return invoke(request,service,"list")
+
+@router.get("/summaries/config",response_model=SummaryConfig)
+def summary_config(): return SummaryConfig()
+
+@router.get("/summaries/new",response_model=SummaryConfig,include_in_schema=False)
+def legacy_summary_config(): return SummaryConfig()
 
 @router.post("/summaries/stream")
 def stream_summary(payload:SummaryCreate,request:Request,service:SummaryService=Depends(svc)):
@@ -64,10 +70,6 @@ def save_to_note(summary_id:uuid.UUID,payload:SaveSummaryNote,request:Request,se
 def save_to_saved(summary_id:uuid.UUID,request:Request,service:SummaryService=Depends(svc)): return invoke(request,service,"save_to_saved_knowledge",summary_id)
 @router.post("/summaries/{summary_id}/ask-follow-up")
 def ask_follow_up(summary_id:uuid.UUID,payload:SummaryFollowUp,request:Request,service:SummaryService=Depends(svc)): return invoke(request,service,"ask_follow_up",summary_id,payload.mode)
-@router.get("/saved-knowledge")
-def list_saved(request:Request,service:SummaryService=Depends(svc)): return invoke(request,service,"list_saved_knowledge")
-@router.delete("/saved-knowledge/{item_id}",status_code=204)
-def delete_saved(item_id:uuid.UUID,request:Request,service:SummaryService=Depends(svc)): invoke(request,service,"remove_saved_knowledge",item_id)
 @router.get("/summaries/{summary_id}/export")
 def export_summary(summary_id:uuid.UUID,request:Request,background_tasks:BackgroundTasks,format:str="markdown",service:SummaryService=Depends(svc)):
     if format not in {"markdown","pdf","docx"}: raise HTTPException(422,detail="Choose markdown, pdf, or docx.")

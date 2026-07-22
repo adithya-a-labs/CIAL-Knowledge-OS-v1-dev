@@ -19,7 +19,7 @@ from backend.app.models.conversations import ChatMessage, ChatSession
 from backend.app.models.knowledge import Document
 from backend.app.models.workspace_content import Note, SummaryConversationBinding
 from backend.app.repositories.chats import ChatRepository
-from backend.app.schemas.chat import ChatAttachmentResponse, ChatMessageRecord, ChatRequest, ChatResponse, ChatSessionList, ChatSessionRecord, MessageFeedbackRequest, MessageFeedbackResponse, MessageTransformRequest
+from backend.app.schemas.chat import ChatAttachmentResponse, ChatMessageRecord, ChatRequest, ChatResponse, ChatSessionCreate, ChatSessionList, ChatSessionRecord, MessageFeedbackRequest, MessageFeedbackResponse, MessageTransformRequest
 from backend.app.services.chat_action_service import ChatActionError, ChatActionService
 from backend.app.services.message_transformation_service import MessageTransformationError, MessageTransformationService
 from backend.app.security.access import require_authenticated_access_context
@@ -29,6 +29,7 @@ from backend.app.services.knowledge_engine_service import (
     KnowledgeEngineInvalidRequest,
     KnowledgeEngineUnavailable,
 )
+from backend.app.services.conversation_service import ConversationService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -106,6 +107,9 @@ def _record(session: ChatSession, repository: ChatRepository) -> ChatSessionReco
             for message in repository.list_messages_for_user(session.id, session.user_id)
         ],
         created_at=session.created_at, updated_at=session.updated_at,
+        origin=session.origin, created_from_document=session.created_from_document,
+        context_scope=session.context_scope, selected_document_ids=list(session.selected_document_ids or []),
+        selected_note_ids=list(session.selected_note_ids or []), context_snapshot=list(session.context_snapshot or []),
     )
 
 
@@ -130,6 +134,7 @@ def stream_chat(payload: ChatRequest, request: Request, db: Session = Depends(ge
             chat_session=repository.get_session_for_user(payload.session_id,user_id) if payload.session_id else None
             if payload.session_id and chat_session is None and db.get(ChatSession,payload.session_id) is not None: raise WorkspaceNotFound("Conversation not found.")
             if chat_session is None: chat_session=repository.add_session(ChatSession(id=payload.session_id or uuid.uuid4(),user_id=user_id,title=payload.question.strip()[:72]))
+            bound_payload=ConversationService.enforce(chat_session,bound_payload)
             response=request.app.state.knowledge_engine.answer_question(bound_payload,access_context=access,progress_callback=progress,token_callback=token,cancel_event=cancelled)
             if cancelled.is_set(): raise _StreamCancelled()
             progress("persistence.saving","started",{})
@@ -163,6 +168,18 @@ def list_chat_sessions(request: Request, db: Session = Depends(get_db_session)) 
     access = require_authenticated_access_context(request)
     repository = ChatRepository(db)
     return ChatSessionList(sessions=[_record(item, repository) for item in repository.list_sessions_for_user(access.principal.user_id)])
+
+
+@router.post("/chat/sessions", response_model=ChatSessionRecord, status_code=201)
+def create_chat_session(payload: ChatSessionCreate, request: Request, db: Session = Depends(get_db_session)) -> ChatSessionRecord:
+    access = require_authenticated_access_context(request)
+    try:
+        item = ConversationService(db).create(access, payload)
+    except WorkspaceNotFound as exc:
+        raise HTTPException(status_code=404, detail="Selected context was not found.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _record(item, ChatRepository(db))
 
 
 @router.get("/chat/sessions/{session_id}", response_model=ChatSessionRecord)
@@ -207,6 +224,7 @@ def chat(payload: ChatRequest, request: Request, db: Session = Depends(get_db_se
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
     if chat_session is None:
         chat_session = repository.add_session(ChatSession(id=payload.session_id or uuid.uuid4(), user_id=user_id, title=payload.question.strip()[:72]))
+    payload = ConversationService.enforce(chat_session, payload)
     try:
         response = request.app.state.knowledge_engine.answer_question(
             payload,
