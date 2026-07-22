@@ -65,6 +65,7 @@ class IndexingJob(UUIDPrimaryKeyMixin, Base):
     force_rebuild: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -132,6 +133,22 @@ class RetrievalEvent(UUIDPrimaryKeyMixin, Base):
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     result_count: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class SearchHistory(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "search_history"
+    __table_args__ = (
+        Index("ix_search_history_user_updated", "user_id", "updated_at"),
+        Index("ix_search_history_user_normalized", "user_id", "normalized_query", unique=True),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    query_text: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_query: Mapped[str] = mapped_column(Text, nullable=False)
+    result_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
 class ExportJob(UUIDPrimaryKeyMixin, Base):

@@ -91,15 +91,50 @@ class SavedKnowledgeItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("owner_user_id", "summary_id", name="uq_saved_knowledge_owner_summary"),
         Index("ix_saved_knowledge_owner_created", "owner_user_id", "created_at"),
-        CheckConstraint("item_type = 'summary'", name="ck_saved_knowledge_item_type"),
+        CheckConstraint("item_type in ('summary','answer')", name="ck_saved_knowledge_item_type"),
+        CheckConstraint("visibility in ('private','restricted')", name="ck_saved_knowledge_visibility"),
+        CheckConstraint("state in ('active','archived')", name="ck_saved_knowledge_state"),
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     owner_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     item_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="summary")
-    summary_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("summary_artifacts.id", ondelete="CASCADE"), nullable=False)
+    summary_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("summary_artifacts.id", ondelete="SET NULL"))
+    source_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("chat_messages.id", ondelete="SET NULL"))
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="SET NULL"))
     title: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    body_markdown: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    original_question: Mapped[str | None] = mapped_column(Text)
+    citation_snapshot: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    source_references: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    selected_document_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    context_scope: Mapped[str | None] = mapped_column(Text)
+    profile: Mapped[str | None] = mapped_column(Text)
+    model_name: Mapped[str | None] = mapped_column(Text)
+    prompt_version: Mapped[str | None] = mapped_column(Text)
+    collection: Mapped[str | None] = mapped_column(Text)
+    tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    visibility: Mapped[str] = mapped_column(Text, nullable=False, server_default="private")
+    is_favorite: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    provenance_hash: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    state: Mapped[str] = mapped_column(Text, nullable=False, server_default="active")
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SavedKnowledgeVersion(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "saved_knowledge_versions"
+    __table_args__ = (UniqueConstraint("saved_knowledge_id", "version", name="uq_saved_knowledge_versions_item_version"),)
+    saved_knowledge_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("saved_knowledge_items.id", ondelete="CASCADE"), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    body_markdown: Mapped[str] = mapped_column(Text, nullable=False)
+    citation_snapshot: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    tags: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
 
 class SummaryConversationBinding(UUIDPrimaryKeyMixin, Base):

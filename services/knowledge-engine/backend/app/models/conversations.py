@@ -15,10 +15,22 @@ from backend.app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 class ChatSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "chat_sessions"
-    __table_args__ = (Index("ix_chat_sessions_user_id", "user_id"),)
+    __table_args__ = (
+        Index("ix_chat_sessions_user_id", "user_id"),
+        CheckConstraint("origin in ('assistant','homepage','knowledge_center','global_search','saved_knowledge')", name="ck_chat_sessions_origin"),
+        CheckConstraint("context_scope in ('all_accessible','selected_documents','selected_context')", name="ck_chat_sessions_context_scope"),
+    )
 
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     title: Mapped[str | None] = mapped_column(Text)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"))
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="SET NULL"))
+    origin: Mapped[str] = mapped_column(Text, nullable=False, server_default="assistant")
+    created_from_document: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"))
+    context_scope: Mapped[str] = mapped_column(Text, nullable=False, server_default="all_accessible")
+    selected_document_ids: Mapped[list[str] | None] = mapped_column(JSONB)
+    selected_note_ids: Mapped[list[str] | None] = mapped_column(JSONB)
+    context_snapshot: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
 
     messages: Mapped[list[ChatMessage]] = relationship(back_populates="session")
     summaries: Mapped[list[ConversationSummary]] = relationship(back_populates="session")
