@@ -173,6 +173,52 @@ def require_authenticated_access_context(request: Request) -> RequestAccessConte
     return access_context
 
 
+def access_context_for_user(session: Session, user_id: uuid.UUID, *, scope: AccessScope = "hybrid") -> RequestAccessContext:
+    """Re-resolve a user's current grants for durable background work."""
+    user = session.scalar(
+        select(User)
+        .options(
+            selectinload(User.roles).selectinload(Role.permissions),
+            selectinload(User.department_memberships),
+            selectinload(User.department_role_assignments)
+            .selectinload(DepartmentRoleAssignment.role)
+            .selectinload(Role.permissions),
+            selectinload(User.group_memberships).selectinload(GroupMembership.group),
+        )
+        .where(User.id == user_id)
+    )
+    if user is None or not bool(user.is_active):
+        return RequestAccessContext(scope=scope)
+    now = datetime.now(timezone.utc)
+    department_ids = {value for value in [user.department_id] if value is not None}
+    department_ids.update(item.department_id for item in user.department_memberships if bool(item.active))
+    role_ids = {role.id for role in user.roles}
+    permission_names = {
+        permission.name for role in user.roles for permission in role.permissions if isinstance(permission, Permission)
+    }
+    for assignment in user.department_role_assignments:
+        role_ids.add(assignment.role_id)
+        permission_names.update(
+            permission.name for permission in assignment.role.permissions if isinstance(permission, Permission)
+        )
+    group_ids = {
+        item.group_id for item in user.group_memberships
+        if bool(item.is_active) and (item.expires_at is None or item.expires_at > now)
+    }
+    return RequestAccessContext(
+        principal=AccessPrincipal(
+            user_id=user.id,
+            organization_id=user.organization_id,
+            department_ids=frozenset(department_ids),
+            role_ids=frozenset(role_ids),
+            permission_names=frozenset(permission_names),
+            group_ids=frozenset(group_ids),
+            is_authenticated=True,
+        ),
+        scope=scope,
+    )
+
+
 def can_upload_enterprise_documents(access_context: RequestAccessContext) -> bool:
     permissions = access_context.principal.permission_names
     if permissions.intersection(_ENTERPRISE_WRITE_PERMISSIONS):
