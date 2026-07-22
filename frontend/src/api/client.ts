@@ -213,8 +213,20 @@ export interface SummaryRecord {
   id:string; title:string; summary_type:string; summary_length:string; multi_document_mode:string; status:string; content_markdown:string|null;
   citation_count:number; document_count:number; prompt_name:string; prompt_version:string; created_at:string; completed_at:string|null;
   sources:Array<{id:string;source_type:string;source_id:string|null;title:string;version_id:string|null}>;
-  citations:Array<{citation_id:string;document_id:string|null;note_id:string|null;page_number:number|null;section:string|null;chunk_id:string|null;excerpt:string|null}>; stale:boolean;
+  citations:Array<{citation_id:string;reference_id?:string;document_id:string|null;document_version_id?:string|null;note_id:string|null;page_number:number|null;section:string|null;chunk_id:string|null;excerpt:string|null;ordering?:number|null}>; stale:boolean;
+  document_id?:string|null;document_version_id?:string|null;document_version_number?:number|null;
+  structured_payload?:DocumentAnalysisPayload|null;citation_snapshot?:Array<Record<string,unknown>>;
+  source_chunk_count?:number;source_token_count?:number;map_group_count?:number;model_name?:string|null;language?:string;
+  generation_config?:Record<string,unknown>;provenance_hash?:string|null;progress?:AnalysisProgress;
+  started_at?:string|null;updated_at?:string|null;error_code?:string|null;error_message?:string|null;retryable?:boolean;suggested_questions?:string[];
 }
+export type DocumentAnalysisType='overview'|'detailed'|'key_points'|'action_items';
+export type DocumentAnalysisLength='brief'|'standard'|'detailed';
+export interface GroundedAnalysisItem{text:string;citation_ids:string[]}
+export interface DocumentAnalysisPayload{title:string;document_type:'general'|'calendar'|'policy'|'standard'|'contract'|'report';sections:Array<{heading:string;items:GroundedAnalysisItem[]}>;key_findings:GroundedAnalysisItem[];important_dates:GroundedAnalysisItem[];requirements:GroundedAnalysisItem[];action_items:GroundedAnalysisItem[];coverage_gaps:string[];citation_ids:string[];suggested_questions:string[]}
+export interface AnalysisProgress{stage:string;completed:number;total:number;message:string}
+export interface DocumentAnalysisList{document_id:string;current_version_id:string;summary_type:string;length:string;current:SummaryRecord|null;previous:SummaryRecord[]}
+export interface DocumentAnalysisCreateResponse{disposition:'reused'|'queued'|'running'|'completed';summary:SummaryRecord}
 export interface SummaryCreatePayload { sources:Array<{source_type:'document'|'folder'|'note'|'conversation'|'pasted_text';source_id?:string|null;title?:string|null;content?:string|null}>; summary_type:'executive'|'detailed'|'key_points'|'action_items'; summary_length:'brief'|'standard'|'detailed'; multi_document_mode:'together'|'separate'|'compare'; custom_instructions?:string|null; }
 export interface SummaryStreamEvent { request_id:string; type:'stage'|'token'|'result'|'error'|'cancelled'; stage_id:string; status:string; metrics?:Record<string,number|string>; delta?:string; payload?:SummaryRecord|{message?:string}; }
 export async function streamSummary(payload: SummaryCreatePayload,onEvent:(event:SummaryStreamEvent)=>void,signal?:AbortSignal) {
@@ -229,6 +241,10 @@ export function getSummary(id:string){return request<SummaryRecord>(`/api/summar
 export function getSummaryExportUrl(id:string,format:'markdown'|'pdf'|'docx'='markdown'){return apiUrl(`/api/summaries/${encodeURIComponent(id)}/export?format=${format}`);}
 export function saveSummaryToSavedKnowledge(id:string){return request<{id:string;summary_id:string;title:string}>(`/api/summaries/${encodeURIComponent(id)}/save-to-saved-knowledge`,{method:'POST'});}
 export function askSummaryFollowUp(id:string,mode:'original_versions'|'latest_versions'='original_versions'){return request<{chat_session_id:string;url:string;sources:Array<{source_type:string;source_id:string|null;title:string}>}>(`/api/summaries/${encodeURIComponent(id)}/ask-follow-up`,{method:'POST',body:JSON.stringify({mode})});}
+export function getDocumentAnalysis(documentId:string,summaryType:DocumentAnalysisType='overview',length:DocumentAnalysisLength='standard',signal?:AbortSignal){const query=new URLSearchParams({summary_type:summaryType,length});return request<DocumentAnalysisList>(`/api/documents/${encodeURIComponent(documentId)}/analysis?${query}`,{signal});}
+export function createDocumentAnalysis(documentId:string,payload:{summary_type:DocumentAnalysisType;length:DocumentAnalysisLength;force_regenerate?:boolean;language?:string}){return request<DocumentAnalysisCreateResponse>(`/api/documents/${encodeURIComponent(documentId)}/analysis`,{method:'POST',body:JSON.stringify(payload)});}
+export function getDocumentAnalysisStatus(id:string,signal?:AbortSignal){return request<SummaryRecord>(`/api/summaries/${encodeURIComponent(id)}/status`,{signal});}
+export function cancelDocumentAnalysis(id:string){return request<SummaryRecord>(`/api/summaries/${encodeURIComponent(id)}/cancel`,{method:'POST'});}
 export function listSavedKnowledge(params:{query?:string;favorite?:boolean;collection?:string}={}){const query=new URLSearchParams();if(params.query)query.set('query',params.query);if(params.favorite)query.set('favorite','true');if(params.collection)query.set('collection',params.collection);return request<SavedKnowledgeList>(`/api/saved-knowledge${query.size?`?${query}`:''}`);}
 export function getSavedKnowledge(id:string){return request<SavedKnowledgeRecord>(`/api/saved-knowledge/${encodeURIComponent(id)}`);}
 export function saveAnswerToKnowledge(payload:{message_id:string;title:string;collection?:string|null;tags:string[];description?:string|null;save_citations:boolean;save_original_question:boolean;save_conversation_context:boolean}){return request<SavedKnowledgeRecord>('/api/saved-knowledge',{method:'POST',body:JSON.stringify(payload)});}
