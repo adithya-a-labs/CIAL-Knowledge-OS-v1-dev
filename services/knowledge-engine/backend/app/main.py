@@ -29,6 +29,7 @@ from backend.app.services.knowledge_engine_service import KnowledgeEngineService
 from backend.app.services.message_transformation_service import OllamaTransformationGenerator
 from backend.app.services.managed_workspace_ingestion import ManagedWorkspaceIngestionService
 from backend.app.services.startup_service import StartupService
+from backend.app.services.summary_worker import SummaryWorker
 from cial_knowledge_os.corpus.service import CorpusService
 from cial_knowledge_os.corpus.watcher import CorpusWatcher
 
@@ -61,6 +62,7 @@ async def lifespan(app: FastAPI):
     # Start background indexing worker
     app.state.indexing_worker.start()
     app.state.export_service.start()
+    app.state.summary_worker.start()
 
     startup_thread = Thread(
         target=app.state.startup_service.run_startup,
@@ -76,6 +78,7 @@ async def lifespan(app: FastAPI):
             watcher.stop()
         app.state.indexing_worker.stop()
         app.state.export_service.stop()
+        app.state.summary_worker.stop()
         app.state.knowledge_engine.close()
 
 
@@ -117,7 +120,9 @@ def create_app() -> FastAPI:
     app.state.indexing_service = IndexingService(engine, runtime_state)
     app.state.evaluation_service = EvaluationService()
     app.state.export_service = ExportService(indexing_wakeup=indexing_worker.enqueue)
-    app.state.transformation_generator = OllamaTransformationGenerator()
+    transformation_generator = OllamaTransformationGenerator()
+    app.state.transformation_generator = transformation_generator
+    app.state.summary_worker = SummaryWorker(transformation_generator)
 
     app.include_router(health.router, prefix="/api", tags=["health"])
     app.include_router(auth.router, prefix="/api", tags=["auth"])

@@ -6,6 +6,7 @@ retrievers, rerankers, corpus services, or evidence selectors.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 import re
 import time
 import uuid
@@ -21,6 +22,55 @@ from backend.app.repositories.chats import ChatRepository
 from backend.app.security.access import RequestAccessContext
 
 
+def _ollama_grammar_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Inline Pydantic refs and retain the JSON-Schema grammar Ollama consumes.
+
+    Older local Ollama builds reject annotation/validation keywords such as
+    ``title`` and ``maxItems`` while still supporting structural constraints.
+    Pydantic remains the authoritative validator after generation.
+    """
+    definitions = schema.get("$defs", {})
+
+    def clean(value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        reference = value.get("$ref")
+        if isinstance(reference, str) and reference.startswith("#/$defs/"):
+            return clean(definitions[reference.rsplit("/", 1)[-1]])
+        result: dict[str, Any] = {}
+        for key in ("type", "enum", "const", "required", "additionalProperties"):
+            if key in value:
+                result[key] = value[key]
+        if "properties" in value:
+            result["properties"] = {name: clean(item) for name, item in value["properties"].items()}
+        if "items" in value:
+            result["items"] = clean(value["items"])
+        for key in ("anyOf", "oneOf"):
+            if key in value:
+                result[key] = [clean(item) for item in value[key]]
+        return result
+
+    return clean(schema)
+
+
+@dataclass(frozen=True, slots=True)
+class OllamaJsonResult:
+    text: str
+    finish_reason: str | None
+    output_tokens: int | None
+    max_output_tokens: int
+    schema_mode: bool
+
+
+def _schema_mode_unavailable(error: Exception) -> bool:
+    """Recognize only an Ollama schema/grammar capability rejection."""
+    status = getattr(error, "status_code", None)
+    message = str(error).casefold()
+    return status in {400, 404, 422} and any(
+        marker in message for marker in ("schema", "grammar", "format", "structured output")
+    )
+
+
 class TransformationGenerator(Protocol):
     def generate(self, prompt: str) -> str: ...
 
@@ -29,6 +79,7 @@ class OllamaTransformationGenerator:
     """Small deterministic adapter around the configured local Ollama model."""
     def __init__(self, model_name: str | None = None) -> None:
         self.model_name = model_name or settings.ollama_model_name
+        self._schema_mode_available: bool | None = None
 
     def generate(self, prompt: str) -> str:
         from langchain_ollama import OllamaLLM
@@ -42,6 +93,61 @@ class OllamaTransformationGenerator:
                 if attempt < settings.generation_retries and settings.retry_cooldown_seconds:
                     time.sleep(settings.retry_cooldown_seconds)
         raise RuntimeError("Local generation failed.") from last_error
+
+    def generate_json(
+        self,
+        prompt: str,
+        *,
+        max_output_tokens: int,
+        json_schema: dict[str, Any] | None = None,
+    ) -> OllamaJsonResult:
+        """Generate schema-bound JSON locally with the summary context budget."""
+        last_error: Exception | None = None
+        for attempt in range(settings.generation_retries + 1):
+            try:
+                from ollama import generate
+                schema_mode = bool(json_schema) and self._schema_mode_available is not False
+                output_format: str | dict[str, Any] = _ollama_grammar_schema(json_schema) if schema_mode and json_schema else "json"
+                try:
+                    response = generate(
+                        model=self.model_name,
+                        prompt=prompt,
+                        format=output_format,
+                        options={
+                            "temperature": 0,
+                            "num_ctx": settings.summary_context_window_tokens,
+                            "num_predict": max_output_tokens,
+                        },
+                    )
+                    if schema_mode:
+                        self._schema_mode_available = True
+                except Exception as exc:
+                    if not schema_mode or not _schema_mode_unavailable(exc):
+                        raise
+                    self._schema_mode_available = False
+                    response = generate(
+                        model=self.model_name,
+                        prompt=prompt,
+                        format="json",
+                        options={
+                            "temperature": 0,
+                            "num_ctx": settings.summary_context_window_tokens,
+                            "num_predict": max_output_tokens,
+                        },
+                    )
+                    schema_mode = False
+                return OllamaJsonResult(
+                    text=str(getattr(response, "response", "")).strip(),
+                    finish_reason=str(getattr(response, "done_reason", "") or "") or None,
+                    output_tokens=int(value) if (value := getattr(response, "eval_count", None)) is not None else None,
+                    max_output_tokens=max_output_tokens,
+                    schema_mode=schema_mode,
+                )
+            except Exception as exc:
+                last_error = exc
+                if attempt < settings.generation_retries and settings.retry_cooldown_seconds:
+                    time.sleep(settings.retry_cooldown_seconds)
+        raise RuntimeError("Local JSON generation failed.") from last_error
 
     def stream_generate(self, prompt: str, *, cancel_event=None, token_callback=None) -> str:
         from langchain_ollama import OllamaLLM
