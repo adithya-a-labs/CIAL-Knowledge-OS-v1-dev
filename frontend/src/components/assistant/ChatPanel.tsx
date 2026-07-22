@@ -93,6 +93,9 @@ export default function ChatPanel() {
   const exportSourceRef = useRef<{ sessionId: string; messageId: string; title: string } | null>(null);
   const actionGenerationRef = useRef<Record<string, number>>({});
   const [generationEvents, setGenerationEvents] = useState<GenerationEvent[]>([]);
+  const [streamingText, setStreamingText] = useState('');
+  const tokenBufferRef = useRef('');
+  const tokenFrameRef = useRef<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [contextManagerOpen, setContextManagerOpen] = useState(false);
   const [includeSourceExcerpts, setIncludeSourceExcerpts] = useState(true);
@@ -250,6 +253,15 @@ export default function ChatPanel() {
           : null,
       pdfEndpointUrl: source.fileUrl ?? null,
     });
+    if (source.sourceType === 'note' || source.noteId) {
+      const noteId = source.noteId ?? source.documentId;
+      if (!noteId) return;
+      const params = new URLSearchParams({ tab: 'notes', note: noteId });
+      if (source.noteRevision) params.set('revision', String(source.noteRevision));
+      if (source.blockId) params.set('citation', source.blockId);
+      window.location.assign(`/workspace?${params.toString()}`);
+      return;
+    }
     if (toUuidDocumentId(source.documentId)) {
       setSelectedSource(source);
       setSourceViewerOpen(true);
@@ -304,6 +316,9 @@ export default function ChatPanel() {
     const explicitFolderIds = selectedContextItems
         .filter((item) => item.type === 'folder')
         .map((item) => item.id);
+    const explicitNoteIds = selectedContextItems
+        .filter((item) => item.type === 'note')
+        .map((item) => item.id);
     const uploadedDocumentIds = effectiveUploadedFiles
         .map((file) => file.backendDocumentId)
         .filter((value): value is string => Boolean(value));
@@ -315,6 +330,7 @@ export default function ChatPanel() {
       activeProfile,
       selectedDocumentIds: [...explicitDocumentIds, ...uploadedDocumentIds],
       selectedFolderIds: explicitFolderIds,
+      selectedNoteIds: explicitNoteIds,
       uploadedFileIds: uploadedDocumentIds,
     };
 
@@ -331,6 +347,7 @@ export default function ChatPanel() {
     setInput('');
     setIsLoading(true);
     setGenerationEvents([]);
+    setStreamingText(''); tokenBufferRef.current = '';
     setErrorMessage(null);
     const controller = new AbortController();
     const requestId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -342,7 +359,13 @@ export default function ChatPanel() {
     try {
       const response = await streamQuestion(toChatRequest(requestPayload, requestSessionId), (event) => {
         if (event.type === 'stage') setGenerationEvents((current) => [...current, event].slice(-30));
+        if (event.type === 'token' && event.delta && activeRequestControllerRef.current === controller) {
+          tokenBufferRef.current += event.delta;
+          if (tokenFrameRef.current === null) tokenFrameRef.current = requestAnimationFrame(() => { setStreamingText((current) => current + tokenBufferRef.current); tokenBufferRef.current = ''; tokenFrameRef.current = null; });
+        }
       }, controller.signal);
+      if (tokenFrameRef.current !== null) cancelAnimationFrame(tokenFrameRef.current);
+      tokenFrameRef.current = null; tokenBufferRef.current = ''; setStreamingText('');
       const adapted = toAssistantMessage(response, requestPayload);
       const persistedUserMsg = response.user_message_id ? { ...userMsg, id: response.user_message_id } : userMsg;
       const aiMsg: ChatMessageData = {
@@ -440,7 +463,7 @@ export default function ChatPanel() {
 
   const responseFromRecord = (record: Awaited<ReturnType<typeof transformMessage>>): ChatMessageData => {
     const payload = { answer: record.content, citations: record.citations as never[], sources: record.sources as never[], metadata: record.metadata as never };
-    const requestPayload: ChatRequestPayload = { query: '', searchScope, activeProfile, selectedDocumentIds: [], selectedFolderIds: [], uploadedFileIds: [] };
+    const requestPayload: ChatRequestPayload = { query: '', searchScope, activeProfile, selectedDocumentIds: [], selectedFolderIds: [], selectedNoteIds: [], uploadedFileIds: [] };
     const adapted = toAssistantMessage(payload, requestPayload);
     return { id: record.id, role: 'assistant', content: adapted.content, citations: adapted.citations, sources: adapted.sources, metadata: adapted.metadata, timestamp: new Date(record.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
   };
@@ -465,7 +488,7 @@ export default function ChatPanel() {
       if (action === 'regenerate') {
         const response = await regenerateMessage(message.id);
         if (actionGenerationRef.current[message.id] !== generation) return;
-        const adapted = toAssistantMessage(response, { query: '', searchScope: message.metadata?.searchScope ?? searchScope, activeProfile: message.metadata?.activeProfile ?? activeProfile, selectedDocumentIds: [], selectedFolderIds: [], uploadedFileIds: [] });
+        const adapted = toAssistantMessage(response, { query: '', searchScope: message.metadata?.searchScope ?? searchScope, activeProfile: message.metadata?.activeProfile ?? activeProfile, selectedDocumentIds: [], selectedFolderIds: [], selectedNoteIds: [], uploadedFileIds: [] });
         const regenerated: ChatMessageData = { id: response.assistant_message_id ?? crypto.randomUUID(), role: 'assistant', content: adapted.content, citations: adapted.citations, sources: adapted.sources, metadata: adapted.metadata, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
         appendMessage(actionSessionId, regenerated);
       } else {
@@ -554,6 +577,8 @@ export default function ChatPanel() {
             {isLoading && (
               <RetrievalTimeline events={generationEvents} elapsedSeconds={elapsedSeconds} onStop={stopGenerating} />
             )}
+
+            {streamingText && <ChatMessage key="streaming-response" message={{ id: 'streaming-response', role: 'assistant', content: streamingText, timestamp: 'Generating…' }} chatWidth={chatMessagesWidth} onCitationClick={openSource} onSourceOpen={openSource} onRelatedQuestionClick={setInput} onCopy={copyResponse} onAction={handleResponseAction} loadingAction={undefined} onFeedback={handleFeedback} includeSourceExcerpts={includeSourceExcerpts} showRetrievalDetails={showRetrievalDetails}/>}
 
             {errorMessage && (
               <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" data-testid="assistant-error">

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, FileText, Folder, Settings2, ShieldCheck, UploadCloud, X } from 'lucide-react';
+import { ChevronDown, FileText, Folder, NotebookPen, Settings2, ShieldCheck, UploadCloud, X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import FileIndexingStatus from '@/components/documents/FileIndexingStatus';
 import type { SelectedContextItem } from '@/api/types';
@@ -39,11 +39,11 @@ export default function ContextChips({
         <button
           type="button"
           className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg px-2 text-sm font-medium text-slate-700 transition hover:bg-[#f1f6ee] hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-          aria-label={`Manage selected context: ${totalContextCount} document${totalContextCount === 1 ? '' : 's'}`}
+          aria-label={`Manage selected context: ${totalContextCount} item${totalContextCount === 1 ? '' : 's'}`}
           data-testid="button-context-selector"
         >
           <ShieldCheck size={17} className="text-primary" />
-          <span>{totalContextCount} document{totalContextCount === 1 ? '' : 's'}</span>
+          <span>{totalContextCount} item{totalContextCount === 1 ? '' : 's'}</span>
           <ChevronDown size={14} className="text-slate-500" />
         </button>
       </PopoverTrigger>
@@ -61,12 +61,12 @@ export default function ContextChips({
             <p className="mb-2 rounded-lg bg-[#fffaf2] px-3 py-2 text-xs text-[#7c4b0c]">Attach a file to use Current Upload Only.</p>
           ) : null}
           {!hasAnyContext ? (
-            <p className="px-2 py-5 text-center text-sm text-muted-foreground">No documents or folders selected.</p>
+            <p className="px-2 py-5 text-center text-sm text-muted-foreground">No documents, folders, or notes selected.</p>
           ) : null}
 
           {selectedContextItems.map((item) => (
             <div key={item.id} className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-2 hover:bg-[#f7faf5]" data-testid="context-selector-item">
-              {item.type === 'folder' ? <Folder size={15} className="shrink-0 text-[#8a5b13]" /> : <FileText size={15} className="shrink-0 text-primary" />}
+              {item.type === 'folder' ? <Folder size={15} className="shrink-0 text-[#8a5b13]" /> : item.type === 'note' ? <NotebookPen size={15} className="shrink-0 text-primary" /> : <FileText size={15} className="shrink-0 text-primary" />}
               <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{item.title}</span>
               <button
                 type="button"

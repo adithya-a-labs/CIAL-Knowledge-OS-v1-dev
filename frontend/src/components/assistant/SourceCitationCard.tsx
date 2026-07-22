@@ -20,7 +20,7 @@ export interface GroupedSource {
 }
 
 function normalizedSourceIdentity(source: ChatSource) {
-  const stableId = source.documentId?.trim();
+  const stableId = (source.noteId || source.documentId)?.trim();
   if (stableId) return `id:${stableId}`;
 
   const fallback = (source.relativePath || source.documentTitle)
@@ -74,7 +74,7 @@ function getSourceTypeStyles(sourceType: ChatSource['sourceType']) {
 
 function summaryDocumentLabel(groups: GroupedSource[]) {
   if (groups.length === 1) return groups[0].documentTitle;
-  return `${groups.length} documents`;
+  return `${groups.length} sources`;
 }
 
 export default function SourceCitationCard({ sources, onOpenSource, includeExcerpts = true }: SourceCitationCardProps) {

@@ -81,7 +81,8 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
       if (generation !== requestGeneration.current || controller.signal.aborted) return;
       const hydrated = records.map(fromApi);
       setSessions(hydrated);
-      setActiveSessionId((current) => hydrated.some((item) => item.id === current) ? current : hydrated[0]?.id ?? null);
+      const requestedSession = new URLSearchParams(window.location.search).get('session');
+      setActiveSessionId((current) => requestedSession && hydrated.some((item) => item.id === requestedSession) ? requestedSession : hydrated.some((item) => item.id === current) ? current : hydrated[0]?.id ?? null);
     }).catch((error: unknown) => {
       if (generation !== requestGeneration.current || controller.signal.aborted) return;
       setHistoryError(error instanceof Error ? error.message : 'Conversation history could not be loaded.');
