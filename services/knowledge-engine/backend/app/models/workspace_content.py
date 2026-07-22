@@ -74,6 +74,45 @@ class NoteDocumentLink(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class NoteIndexState(Base):
+    __tablename__ = "note_index_states"
+    __table_args__ = (CheckConstraint("status in ('pending','indexing','indexed','failed','removed')", name="ck_note_index_states_status"),)
+    note_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("notes.id", ondelete="CASCADE"), primary_key=True)
+    indexed_revision: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    content_hash: Mapped[str | None] = mapped_column(Text)
+    point_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class SavedKnowledgeItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "saved_knowledge_items"
+    __table_args__ = (
+        UniqueConstraint("owner_user_id", "summary_id", name="uq_saved_knowledge_owner_summary"),
+        Index("ix_saved_knowledge_owner_created", "owner_user_id", "created_at"),
+        CheckConstraint("item_type = 'summary'", name="ck_saved_knowledge_item_type"),
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    item_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="summary")
+    summary_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("summary_artifacts.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SummaryConversationBinding(UUIDPrimaryKeyMixin, Base):
+    __tablename__ = "summary_conversation_bindings"
+    __table_args__ = (UniqueConstraint("summary_id", "chat_session_id", name="uq_summary_conversation_binding"), CheckConstraint("mode in ('original_versions','latest_versions')", name="ck_summary_conversation_binding_mode"))
+    summary_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("summary_artifacts.id", ondelete="CASCADE"), nullable=False)
+    chat_session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False)
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    mode: Mapped[str] = mapped_column(Text, nullable=False, server_default="original_versions")
+    source_binding: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class SummaryArtifact(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "summary_artifacts"
     __table_args__ = (
