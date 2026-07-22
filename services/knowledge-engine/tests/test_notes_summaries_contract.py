@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from backend.app.models.workspace_content import Note, NoteVersion, SummaryArtifact, SummaryCitation, SummarySource
+from backend.app.models.workspace_content import Note, NoteIndexState, NoteVersion, SavedKnowledgeItem, SummaryArtifact, SummaryCitation, SummaryConversationBinding, SummarySource
 from backend.app.schemas.notes import NoteUpdate
 from backend.app.schemas.summaries import SummaryCreate
 from backend.app.services.note_service import _plain
@@ -49,3 +49,21 @@ def test_migration_is_additive_and_declares_search_index():
     assert 'down_revision = "20260720_0010"' in migration
     assert "CREATE INDEX ix_notes_search" in migration
     assert "drop_column" not in migration
+
+
+def test_completion_migration_adds_private_index_saved_and_follow_up_contracts():
+    migration = (Path(__file__).parents[1] / "alembic/versions/20260721_0012_note_index_saved_bindings.py").read_text(encoding="utf-8")
+    assert 'down_revision="20260721_0011"' in migration
+    assert NoteIndexState.__table__.c.note_id.primary_key
+    assert SavedKnowledgeItem.__table__.c.owner_user_id.nullable is False
+    assert any(value.name == "uq_saved_knowledge_owner_summary" for value in SavedKnowledgeItem.__table__.constraints)
+    assert SummaryConversationBinding.__table__.c.source_binding.nullable is False
+    assert "drop_column" not in migration
+
+
+def test_summary_sources_accept_folders_and_private_pasted_text():
+    folder = SummaryCreate(sources=[{"source_type": "folder", "source_id": "7b5e42a3-513f-4fb2-890d-906f9715fbc8"}])
+    pasted = SummaryCreate(sources=[{"source_type": "pasted_text", "title": "Incident notes", "content": "Approved private text"}])
+    assert folder.sources[0].source_type == "folder"
+    assert pasted.sources[0].source_id is None
+    assert pasted.sources[0].content == "Approved private text"
