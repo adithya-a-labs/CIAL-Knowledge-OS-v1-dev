@@ -42,6 +42,8 @@ class SearchResult(BaseModel):
     document_id: str | None = None
     page: int | None = None
     chunk_id: str | None = None
+    summary_type: str | None = None
+    summary_length: str | None = None
     can_use_as_context: bool = False
     deep_link: str
 
