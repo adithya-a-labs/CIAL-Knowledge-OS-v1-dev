@@ -164,6 +164,9 @@ class IndexingWorker:
             document_version_id = job.document_version_id
             manual_retry = bool((job.metadata_ or {}).get("manual_retry"))
             job_action = (job.metadata_ or {}).get("action")
+            entity_type = (job.metadata_ or {}).get("entity_type")
+            note_id = (job.metadata_ or {}).get("note_id")
+            note_revision = int((job.metadata_ or {}).get("note_revision") or 0)
             claimed_attempt = int(job.attempts or 0)
 
         logger.info(
@@ -190,7 +193,11 @@ class IndexingWorker:
             # A ready backend updates one version in-place and reuses its loaded
             # models/client. Broad preparation remains a bootstrap/admin path.
             with self._pipeline_lock:
-                if document_id is not None and document_version_id is not None and self.engine.is_ready() and job_action != "deleted":
+                if entity_type == "note" and note_id:
+                    from backend.app.services.note_indexing_service import NoteIndexingService
+                    with SessionLocal() as note_session:
+                        counts = NoteIndexingService(note_session, self.engine).process(uuid.UUID(str(note_id)), note_revision, str(job_action or "index"))
+                elif document_id is not None and document_version_id is not None and self.engine.is_ready() and job_action != "deleted":
                     counts = self.engine.prepare_document_version(
                         document_id, document_version_id,
                         on_stage=lambda stage, _: self._mark_stage(job_id, stage),
@@ -209,7 +216,7 @@ class IndexingWorker:
             with SessionLocal() as session:
                 job = session.get(IndexingJob, job_id)
                 if job is None: return
-                self._persist_and_verify(session, job)
+                if entity_type != "note": self._persist_and_verify(session, job)
                 job.status = "succeeded"; job.message = f"Indexed successfully in {elapsed_ms}ms."
                 job.completed_at = job.updated_at = datetime.now(timezone.utc); job.error_detail = None
                 # Update document status
@@ -298,6 +305,12 @@ class IndexingWorker:
                         version = session.get(DocumentVersion, job.document_version_id)
                         if version is not None:
                             version.status = "pending" if retry else "failed"
+                    if job is not None and (job.metadata_ or {}).get("entity_type") == "note":
+                        from backend.app.models.workspace_content import NoteIndexState
+                        raw_note_id=(job.metadata_ or {}).get("note_id")
+                        state=session.get(NoteIndexState,uuid.UUID(str(raw_note_id))) if raw_note_id else None
+                        if state is not None:
+                            state.status="pending" if retry else "failed";state.last_error=error_code;state.updated_at=datetime.now(timezone.utc)
                     session.commit()
                     if retry:
                         logger.warning("index_job_retry_scheduled", extra={"event": "index_job_retry_scheduled", "job_id": str(job_id)})

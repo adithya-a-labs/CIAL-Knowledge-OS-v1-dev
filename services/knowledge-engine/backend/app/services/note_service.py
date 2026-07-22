@@ -1,14 +1,14 @@
 """Owner-scoped private note operations with optimistic revisions."""
 from __future__ import annotations
-import base64, re, uuid
+import base64, hashlib, re, uuid
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from backend.app.models.knowledge import Document
-from backend.app.models.operations import AuditEvent
-from backend.app.models.workspace_content import Note, NoteDocumentLink, NoteTag, NoteTagLink, NoteVersion
-from backend.app.security.access import RequestAccessContext
+from backend.app.models.operations import AuditEvent, IndexingJob
+from backend.app.models.workspace_content import Note, NoteDocumentLink, NoteIndexState, NoteTag, NoteTagLink, NoteVersion
+from backend.app.security.access import RequestAccessContext, document_is_accessible
 from backend.app.services.personal_workspace_service import PersonalWorkspaceService, WorkspaceNotFound
 
 class NoteConflict(RuntimeError):
@@ -20,7 +20,7 @@ def _plain(markdown: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 class NoteService:
-    def __init__(self, session: Session): self.session = session
+    def __init__(self, session: Session): self.session = session; self.last_index_job_id: uuid.UUID | None = None
     def _scope(self, access: RequestAccessContext):
         workspace = PersonalWorkspaceService(self.session).get_or_create(access)
         return access.principal.user_id, workspace
@@ -34,7 +34,8 @@ class NoteService:
     def _payload(self, note: Note):
         tags=list(self.session.execute(select(NoteTag).join(NoteTagLink, NoteTagLink.tag_id==NoteTag.id).where(NoteTagLink.note_id==note.id)).scalars())
         docs=list(self.session.execute(select(Document).join(NoteDocumentLink, NoteDocumentLink.document_id==Document.id).where(NoteDocumentLink.note_id==note.id, Document.deleted_at.is_(None))).scalars())
-        return {"id":note.id,"title":note.title,"content_json":note.content_json,"content_markdown":note.content_markdown,"content_format":note.content_format,"plain_text":note.plain_text,"is_pinned":note.is_pinned,"is_archived":note.is_archived,"revision":note.revision,"created_at":note.created_at,"updated_at":note.updated_at,"tags":[{"id":str(t.id),"name":t.name,"color":t.color} for t in tags],"linked_documents":[{"id":str(d.id),"name":d.name,"file_type":d.file_type} for d in docs]}
+        state=self.session.get(NoteIndexState,note.id)
+        return {"id":note.id,"title":note.title,"content_json":note.content_json,"content_markdown":note.content_markdown,"content_format":note.content_format,"plain_text":note.plain_text,"is_pinned":note.is_pinned,"is_archived":note.is_archived,"revision":note.revision,"created_at":note.created_at,"updated_at":note.updated_at,"indexing_status":state.status if state else "pending","indexed_revision":state.indexed_revision if state else None,"tags":[{"id":str(t.id),"name":t.name,"color":t.color} for t in tags],"linked_documents":[{"id":str(d.id),"name":d.name,"file_type":d.file_type,"scope":d.storage_scope} for d in docs]}
     def list(self, access, query="", filter_name="all", tag_id=None, cursor=None, limit=25):
         user_id, workspace=self._scope(access); clauses=[Note.owner_user_id==user_id,Note.workspace_id==workspace.id]
         clauses.append(Note.deleted_at.is_not(None) if filter_name=="trash" else Note.deleted_at.is_(None))
@@ -59,7 +60,7 @@ class NoteService:
     def create(self, access, title="Untitled"):
         user_id, workspace=self._scope(access); clean=" ".join(title.split()).strip() or "Untitled"
         note=Note(organization_id=workspace.organization_id,workspace_id=workspace.id,owner_user_id=user_id,title=clean)
-        self.session.add(note); self.session.flush(); self._version(note,user_id); self._audit(user_id,"workspace.note.created",note.id); self.session.commit(); self.session.refresh(note); return self._payload(note)
+        self.session.add(note); self.session.flush(); self._version(note,user_id); self._audit(user_id,"workspace.note.created",note.id); self._schedule_index(note,"index"); self.session.commit(); self.session.refresh(note); return self._payload(note)
     def get(self, access, note_id): return self._payload(self._get(access,note_id))
     def update(self, access, note_id, payload):
         note=self._get(access,note_id)
@@ -73,24 +74,34 @@ class NoteService:
         action="workspace.note.updated"
         if before[0]!=note.is_pinned: action="workspace.note.pinned" if note.is_pinned else "workspace.note.unpinned"
         elif before[1]!=note.is_archived: action="workspace.note.archived" if note.is_archived else "workspace.note.unarchived"
-        self._audit(note.owner_user_id,action,note.id); self.session.commit(); return self._payload(note)
+        self._audit(note.owner_user_id,action,note.id); self._schedule_index(note,"remove" if note.is_archived else "index"); self.session.commit(); return self._payload(note)
     def delete(self, access,note_id):
-        note=self._get(access,note_id); note.deleted_at=datetime.now(timezone.utc); note.deleted_by_user_id=note.owner_user_id; self._audit(note.owner_user_id,"workspace.note.deleted",note.id); self.session.commit()
+        note=self._get(access,note_id); note.deleted_at=datetime.now(timezone.utc); note.deleted_by_user_id=note.owner_user_id; self._audit(note.owner_user_id,"workspace.note.deleted",note.id); self._schedule_index(note,"remove"); self.session.commit()
     def restore(self, access,note_id):
-        note=self._get(access,note_id,True); note.deleted_at=None; note.deleted_by_user_id=None; self._audit(note.owner_user_id,"workspace.note.restored",note.id); self.session.commit(); return self._payload(note)
+        note=self._get(access,note_id,True); note.deleted_at=None; note.deleted_by_user_id=None; self._audit(note.owner_user_id,"workspace.note.restored",note.id); self._schedule_index(note,"index"); self.session.commit(); return self._payload(note)
     def duplicate(self, access,note_id):
-        source=self._get(access,note_id); created=self.create(access,f"{source.title} copy"); target=self._get(access,created["id"]); target.content_json=source.content_json; target.content_markdown=source.content_markdown; target.plain_text=source.plain_text; target.revision+=1; self._version(target,target.owner_user_id); self._audit(target.owner_user_id,"workspace.note.duplicated",target.id); self.session.commit(); return self._payload(target)
+        source=self._get(access,note_id); created=self.create(access,f"{source.title} copy"); target=self._get(access,created["id"]); target.content_json=source.content_json; target.content_markdown=source.content_markdown; target.plain_text=source.plain_text; target.revision+=1; self._version(target,target.owner_user_id); self._audit(target.owner_user_id,"workspace.note.duplicated",target.id); self._schedule_index(target,"index"); self.session.commit(); return self._payload(target)
     def versions(self, access,note_id):
         note=self._get(access,note_id); rows=list(self.session.scalars(select(NoteVersion).where(NoteVersion.note_id==note.id).order_by(NoteVersion.revision.desc())))
         return [{"id":str(v.id),"revision":v.revision,"title":v.title,"created_at":v.created_at} for v in rows]
     def tags(self, access):
-        user_id,workspace=self._scope(access); rows=list(self.session.scalars(select(NoteTag).where(NoteTag.owner_user_id==user_id,NoteTag.workspace_id==workspace.id).order_by(NoteTag.name)))
-        return [{"id":str(t.id),"name":t.name,"color":t.color} for t in rows]
+        user_id,workspace=self._scope(access); rows=list(self.session.execute(select(NoteTag,func.count(NoteTagLink.note_id)).outerjoin(NoteTagLink,NoteTagLink.tag_id==NoteTag.id).where(NoteTag.owner_user_id==user_id,NoteTag.workspace_id==workspace.id).group_by(NoteTag.id).order_by(NoteTag.name)))
+        return [{"id":str(tag.id),"name":tag.name,"color":tag.color,"count":int(count)} for tag,count in rows]
     def create_tag(self,access,name,color=None):
         user_id,workspace=self._scope(access); clean=" ".join(name.split()).strip(); normalized=clean.casefold()
         tag=self.session.scalar(select(NoteTag).where(NoteTag.owner_user_id==user_id,NoteTag.normalized_name==normalized))
         if tag is None: tag=NoteTag(workspace_id=workspace.id,owner_user_id=user_id,name=clean,normalized_name=normalized,color=color); self.session.add(tag); self.session.flush(); self._audit(user_id,"workspace.note.tag_created",tag.id); self.session.commit()
         return {"id":str(tag.id),"name":tag.name,"color":tag.color}
+    def rename_tag(self,access,tag_id,name,color=None):
+        user_id,workspace=self._scope(access);tag=self.session.scalar(select(NoteTag).where(NoteTag.id==tag_id,NoteTag.owner_user_id==user_id,NoteTag.workspace_id==workspace.id))
+        if tag is None: raise WorkspaceNotFound("Tag not found.")
+        clean=" ".join(name.split()).strip();normalized=clean.casefold();duplicate=self.session.scalar(select(NoteTag).where(NoteTag.owner_user_id==user_id,NoteTag.normalized_name==normalized,NoteTag.id!=tag.id))
+        if duplicate is not None: raise ValueError("A tag with that name already exists.")
+        tag.name=clean;tag.normalized_name=normalized;tag.color=color;self._audit(user_id,"workspace.note.tag_renamed",tag.id);self.session.commit();return {"id":str(tag.id),"name":tag.name,"color":tag.color}
+    def delete_tag(self,access,tag_id):
+        user_id,workspace=self._scope(access);tag=self.session.scalar(select(NoteTag).where(NoteTag.id==tag_id,NoteTag.owner_user_id==user_id,NoteTag.workspace_id==workspace.id))
+        if tag is None: raise WorkspaceNotFound("Tag not found.")
+        self._audit(user_id,"workspace.note.tag_deleted",tag.id);self.session.delete(tag);self.session.commit()
     def add_tag(self,access,note_id,tag_id):
         note=self._get(access,note_id); tag=self.session.scalar(select(NoteTag).where(NoteTag.id==tag_id,NoteTag.owner_user_id==note.owner_user_id,NoteTag.workspace_id==note.workspace_id))
         if tag is None: raise WorkspaceNotFound("Tag not found.")
@@ -100,8 +111,8 @@ class NoteService:
         note=self._get(access,note_id); link=self.session.get(NoteTagLink,{"note_id":note.id,"tag_id":tag_id})
         if link: self.session.delete(link); self._audit(note.owner_user_id,"workspace.note.tag_removed",note.id); self.session.commit()
     def link_document(self,access,note_id,document_id):
-        note=self._get(access,note_id); doc=self.session.scalar(select(Document).where(Document.id==document_id,Document.owner_user_id==note.owner_user_id,Document.workspace_id==note.workspace_id,Document.visibility=="private",Document.deleted_at.is_(None)))
-        if doc is None: raise WorkspaceNotFound("Document not found.")
+        note=self._get(access,note_id); doc=self.session.get(Document,document_id)
+        if doc is None or not document_is_accessible(doc,access): raise WorkspaceNotFound("Document not found.")
         if self.session.get(NoteDocumentLink,{"note_id":note.id,"document_id":doc.id}) is None: self.session.add(NoteDocumentLink(note_id=note.id,document_id=doc.id)); self._audit(note.owner_user_id,"workspace.note.document_linked",note.id); self.session.commit()
         return self._payload(note)
     def unlink_document(self,access,note_id,document_id):
@@ -109,3 +120,12 @@ class NoteService:
         if link: self.session.delete(link); self._audit(note.owner_user_id,"workspace.note.document_unlinked",note.id); self.session.commit()
     def _version(self,note,user_id): self.session.add(NoteVersion(note_id=note.id,revision=note.revision,title=note.title,content_json=note.content_json,content_markdown=note.content_markdown,plain_text=note.plain_text,created_by_user_id=user_id))
     def _audit(self,user_id,action,entity_id): self.session.add(AuditEvent(user_id=user_id,actor_user_id=user_id,action=action,entity_type="note",entity_id=entity_id,status="succeeded"))
+    def _schedule_index(self,note:Note,action:str):
+        active=list(self.session.scalars(select(IndexingJob).where(IndexingJob.status=="pending",IndexingJob.document_id.is_(None),IndexingJob.document_version_id.is_(None))))
+        for job in active:
+            if str((job.metadata_ or {}).get("note_id"))==str(note.id): job.status="skipped";job.message="Superseded by a newer note revision.";job.completed_at=datetime.now(timezone.utc)
+        state=self.session.get(NoteIndexState,note.id)
+        if state is None:state=NoteIndexState(note_id=note.id,status="pending");self.session.add(state)
+        state.status="pending"
+        job=IndexingJob(status="pending",force_rebuild=False,repository_id=f"personal:{note.owner_user_id}",content_hash=hashlib.sha256((note.content_markdown or "").encode()).hexdigest(),metadata_={"entity_type":"note","note_id":str(note.id),"note_revision":note.revision,"action":action,"owner_user_id":str(note.owner_user_id),"workspace_id":str(note.workspace_id)})
+        self.session.add(job);self.session.flush();self.last_index_job_id=job.id
