@@ -4,7 +4,7 @@ export type SearchScope = 'enterprise' | 'workspace' | 'hybrid' | 'current_uploa
 
 export type ResponseLength = 'quick' | 'standard' | 'detailed' | 'operational';
 
-export type ContextSourceType = 'enterprise' | 'workspace' | 'upload';
+export type ContextSourceType = 'enterprise' | 'workspace' | 'upload' | 'note';
 
 export type FeedbackType =
   | 'helpful'
@@ -54,6 +54,7 @@ export interface ChatRequestPayload {
   activeProfile: ResponseLength;
   selectedDocumentIds: string[];
   selectedFolderIds: string[];
+  selectedNoteIds: string[];
   uploadedFileIds: string[];
 }
 
@@ -85,6 +86,10 @@ export interface ChatSource {
   fileType?: string;
   mimeType?: string;
   fileUrl?: string;
+  noteId?: string;
+  noteRevision?: number;
+  workspaceId?: string;
+  blockId?: string;
 }
 
 export interface ChatCitation {
@@ -111,6 +116,11 @@ export interface ChatCitation {
   mimeType?: string;
   fileUrl?: string;
   score?: number;
+  noteId?: string;
+  noteRevision?: number;
+  workspaceId?: string;
+  blockId?: string;
+  sourceType?: 'document' | 'note';
 }
 
 export interface AssistantMessageMetadata {

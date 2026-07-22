@@ -56,6 +56,7 @@ export interface ChatRequest {
   search_scope?: 'enterprise' | 'workspace' | 'hybrid' | 'current_upload';
   selected_document_ids: string[];
   selected_folder_ids?: string[];
+  selected_note_ids?: string[];
   response_length: ResponseLength;
   profile?: ResponseMode;
   max_answer_words?: number;
@@ -88,6 +89,11 @@ export interface ChatCitation {
   preview_url?: string | null;
   download_url?: string | null;
   score: number | null;
+  source_type?: 'document' | 'note';
+  note_id?: string | null;
+  note_revision?: number | null;
+  workspace_id?: string | null;
+  block_id?: string | null;
 }
 
 export interface ChatSource {
@@ -115,6 +121,11 @@ export interface ChatSource {
   mime_type?: string | null;
   file_url?: string | null;
   score: number | null;
+  source_type?: 'document' | 'note';
+  note_id?: string | null;
+  note_revision?: number | null;
+  workspace_id?: string | null;
+  block_id?: string | null;
 }
 
 export interface ChatMetadata {
@@ -140,6 +151,7 @@ export interface ChatMetadata {
   selected_context_applied?: boolean;
   selected_document_count?: number;
   selected_folder_count?: number;
+  selected_note_count?: number;
   effective_document_count?: number;
   selected_context_filter_mode?: string | null;
   label?: string;
@@ -452,10 +464,12 @@ export interface DocumentPreview extends CorpusDocument {
 
 export interface SelectedContextItem {
   id: string;
-  type: 'document' | 'folder';
+  type: 'document' | 'folder' | 'note';
   title: string;
   relative_path: string;
   document_count?: number;
+  updated_at?: string;
+  is_pinned?: boolean;
 }
 
 export class ApiError extends Error {

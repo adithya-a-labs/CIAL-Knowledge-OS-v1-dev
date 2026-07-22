@@ -69,8 +69,9 @@ export interface WorkspaceNote {
   id: string; title: string; content_json: Record<string, unknown> | null; content_markdown: string;
   content_format: 'markdown' | 'editor_json'; plain_text: string; is_pinned: boolean; is_archived: boolean;
   revision: number; created_at: string; updated_at: string;
+  indexing_status: 'pending' | 'indexing' | 'indexed' | 'failed' | 'removed'; indexed_revision: number | null;
   tags: Array<{ id: string; name: string; color?: string | null }>;
-  linked_documents: Array<{ id: string; name: string; file_type: string }>;
+  linked_documents: Array<{ id: string; name: string; file_type: string; scope?: string }>;
 }
 
 export interface WorkspaceNoteList { items: WorkspaceNote[]; next_cursor: string | null; }

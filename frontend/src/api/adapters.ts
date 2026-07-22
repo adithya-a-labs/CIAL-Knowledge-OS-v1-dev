@@ -31,6 +31,7 @@ export function toChatRequest(payload: ChatRequestPayload, sessionId?: string) {
     search_scope: payload.searchScope,
     selected_document_ids: [...payload.selectedDocumentIds],
     selected_folder_ids: [...payload.selectedFolderIds],
+    selected_note_ids: [...payload.selectedNoteIds],
     response_length: toApiResponseLength(payload.activeProfile),
     profile: payload.activeProfile,
     include_sources: true,
@@ -137,6 +138,11 @@ export function toUiChatCitations(response: ChatResponse): UiChatCitation[] {
     mimeType: citation.mime_type ?? undefined,
     fileUrl: citation.file_url ?? undefined,
     score: citation.score ?? undefined,
+    noteId: citation.note_id ?? undefined,
+    noteRevision: citation.note_revision ?? undefined,
+    workspaceId: citation.workspace_id ?? undefined,
+    blockId: citation.block_id ?? undefined,
+    sourceType: citation.source_type,
   }));
 }
 
@@ -167,7 +173,7 @@ export function toUiChatSources(response: ChatResponse): UiChatSource[] {
       repositoryId: source.repository_id || undefined,
       relativePath: source.relative_path || source.path || undefined,
       documentTitle: documentTitleFromSource(source),
-      sourceType: 'enterprise',
+      sourceType: source.source_type === 'note' ? 'note' : 'enterprise',
       pageNumber: resolvedPageNumber(source.page_number, source.page, source.page_index),
       pageIndex: source.page_index ?? undefined,
       locationLabel: source.location_label ?? undefined,
@@ -184,6 +190,10 @@ export function toUiChatSources(response: ChatResponse): UiChatSource[] {
       fileType: source.file_type || undefined,
       mimeType: source.mime_type || undefined,
       fileUrl: source.file_url || undefined,
+      noteId: source.note_id ?? undefined,
+      noteRevision: source.note_revision ?? undefined,
+      workspaceId: source.workspace_id ?? undefined,
+      blockId: source.block_id ?? undefined,
       reason: `Retrieved through ${metadata.retrieval_mode} / Phase ${metadata.phase}.`,
     };
   });

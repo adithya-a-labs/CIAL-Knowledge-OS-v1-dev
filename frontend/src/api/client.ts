@@ -175,8 +175,8 @@ export function uploadMyWorkspaceFiles(files: File[], folderId?: string | null) 
   }));
 }
 
-export function listMyNotes(params: { query?: string; filter?: string; cursor?: string | null } = {}) {
-  const query = new URLSearchParams(); if (params.query) query.set('query', params.query); if (params.filter) query.set('filter', params.filter); if (params.cursor) query.set('cursor', params.cursor);
+export function listMyNotes(params: { query?: string; filter?: string; cursor?: string | null; tagId?:string|null } = {}) {
+  const query = new URLSearchParams(); if (params.query) query.set('query', params.query); if (params.filter) query.set('filter', params.filter); if (params.cursor) query.set('cursor', params.cursor);if(params.tagId)query.set('tag_id',params.tagId);
   return request<WorkspaceNoteList>(`/api/workspaces/me/notes${query.size ? `?${query}` : ''}`);
 }
 export function createMyNote(title = 'Untitled') { return request<WorkspaceNote>('/api/workspaces/me/notes', { method: 'POST', body: JSON.stringify({ title }) }); }
@@ -185,6 +185,14 @@ export async function deleteMyNote(id: string) { const response = await fetch(ap
 export function restoreMyNote(id: string) { return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(id)}/restore`, { method: 'POST' }); }
 export function duplicateMyNote(id: string) { return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(id)}/duplicate`, { method: 'POST' }); }
 export function getNoteExportUrl(id: string) { return apiUrl(`/api/workspaces/me/notes/${encodeURIComponent(id)}/export?format=markdown`); }
+export function listNoteTags(){return request<{items:Array<{id:string;name:string;color?:string|null;count:number}>}>('/api/workspaces/me/note-tags');}
+export function createNoteTag(name:string,color?:string){return request<{id:string;name:string;color?:string|null}>('/api/workspaces/me/note-tags',{method:'POST',body:JSON.stringify({name,color:color??null})});}
+export function renameNoteTag(id:string,name:string,color?:string){return request<{id:string;name:string;color?:string|null}>(`/api/workspaces/me/note-tags/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify({name,color:color??null})});}
+export async function deleteNoteTag(id:string){const response=await fetch(apiUrl(`/api/workspaces/me/note-tags/${encodeURIComponent(id)}`),{method:'DELETE',credentials:'include'});if(!response.ok)throw new ApiError('Could not delete tag.',response.status,null);}
+export function addNoteTag(noteId:string,tagId:string){return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(noteId)}/tags/${encodeURIComponent(tagId)}`,{method:'POST'});}
+export async function removeNoteTag(noteId:string,tagId:string){const response=await fetch(apiUrl(`/api/workspaces/me/notes/${encodeURIComponent(noteId)}/tags/${encodeURIComponent(tagId)}`),{method:'DELETE',credentials:'include'});if(!response.ok)throw new ApiError('Could not remove tag.',response.status,null);}
+export function linkNoteDocument(noteId:string,documentId:string){return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(noteId)}/documents`,{method:'POST',body:JSON.stringify({document_id:documentId})});}
+export async function unlinkNoteDocument(noteId:string,documentId:string){const response=await fetch(apiUrl(`/api/workspaces/me/notes/${encodeURIComponent(noteId)}/documents/${encodeURIComponent(documentId)}`),{method:'DELETE',credentials:'include'});if(!response.ok)throw new ApiError('Could not unlink document.',response.status,null);}
 
 export interface SummaryRecord {
   id:string; title:string; summary_type:string; summary_length:string; multi_document_mode:string; status:string; content_markdown:string|null;
@@ -192,8 +200,8 @@ export interface SummaryRecord {
   sources:Array<{id:string;source_type:string;source_id:string|null;title:string;version_id:string|null}>;
   citations:Array<{citation_id:string;document_id:string|null;note_id:string|null;page_number:number|null;section:string|null;chunk_id:string|null;excerpt:string|null}>; stale:boolean;
 }
-export interface SummaryCreatePayload { sources:Array<{source_type:'document'|'note'|'conversation';source_id:string}>; summary_type:'executive'|'detailed'|'key_points'|'action_items'; summary_length:'brief'|'standard'|'detailed'; multi_document_mode:'together'|'separate'|'compare'; custom_instructions?:string|null; }
-export interface SummaryStreamEvent { request_id:string; type:'stage'|'result'|'error'; stage_id:string; status:string; metrics?:Record<string,number|string>; payload?:SummaryRecord|{message?:string}; }
+export interface SummaryCreatePayload { sources:Array<{source_type:'document'|'folder'|'note'|'conversation'|'pasted_text';source_id?:string|null;title?:string|null;content?:string|null}>; summary_type:'executive'|'detailed'|'key_points'|'action_items'; summary_length:'brief'|'standard'|'detailed'; multi_document_mode:'together'|'separate'|'compare'; custom_instructions?:string|null; }
+export interface SummaryStreamEvent { request_id:string; type:'stage'|'token'|'result'|'error'|'cancelled'; stage_id:string; status:string; metrics?:Record<string,number|string>; delta?:string; payload?:SummaryRecord|{message?:string}; }
 export async function streamSummary(payload: SummaryCreatePayload,onEvent:(event:SummaryStreamEvent)=>void,signal?:AbortSignal) {
   const response=await fetch(apiUrl('/api/summaries/stream'),{method:'POST',credentials:'include',signal,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
   if(!response.ok||!response.body)throw new ApiError(`Summary request failed with status ${response.status}`,response.status,null);
@@ -202,7 +210,12 @@ export async function streamSummary(payload: SummaryCreatePayload,onEvent:(event
   if(!result)throw new Error('Summary stream ended without an artifact.');return result;
 }
 export function saveSummaryToNote(id:string,title?:string){return request<WorkspaceNote>(`/api/summaries/${encodeURIComponent(id)}/save-to-note`,{method:'POST',body:JSON.stringify({title:title??null})});}
-export function getSummaryExportUrl(id:string){return apiUrl(`/api/summaries/${encodeURIComponent(id)}/export?format=markdown`);}
+export function getSummary(id:string){return request<SummaryRecord>(`/api/summaries/${encodeURIComponent(id)}`);}
+export function getSummaryExportUrl(id:string,format:'markdown'|'pdf'|'docx'='markdown'){return apiUrl(`/api/summaries/${encodeURIComponent(id)}/export?format=${format}`);}
+export function saveSummaryToSavedKnowledge(id:string){return request<{id:string;summary_id:string;title:string}>(`/api/summaries/${encodeURIComponent(id)}/save-to-saved-knowledge`,{method:'POST'});}
+export function askSummaryFollowUp(id:string,mode:'original_versions'|'latest_versions'='original_versions'){return request<{chat_session_id:string;url:string;sources:Array<{source_type:string;source_id:string|null;title:string}>}>(`/api/summaries/${encodeURIComponent(id)}/ask-follow-up`,{method:'POST',body:JSON.stringify({mode})});}
+export function listSavedKnowledge(){return request<{items:Array<{id:string;summary_id:string;title:string;source_count:number;created_at:string}>}>('/api/saved-knowledge');}
+export async function removeSavedKnowledge(id:string){const response=await fetch(apiUrl(`/api/saved-knowledge/${encodeURIComponent(id)}`),{method:'DELETE',credentials:'include'});if(!response.ok)throw new ApiError('Could not remove saved item.',response.status,null);}
 
 export function askQuestion(payload: ChatRequest, signal?: AbortSignal) {
   // Chat generation deliberately has no deadline. The caller supplies a
