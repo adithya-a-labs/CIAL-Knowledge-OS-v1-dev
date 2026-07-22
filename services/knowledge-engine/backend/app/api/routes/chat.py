@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from backend.app.db.session import get_db_session
 from backend.app.models.conversations import ChatMessage, ChatSession
+from backend.app.models.knowledge import Document
+from backend.app.models.workspace_content import Note, SummaryConversationBinding
 from backend.app.repositories.chats import ChatRepository
 from backend.app.schemas.chat import ChatAttachmentResponse, ChatMessageRecord, ChatRequest, ChatResponse, ChatSessionList, ChatSessionRecord, MessageFeedbackRequest, MessageFeedbackResponse, MessageTransformRequest
 from backend.app.services.chat_action_service import ChatActionError, ChatActionService
@@ -34,6 +36,29 @@ logger = logging.getLogger(__name__)
 
 class _StreamCancelled(RuntimeError):
     pass
+
+
+def _apply_summary_binding(payload: ChatRequest, db: Session, user_id: uuid.UUID) -> ChatRequest:
+    if payload.session_id is None: return payload
+    binding=db.query(SummaryConversationBinding).filter(SummaryConversationBinding.chat_session_id==payload.session_id,SummaryConversationBinding.owner_user_id==user_id).one_or_none()
+    if binding is None: return payload
+    document_ids=[];note_ids=[]
+    for source in binding.source_binding:
+        source_type=source.get("source_type");source_id=source.get("source_id")
+        if source_type=="document" and source_id:
+            document=db.get(Document,uuid.UUID(source_id))
+            if document is None or (binding.mode=="original_versions" and str(document.current_version_id)!=str(source.get("document_version_id"))): raise WorkspaceNotFound("Source version unavailable.")
+            document_ids.append(source_id)
+        elif source_type=="note" and source_id:
+            note=db.get(Note,uuid.UUID(source_id))
+            version_id=source.get("note_version_id")
+            if note is None or note.deleted_at is not None or not version_id: raise WorkspaceNotFound("Source version unavailable.")
+            from backend.app.models.workspace_content import NoteVersion
+            version=db.get(NoteVersion,uuid.UUID(version_id))
+            if version is None or version.note_id!=note.id or (binding.mode=="original_versions" and version.revision!=note.revision): raise WorkspaceNotFound("Source version unavailable.")
+            note_ids.append(source_id)
+        elif source_type in {"conversation","pasted_text"}: raise WorkspaceNotFound("Source version unavailable for grounded follow-up.")
+    return payload.model_copy(update={"selected_document_ids":document_ids,"selected_folder_ids":[],"selected_note_ids":note_ids})
 
 
 @router.post("/chat/attachments", response_model=ChatAttachmentResponse, status_code=status.HTTP_201_CREATED)
@@ -95,22 +120,30 @@ def stream_chat(payload: ChatRequest, request: Request, db: Session = Depends(ge
     def progress(stage_id,status_value,metrics):
         if cancelled.is_set(): raise _StreamCancelled()
         events.put({"request_id":request_id,"type":"stage","stage_id":stage_id,"status":status_value,"elapsed_ms":int((time.monotonic()-started)*1000),"metrics":metrics})
+    def token(delta):
+        if cancelled.is_set(): raise _StreamCancelled()
+        events.put({"request_id":request_id,"type":"token","stage_id":"generation","status":"started","elapsed_ms":int((time.monotonic()-started)*1000),"delta":delta})
     def run():
         repository=ChatRepository(db)
         try:
+            bound_payload=_apply_summary_binding(payload,db,user_id)
             chat_session=repository.get_session_for_user(payload.session_id,user_id) if payload.session_id else None
             if payload.session_id and chat_session is None and db.get(ChatSession,payload.session_id) is not None: raise WorkspaceNotFound("Conversation not found.")
             if chat_session is None: chat_session=repository.add_session(ChatSession(id=payload.session_id or uuid.uuid4(),user_id=user_id,title=payload.question.strip()[:72]))
-            response=request.app.state.knowledge_engine.answer_question(payload,access_context=access,progress_callback=progress)
+            response=request.app.state.knowledge_engine.answer_question(bound_payload,access_context=access,progress_callback=progress,token_callback=token,cancel_event=cancelled)
             if cancelled.is_set(): raise _StreamCancelled()
             progress("persistence.saving","started",{})
-            user_message=repository.add_message(ChatMessage(session_id=chat_session.id,user_id=user_id,role="user",content=payload.question,metadata_={"selected_document_ids":payload.selected_document_ids,"selected_folder_ids":payload.selected_folder_ids,"profile":payload.profile or payload.response_length,"response_length":payload.response_length,"max_answer_words":payload.max_answer_words}))
-            assistant_message=repository.add_message(ChatMessage(session_id=chat_session.id,user_id=user_id,role="assistant",content=response.answer,citations=[item.model_dump(mode="json") for item in response.citations],sources=[item.model_dump(mode="json") for item in response.sources],metadata_={**response.metadata.model_dump(mode="json"),"generation_request":payload.model_dump(mode="json",exclude={"question","session_id","include_debug"}),"user_message_id":str(user_message.id),"evidence_snapshot":response.evidence_snapshot}))
+            user_message=repository.add_message(ChatMessage(session_id=chat_session.id,user_id=user_id,role="user",content=bound_payload.question,metadata_={"selected_document_ids":bound_payload.selected_document_ids,"selected_folder_ids":bound_payload.selected_folder_ids,"selected_note_ids":bound_payload.selected_note_ids,"profile":bound_payload.profile or bound_payload.response_length,"response_length":bound_payload.response_length,"max_answer_words":bound_payload.max_answer_words}))
+            assistant_message=repository.add_message(ChatMessage(session_id=chat_session.id,user_id=user_id,role="assistant",content=response.answer,citations=[item.model_dump(mode="json") for item in response.citations],sources=[item.model_dump(mode="json") for item in response.sources],metadata_={**response.metadata.model_dump(mode="json"),"generation_request":bound_payload.model_dump(mode="json",exclude={"question","session_id","include_debug"}),"user_message_id":str(user_message.id),"evidence_snapshot":response.evidence_snapshot}))
             chat_session.updated_at=datetime.now(timezone.utc); db.commit(); response.session_id=chat_session.id; response.user_message_id=user_message.id; response.assistant_message_id=assistant_message.id
             progress("persistence.saving","completed",{}); events.put({"request_id":request_id,"type":"result","stage_id":"complete","status":"completed","elapsed_ms":response.metadata.latency_ms,"payload":jsonable_encoder(response)})
         except _StreamCancelled:
             db.rollback(); events.put({"request_id":request_id,"type":"cancelled","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"metrics":{}})
+        except WorkspaceNotFound as exc:
+            db.rollback(); events.put({"request_id":request_id,"type":"error","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"payload":{"message":str(exc)}})
         except Exception:
+            if cancelled.is_set():
+                db.rollback(); events.put({"request_id":request_id,"type":"cancelled","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"metrics":{}}); return
             logger.exception("chat_stream_failed", extra={"request_id": request_id})
             db.rollback(); events.put({"request_id":request_id,"type":"error","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"payload":{"message":"The assistant could not complete this request."}})
         finally: events.put(None)
@@ -163,6 +196,8 @@ def chat(payload: ChatRequest, request: Request, db: Session = Depends(get_db_se
         )
     access_context = require_authenticated_access_context(request)
     user_id = access_context.principal.user_id
+    try: payload=_apply_summary_binding(payload,db,user_id)
+    except WorkspaceNotFound as exc: raise HTTPException(status_code=409,detail=str(exc)) from exc
     repository = ChatRepository(db)
     chat_session = repository.get_session_for_user(payload.session_id, user_id) if payload.session_id else None
     if payload.session_id and chat_session is None:
@@ -182,7 +217,7 @@ def chat(payload: ChatRequest, request: Request, db: Session = Depends(get_db_se
         )
         user_message = repository.add_message(ChatMessage(
             session_id=chat_session.id, user_id=user_id, role="user", content=payload.question,
-            metadata_={"selected_document_ids": payload.selected_document_ids, "selected_folder_ids": payload.selected_folder_ids, "profile": payload.profile or payload.response_length, "response_length": payload.response_length, "max_answer_words": payload.max_answer_words},
+            metadata_={"selected_document_ids": payload.selected_document_ids, "selected_folder_ids": payload.selected_folder_ids, "selected_note_ids": payload.selected_note_ids, "profile": payload.profile or payload.response_length, "response_length": payload.response_length, "max_answer_words": payload.max_answer_words},
         ))
         assistant_message = repository.add_message(ChatMessage(
             session_id=chat_session.id, user_id=user_id, role="assistant", content=response.answer,
