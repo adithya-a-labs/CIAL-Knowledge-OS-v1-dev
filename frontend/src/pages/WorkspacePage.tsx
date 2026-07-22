@@ -115,7 +115,18 @@ export default function WorkspacePage() {
   const [view, setView] = useState<WorkspaceView>('list');
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [createNoteSignal, setCreateNoteSignal] = useState(0);
-  useEffect(() => { const next = normalizeWorkspacePreferences(preferencesQuery.data); setPreferences(next); setActiveTab(next.defaultTab); setView(next.defaultView); }, [preferencesQuery.data]);
+  useEffect(() => {
+    const next = normalizeWorkspacePreferences(preferencesQuery.data);
+    const params = new URLSearchParams(location.split('?')[1] ?? '');
+    const routeTab: WorkspaceTab | null = location.startsWith('/workspace/notes') || params.get('tab') === 'notes' || params.has('note')
+      ? 'notes'
+      : location === '/saved-knowledge' || location === '/workspace/bookmarks'
+        ? 'saved'
+        : null;
+    setPreferences(next);
+    setActiveTab(routeTab ?? next.defaultTab);
+    setView(next.defaultView);
+  }, [preferencesQuery.data, location]);
   useEffect(() => {
     if (location === '/saved-knowledge' || location === '/workspace/bookmarks') setActiveTab('saved');
     const params = new URLSearchParams(location.split('?')[1] ?? '');

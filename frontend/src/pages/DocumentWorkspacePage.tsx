@@ -13,6 +13,10 @@ import {
   RotateCcw,
   Search,
   Sparkles,
+  PanelLeftClose,
+  PanelRightClose,
+  RefreshCw,
+  Upload,
 } from 'lucide-react';
 import {
   apiUrl,
@@ -20,14 +24,17 @@ import {
   getDocumentDownloadUrl,
   getDocumentPreview,
   getDocumentViewUrl,
+  getCorpusTree,
 } from '@/api/client';
 import { corpusDocumentToContext } from '@/api/adapters';
 import type { CorpusDocument } from '@/api/types';
 import DocumentPreviewRenderer from '@/components/assistant/DocumentPreviewRenderer';
 import FileIndexingStatus from '@/components/documents/FileIndexingStatus';
-
-const ASSISTANT_CONTEXT_STORAGE_KEY = 'cial-assistant-selected-context';
-const ASSISTANT_CONTEXT_INTENT_STORAGE_KEY = 'cial-assistant-context-intent';
+import CorpusTreePanel from '@/components/knowledge-center/CorpusTreePanel';
+import DocumentAssistantPanel from '@/components/knowledge-center/DocumentAssistantPanel';
+import { useCommandPalette } from '@/components/common/CommandPalette';
+import { createConversationHandoff } from '@/lib/conversationHandoff';
+import { cn } from '@/lib/utils';
 
 function formatBytes(value?: number | null) {
   if (!value) return 'Unknown size';
@@ -41,6 +48,11 @@ function formatDate(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function readPanelWidth(key: string, fallback: number) {
+  const value = Number(window.localStorage.getItem(key));
+  return Number.isFinite(value) && value >= 220 && value <= 520 ? value : fallback;
 }
 
 function UnavailableState({
@@ -68,6 +80,11 @@ export default function DocumentWorkspacePage() {
   const params = useParams<{ documentId: string }>();
   const [, navigate] = useLocation();
   const documentId = params.documentId;
+  const {setOpen:setSearchOpen}=useCommandPalette();
+  const[leftOpen,setLeftOpen]=useState(()=>window.innerWidth>=1024&&localStorage.getItem('cial-kc-left-open')!=='false');
+  const[rightOpen,setRightOpen]=useState(()=>window.innerWidth>=1280&&localStorage.getItem('cial-kc-right-open')!=='false');
+  const [leftWidth,setLeftWidth]=useState(()=>readPanelWidth('cial-kc-left-width',280));
+  const [rightWidth,setRightWidth]=useState(()=>readPanelWidth('cial-kc-right-width',384));
 
   const queryParams = new URLSearchParams(window.location.search);
   const pageParam = queryParams.get('page');
@@ -110,6 +127,7 @@ export default function DocumentWorkspacePage() {
     enabled: Boolean(documentId) && !documentQuery.isError,
     retry: false,
   });
+  const treeQuery=useQuery({queryKey:['corpus-tree'],queryFn:getCorpusTree,retry:false,staleTime:60_000});
 
   const document = documentQuery.data ?? null;
   const preview = previewQuery.data ?? null;
@@ -122,14 +140,6 @@ export default function DocumentWorkspacePage() {
     [document?.extension, document?.file_type],
   );
   const canOpenInline = preview ? preview.viewer_ready !== false : true;
-  const viewerMode = preview?.viewer_format?.replace(/^\./, '').toLowerCase() || '';
-  const showExtractedTextFallback = useMemo(() => {
-    if (!preview?.preview_text) return false;
-    if (preview.render_kind === 'card') return true;
-    if (preview.render_kind === 'pdf' || preview.render_kind === 'image') return true;
-    if (preview.viewer_ready && ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'bmp'].includes(viewerMode)) return true;
-    return false;
-  }, [preview?.preview_text, preview?.render_kind, preview?.viewer_ready, viewerMode]);
 
   useEffect(() => {
     if (preview?.page_count) setPageCount(preview.page_count);
@@ -170,12 +180,30 @@ export default function DocumentWorkspacePage() {
     }
   }, [window.location.search]);
 
-  const useInAssistant = () => {
+  const useInAssistant = async (question?:string) => {
     if (!document) return;
-    window.localStorage.setItem(ASSISTANT_CONTEXT_STORAGE_KEY, JSON.stringify([corpusDocumentToContext(document)]));
-    window.localStorage.setItem(ASSISTANT_CONTEXT_INTENT_STORAGE_KEY, String(Date.now()));
-    navigate('/assistant');
+    const session=await createConversationHandoff({title:`${document.name} · document chat`,origin:'knowledge_center',created_from_document:document.id,context_scope:'selected_documents',selected_document_ids:[document.id],question,contextItems:[corpusDocumentToContext(document)]});
+    navigate(`/assistant?session=${session.id}`);
   };
+
+  useEffect(()=>{localStorage.setItem('cial-kc-left-open',String(leftOpen));},[leftOpen]);
+  useEffect(()=>{localStorage.setItem('cial-kc-right-open',String(rightOpen));},[rightOpen]);
+  useEffect(()=>{localStorage.setItem('cial-kc-left-width',String(leftWidth));},[leftWidth]);
+  useEffect(()=>{localStorage.setItem('cial-kc-right-width',String(rightWidth));},[rightWidth]);
+  const beginResize=(side:'left'|'right')=>(event:React.PointerEvent)=>{
+    if(window.innerWidth<1024)return;
+    event.preventDefault();
+    const startX=event.clientX;
+    const startWidth=side==='left'?leftWidth:rightWidth;
+    const onMove=(move:PointerEvent)=>{
+      const delta=side==='left'?move.clientX-startX:startX-move.clientX;
+      const next=Math.max(side==='left'?240:320,Math.min(side==='left'?400:520,startWidth+delta));
+      if(side==='left')setLeftWidth(next);else setRightWidth(next);
+    };
+    const onUp=()=>{window.removeEventListener('pointermove',onMove);window.removeEventListener('pointerup',onUp);};
+    window.addEventListener('pointermove',onMove);window.addEventListener('pointerup',onUp);
+  };
+  const navigateCitation=(page:number,chunkId?:string|null)=>{setActivePage(page);setRequestedPage(page);setRequestedChunkId(chunkId??null);const params=new URLSearchParams(window.location.search);params.set('page',String(page));if(chunkId)params.set('chunk',chunkId);else params.delete('chunk');window.history.replaceState(null,'',`${window.location.pathname}?${params}`);};
 
   const goBack = () => {
     if (window.history.length > 1) {
@@ -209,6 +237,10 @@ export default function DocumentWorkspacePage() {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden" data-testid="document-workspace-page">
+      <header className="mb-2 flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-3"><Link href="/" className="hidden shrink-0 items-center gap-2 sm:flex"><img src="/cial-logo.png" alt="CIAL" className="h-7 w-auto"/><span className="text-sm font-semibold">CIAL Knowledge OS</span></Link><button onClick={()=>setLeftOpen((value)=>!value)} className="ce-icon-button" aria-label="Toggle corpus tree"><PanelLeftClose size={17}/></button><button onClick={()=>setSearchOpen(true)} className="flex h-10 min-w-0 max-w-xl flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500"><Search size={16}/><span className="truncate">Search Corpus…</span><span className="ml-auto hidden rounded border bg-white px-1.5 py-0.5 text-[10px] sm:inline">Ctrl + K</span></button><button onClick={()=>navigate('/knowledge-center')} className="ce-icon-button hidden sm:inline-flex" aria-label="Upload documents"><Upload size={17}/></button><button onClick={()=>void Promise.all([treeQuery.refetch(),documentQuery.refetch(),previewQuery.refetch()])} className="ce-icon-button hidden sm:inline-flex" aria-label="Refresh workspace"><RefreshCw size={17}/></button><button onClick={()=>setRightOpen((value)=>!value)} className="ce-icon-button" aria-label="Toggle document assistant"><PanelRightClose size={17}/></button></header>
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+      {leftOpen&&treeQuery.data?.root?<aside className="fixed inset-y-0 left-0 z-50 h-full max-w-[85vw] shrink-0 border-r border-slate-200 bg-white shadow-xl lg:relative lg:inset-auto lg:z-auto lg:shadow-none" style={{width:leftWidth}} data-testid="corpus-tree-panel"><button onClick={()=>setLeftOpen(false)} className="absolute right-2 top-2 ce-icon-button lg:hidden" aria-label="Close corpus tree"><PanelLeftClose size={16}/></button><CorpusTreePanel root={treeQuery.data.root} selectedDocumentId={documentId}/><div role="separator" aria-label="Resize corpus tree" onPointerDown={beginResize('left')} className="absolute inset-y-0 right-0 hidden w-1 cursor-col-resize bg-transparent hover:bg-primary/25 lg:block"/></aside>:null}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <div className="mb-2 flex shrink-0 flex-col gap-2 border-b border-slate-200 bg-white px-3 py-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <button type="button" onClick={goBack} className="ce-icon-button h-9 w-9 shrink-0" aria-label="Back to Knowledge Center">
@@ -260,7 +292,7 @@ export default function DocumentWorkspacePage() {
           <a href={downloadUrl} className="ce-action h-9 px-3">
             <Download size={15} />Download
           </a>
-          <button type="button" onClick={useInAssistant} disabled={!document || unavailable} className="ce-action ce-action-primary h-9 px-3 disabled:opacity-50">
+          <button type="button" onClick={() => void useInAssistant()} disabled={!document || unavailable} className="ce-action ce-action-primary h-9 px-3 disabled:opacity-50">
             <Sparkles size={15} />Ask AI
           </button>
         </div>
@@ -304,21 +336,14 @@ export default function DocumentWorkspacePage() {
                     useNativePdf
                   />
                 </div>
-                {showExtractedTextFallback ? (
-                  <section className="border-t border-slate-200 bg-slate-50/70 px-4 py-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Extracted text fallback</p>
-                    <div className="scrollbar-soft mt-2 max-h-40 overflow-auto rounded-lg border border-slate-200 bg-white p-3">
-                      <p className="safe-text whitespace-pre-wrap text-xs leading-5 text-slate-700">
-                        {preview?.preview_text || 'Extracted text is unavailable for this document.'}
-                      </p>
-                    </div>
-                  </section>
-                ) : null}
               </div>
             )}
           </main>
         </div>
       )}
+      </div>
+      {rightOpen&&document?<aside className="fixed inset-y-0 right-0 z-50 h-full max-w-[94vw] shrink-0 border-l border-slate-200 bg-white shadow-xl xl:relative xl:inset-auto xl:z-auto xl:shadow-none" style={{width:rightWidth}} data-testid="document-assistant-panel"><div role="separator" aria-label="Resize document assistant" onPointerDown={beginResize('right')} className="absolute inset-y-0 left-0 hidden w-1 cursor-col-resize bg-transparent hover:bg-primary/25 xl:block"/><button onClick={()=>setRightOpen(false)} className="absolute right-2 top-2 z-10 ce-icon-button xl:hidden" aria-label="Close document assistant"><PanelRightClose size={16}/></button><DocumentAssistantPanel document={document} preview={preview} onAsk={useInAssistant} onCitation={navigateCitation}/></aside>:null}
+      </div>
     </div>
   );
 }

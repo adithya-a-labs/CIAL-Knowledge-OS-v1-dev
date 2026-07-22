@@ -6,6 +6,7 @@ import path from "path";
 const port = Number(process.env.PORT ?? 5173);
 const basePath = process.env.BASE_PATH ?? "/";
 const buildOutDir = process.env.BUILD_OUT_DIR ?? path.resolve(import.meta.dirname, "dist/public");
+const apiProxyTarget = process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8000";
 
 export default defineConfig({
   base: basePath,
@@ -31,6 +32,12 @@ export default defineConfig({
     allowedHosts: true,
     fs: {
       strict: true,
+    },
+    proxy: {
+      "/api": {
+        target: apiProxyTarget,
+        changeOrigin: false,
+      },
     },
   },
   preview: {
