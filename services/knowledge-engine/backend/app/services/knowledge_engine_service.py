@@ -16,6 +16,8 @@ from backend.app.core.config import settings
 from backend.app.core.paths import KNOWLEDGE_ENGINE_SRC, REPO_ROOT
 from backend.app.db.session import SessionLocal
 from backend.app.models.knowledge import Document, DocumentChunk, DocumentVersion, Folder
+from backend.app.models.workspace_content import Note, NoteIndexState
+from backend.app.services.note_indexing_service import _blocks as note_blocks, note_relative_path
 from backend.app.security.access import (
     RequestAccessContext,
     anonymous_access_context,
@@ -64,9 +66,11 @@ class SelectedContextScope:
     allowed_relative_paths: frozenset[str]
     selected_document_ids: tuple[str, ...] = ()
     selected_folder_ids: tuple[str, ...] = ()
+    selected_note_ids: tuple[str, ...] = ()
     effective_document_ids: tuple[str, ...] = ()
     selected_document_count: int = 0
     selected_folder_count: int = 0
+    selected_note_count: int = 0
     effective_document_count: int = 0
     filter_mode: str | None = None
 
@@ -146,6 +150,7 @@ class KnowledgeEngineService:
         self._index_lock = RLock()
         self._target_update_lock = Lock()
         self._embedding_lock = Lock()
+        self._query_lock = Lock()
         self._load_engine_symbols()
 
     @property
@@ -374,6 +379,8 @@ class KnowledgeEngineService:
         *,
         access_context: RequestAccessContext | None = None,
         progress_callback: Any | None = None,
+        token_callback: Any | None = None,
+        cancel_event: Any | None = None,
     ) -> ChatResponse:
         def progress(stage_id: str, status: str, **metrics: Any) -> None:
             if progress_callback is not None:
@@ -403,6 +410,9 @@ class KnowledgeEngineService:
         )
         progress("context.building", "completed", documents_searched=len(effective_relative_paths or ()))
         started_at = time.perf_counter()
+        self._query_lock.acquire()
+        pipeline.token_callback = token_callback
+        pipeline.cancel_event = cancel_event
         try:
             progress("retrieval.searching", "started", documents_searched=len(effective_relative_paths or ()))
             if selected_scope.applied or access_relative_paths is not None:
@@ -421,6 +431,7 @@ class KnowledgeEngineService:
                             "mode": selected_scope.filter_mode,
                             "selected_document_ids": list(selected_scope.selected_document_ids),
                             "selected_folder_ids": list(selected_scope.selected_folder_ids),
+                            "selected_note_ids": list(selected_scope.selected_note_ids),
                             "effective_document_ids": list(selected_scope.effective_document_ids),
                             "effective_scope": {
                                 "document_count": len(effective_relative_paths),
@@ -449,6 +460,10 @@ class KnowledgeEngineService:
         except Exception as exc:  # noqa: BLE001 - convert local runtime failures to API errors.
             logger.exception("knowledge_engine_answer_failed")
             raise KnowledgeEngineUnavailable(str(exc)) from exc
+        finally:
+            pipeline.token_callback = None
+            pipeline.cancel_event = None
+            self._query_lock.release()
 
         latency_ms = int((time.perf_counter() - started_at) * 1000)
         progress("citations.linking", "started")
@@ -644,9 +659,10 @@ class KnowledgeEngineService:
     ) -> SelectedContextScope:
         document_ids = [value for value in request.selected_document_ids if value.strip()]
         folder_ids = [value for value in request.selected_folder_ids if value.strip()]
+        note_ids = [value for value in request.selected_note_ids if value.strip()]
         if request.search_scope == "current_upload" and not document_ids:
             raise KnowledgeEngineInvalidRequest("Current Upload requires at least one uploaded document.")
-        if not document_ids and not folder_ids:
+        if not document_ids and not folder_ids and not note_ids:
             return SelectedContextScope(
                 applied=False,
                 allowed_relative_paths=frozenset(),
@@ -704,22 +720,33 @@ class KnowledgeEngineService:
                         self._normalize_relative_path(document.relative_path)
                     )
                     effective_document_ids.add(str(document.id))
+            for value in note_ids:
+                try: note_uuid=uuid.UUID(value)
+                except ValueError as exc: raise KnowledgeEngineInvalidRequest("Selected note was not found.") from exc
+                note=session.scalar(select(Note).where(Note.id==note_uuid,Note.owner_user_id==access_context.principal.user_id,Note.deleted_at.is_(None),Note.is_archived.is_(False)))
+                state=session.get(NoteIndexState,note_uuid)
+                if note is None: raise KnowledgeEngineInvalidRequest("Selected note was not found.")
+                if state is None or state.status!="indexed" or state.indexed_revision!=note.revision:
+                    not_ready.append({"document_id":str(note.id),"name":note.title,"indexing_status":state.status if state else "pending"});continue
+                relative_paths.add(note_relative_path(note.id))
 
         if not_ready:
             raise KnowledgeEngineDocumentsNotReady(not_ready)
 
         if not relative_paths:
             raise KnowledgeEngineInvalidRequest(
-                "Selected context did not resolve to any active documents."
+                "Selected context did not resolve to any active sources."
             )
         return SelectedContextScope(
             applied=True,
             allowed_relative_paths=frozenset(relative_paths),
             selected_document_ids=tuple(document_ids),
             selected_folder_ids=tuple(folder_ids),
+            selected_note_ids=tuple(note_ids),
             effective_document_ids=tuple(sorted(effective_document_ids)),
             selected_document_count=len(document_ids),
             selected_folder_count=len(folder_ids),
+            selected_note_count=len(note_ids),
             effective_document_count=len(relative_paths),
             filter_mode="hard_relative_path_filter",
         )
@@ -804,6 +831,7 @@ class KnowledgeEngineService:
                 "mode": selected_scope.filter_mode,
                 "selected_document_ids": list(selected_scope.selected_document_ids),
                 "selected_folder_ids": list(selected_scope.selected_folder_ids),
+                "selected_note_ids": list(selected_scope.selected_note_ids),
                 "effective_document_ids": list(selected_scope.effective_document_ids),
                 "effective_scope": {
                     "document_count": selected_scope.effective_document_count,
@@ -1145,6 +1173,7 @@ class KnowledgeEngineService:
             selected_context_applied=selected_scope.applied,
             selected_document_count=selected_scope.selected_document_count,
             selected_folder_count=selected_scope.selected_folder_count,
+            selected_note_count=getattr(selected_scope,"selected_note_count",0),
             effective_document_count=selected_scope.effective_document_count,
             selected_context_filter_mode=selected_scope.filter_mode,
         )
@@ -1228,6 +1257,7 @@ class KnowledgeEngineService:
                 "mode": selected_scope.filter_mode,
                 "selected_document_ids": list(selected_scope.selected_document_ids),
                 "selected_folder_ids": list(selected_scope.selected_folder_ids),
+                "selected_note_ids": list(selected_scope.selected_note_ids),
                 "effective_document_ids": list(selected_scope.effective_document_ids),
                 "effective_scope": {
                     "document_count": selected_scope.effective_document_count,
@@ -1330,6 +1360,11 @@ class KnowledgeEngineService:
                         if source and source.file_url else None
                     ),
                     score=self._optional_float(citation.get("score")),
+                    source_type=source.source_type if source else "document",
+                    note_id=source.note_id if source else None,
+                    note_revision=source.note_revision if source else None,
+                    workspace_id=source.workspace_id if source else None,
+                    block_id=source.block_id if source else None,
                 )
             )
         return citations
@@ -1435,6 +1470,11 @@ class KnowledgeEngineService:
                         or chunk.get("score")
                         or chunk.get("rrf_score")
                     ),
+                    source_type="note" if metadata.get("entity_type")=="note" else "document",
+                    note_id=self._optional_str(metadata.get("note_id")),
+                    note_revision=self._optional_int(metadata.get("note_revision")),
+                    workspace_id=self._optional_str(metadata.get("workspace_id")),
+                    block_id=self._optional_str(metadata.get("block_id")),
                 )
             )
         return sources
@@ -1552,7 +1592,26 @@ class KnowledgeEngineService:
         if SessionLocal is None:
             return None
         with SessionLocal() as session:
-            return list_accessible_relative_paths(session, access_context)
+            paths=set(list_accessible_relative_paths(session, access_context))
+            if access_context.scope in {"hybrid","my-workspace"} and access_context.principal.user_id is not None:
+                rows=session.execute(select(Note,NoteIndexState).join(NoteIndexState,NoteIndexState.note_id==Note.id).where(Note.owner_user_id==access_context.principal.user_id,Note.deleted_at.is_(None),Note.is_archived.is_(False),NoteIndexState.status=="indexed",NoteIndexState.indexed_revision==Note.revision)).all()
+                paths.update(note_relative_path(note.id) for note,_ in rows)
+                with self._index_lock:
+                    pipeline=self._pipeline;note_map=getattr(pipeline,"_note_chunks",{}) if pipeline is not None else {};changed=False
+                    if pipeline is not None:
+                        from langchain_core.documents import Document as LangchainDocument
+                        for note,_ in rows:
+                            existing=note_map.get(str(note.id),[])
+                            if existing and int(existing[0].metadata.get("note_revision") or 0)==note.revision: continue
+                            chunks=[]
+                            for index,(block_id,section,text) in enumerate(note_blocks(note)):
+                                metadata={"entity_type":"note","note_id":str(note.id),"note_revision":note.revision,"workspace_id":str(note.workspace_id),"organization_id":str(note.organization_id),"repository_id":f"personal:{note.owner_user_id}","storage_scope":"personal","owner_user_id":str(note.owner_user_id),"visibility":"private","lifecycle_status":"active","title":note.title,"file_name":note.title,"relative_path":note_relative_path(note.id),"section":section,"block_ids":[block_id],"block_id":block_id,"chunk_index":index,"chunk_id":f"note:{note.id}:{note.revision}:{index}"}
+                                chunks.append(LangchainDocument(page_content=text,metadata=metadata))
+                            note_map[str(note.id)]=chunks;changed=True
+                        if changed:
+                            pipeline._note_chunks=note_map
+                            if pipeline.bm25_retriever is not None:pipeline.bm25_retriever.index([*(pipeline.chunks or []),*[chunk for values in note_map.values() for chunk in values]])
+            return frozenset(paths)
 
     @staticmethod
     def _effective_relative_paths(

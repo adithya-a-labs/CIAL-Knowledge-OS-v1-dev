@@ -6,6 +6,7 @@ import hashlib
 import logging
 import pickle
 import re
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -94,6 +95,8 @@ class BM25Retriever:
         self._index: Any | None = None
         self._fingerprint: str | None = None
         self.allowed_relative_paths: frozenset[str] | None = None
+        self._authorized_indexes: OrderedDict[str, tuple[list[dict[str, Any]], Any]] = OrderedDict()
+        self._authorized_cache_limit = 16
 
     @property
     def is_indexed(self) -> bool:
@@ -251,6 +254,7 @@ class BM25Retriever:
         self._chunks = normalized
         self._index = BM25Okapi(tokenized, k1=self.k1, b=self.b)
         self._fingerprint = fingerprint
+        self._authorized_indexes.clear()
         logger.info(
             "bm25_index_ready",
             extra={
@@ -274,7 +278,28 @@ class BM25Retriever:
         tokens = self.tokenizer(query)
         if not tokens:
             return []
-        scores = self._index.get_scores(tokens)
+        chunks = self._chunks
+        active_index = self._index
+        if self.allowed_relative_paths:
+            cache_key = hashlib.sha256((self._fingerprint or "").encode() + b"\0" + "\0".join(sorted(self.allowed_relative_paths)).encode()).hexdigest()
+            cached = self._authorized_indexes.get(cache_key)
+            if cached is None:
+                chunks = [chunk for chunk in self._chunks if self._is_allowed(chunk)]
+                if not chunks:
+                    return []
+                try:
+                    from rank_bm25 import BM25Okapi
+                except ImportError as exc:
+                    raise RuntimeError("BM25 retrieval requires rank-bm25.") from exc
+                active_index = BM25Okapi([self.tokenizer(chunk["text"]) for chunk in chunks], k1=self.k1, b=self.b)
+                self._authorized_indexes[cache_key] = (chunks, active_index)
+                self._authorized_indexes.move_to_end(cache_key)
+                while len(self._authorized_indexes) > self._authorized_cache_limit:
+                    self._authorized_indexes.popitem(last=False)
+            else:
+                chunks, active_index = cached
+                self._authorized_indexes.move_to_end(cache_key)
+        scores = active_index.get_scores(tokens)
         ranked_indexes = sorted(
             range(len(scores)),
             key=lambda index: (-float(scores[index]), index),
@@ -283,10 +308,12 @@ class BM25Retriever:
         for index in ranked_indexes:
             score = float(scores[index])
             if score <= 0:
-                continue
-            result = dict(self._chunks[index])
-            if not self._is_allowed(result):
-                continue
+                if not self.allowed_relative_paths:
+                    continue
+                overlap=len(set(tokens).intersection(self.tokenizer(chunks[index]["text"])))
+                if overlap<=0: continue
+                score=overlap/max(len(set(tokens)),1)*1e-6
+            result = dict(chunks[index])
             result.update(
                 {
                     "score": score,

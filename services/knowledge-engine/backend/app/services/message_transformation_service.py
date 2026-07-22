@@ -43,6 +43,31 @@ class OllamaTransformationGenerator:
                     time.sleep(settings.retry_cooldown_seconds)
         raise RuntimeError("Local generation failed.") from last_error
 
+    def stream_generate(self, prompt: str, *, cancel_event=None, token_callback=None) -> str:
+        from langchain_ollama import OllamaLLM
+        model = OllamaLLM(model=self.model_name, temperature=0)
+        last_error: Exception | None = None
+        for attempt in range(settings.generation_retries + 1):
+            emitted = False; pieces: list[str] = []; iterator = None
+            try:
+                iterator = model.stream(prompt)
+                for token in iterator:
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise RuntimeError("Generation cancelled.")
+                    value = str(token)
+                    if value:
+                        emitted = emitted or token_callback is not None; pieces.append(value)
+                        if token_callback is not None: token_callback(value)
+                return "".join(pieces).strip()
+            except Exception as exc:
+                last_error = exc
+                if emitted or (cancel_event is not None and cancel_event.is_set()) or attempt >= settings.generation_retries: break
+                if settings.retry_cooldown_seconds: time.sleep(settings.retry_cooldown_seconds)
+            finally:
+                close = getattr(iterator, "close", None)
+                if callable(close): close()
+        raise RuntimeError("Local generation failed.") from last_error
+
 
 class MessageTransformationError(RuntimeError):
     def __init__(self, message: str, *, code: str, status_code: int) -> None:

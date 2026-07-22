@@ -35,7 +35,7 @@ def search_similar_chunks(
         raise ValueError("top_k must be greater than zero.")
     query_vector = embed_texts(embedding_model, [query])[0]
     filter_must = []
-    repository_id = getattr(config, "repository_id", None)
+    repository_id = None if allowed_relative_paths is not None else getattr(config, "repository_id", None)
     if repository_id:
         filter_must.append(
             FieldCondition(

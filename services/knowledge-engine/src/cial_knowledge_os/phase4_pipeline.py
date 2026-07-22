@@ -137,6 +137,8 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
         self.last_selected_chunks: list[dict[str, Any]] = []
         self.last_discarded_chunks: list[dict[str, Any]] = []
         self.last_selection_result: EvidenceSelectionResult | None = None
+        self.token_callback = None
+        self.cancel_event = None
         self._phase4_component_key: tuple[Any, ...] | None = None
         super().__init__(
             config=phase4_config,
@@ -273,8 +275,28 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
             model=self.config.ollama_model_name,
         )
         for attempt in range(1, total_attempts + 1):
+            emitted_token = False
             try:
-                answer = str(self.llm.invoke(prompt)).strip()
+                stream = getattr(self.llm, "stream", None)
+                if self.token_callback is not None and callable(stream):
+                    iterator = stream(prompt)
+                    pieces: list[str] = []
+                    try:
+                        for token in iterator:
+                            if self.cancel_event is not None and self.cancel_event.is_set():
+                                raise RuntimeError("Generation cancelled.")
+                            value = str(token)
+                            if value:
+                                pieces.append(value)
+                                emitted_token = True
+                                self.token_callback(value)
+                    finally:
+                        close = getattr(iterator, "close", None)
+                        if callable(close):
+                            close()
+                    answer = "".join(pieces).strip()
+                else:
+                    answer = str(self.llm.invoke(prompt)).strip()
                 self.metrics["generation_attempts"] = float(attempt)
                 self.metrics["generation_retry_count"] = float(attempt - 1)
                 self.execution_manager.complete_stage(
@@ -286,7 +308,7 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
                 return answer
             except Exception as exc:
                 last_error = exc
-                retryable = self._is_retryable_generation_error(exc)
+                retryable = self._is_retryable_generation_error(exc) and not emitted_token and not (self.cancel_event is not None and self.cancel_event.is_set())
                 logger.exception(
                     "phase4_generation_attempt_failed",
                     extra={
