@@ -7,18 +7,19 @@ const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf
 test('notes UI uses durable APIs, revision autosave, and no production demo fallback', () => {
   const page = read('src/pages/WorkspacePage.tsx');
   const notes = read('src/components/workspace/NotesWorkspace.tsx');
+  const autosave = read('src/hooks/useSerializedNoteAutosave.ts');
   assert.match(page, /<NotesWorkspace/);
   assert.doesNotMatch(page, /fallbackFiles|demo-personal|Saved locally in this browser/);
-  assert.match(notes, /750/);
-  assert.match(notes, /expected_revision/);
-  assert.match(notes, /Editing conflict/);
+  assert.match(autosave, /debounceMs = 750/);
+  assert.match(autosave, /expected_revision/);
+  assert.match(notes, /This note changed in another session/);
   assert.match(notes, /Move to Trash/);
   const editor = read('src/components/workspace/RichNoteEditor.tsx');
   assert.match(editor, /StableBlockId/);
   assert.match(editor, /data-block-id/);
   assert.match(editor, /tiptapToMarkdown/);
   assert.match(editor, /BubbleMenu/);
-  assert.match(notes, /content_format: 'editor_json'/);
+  assert.match(autosave, /content_format: 'editor_json'/);
   assert.match(notes, /Add to AI context/);
   assert.match(notes, /listNoteTags/);
   assert.match(notes, /renameNoteTag/);

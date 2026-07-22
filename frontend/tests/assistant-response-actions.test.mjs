@@ -130,7 +130,7 @@ test('chat generation stays blocked until every attachment is indexed', () => {
   assert.match(panel, /file\.indexingStatus !== 'indexed'/);
   assert.match(panel, /if \(blockingAttachments\.length > 0\)/);
   assert.match(panel, /disabled=\{!input\.trim\(\) \|\| isLoading \|\| !chatReady \|\| blockingAttachments\.length > 0\}/);
-  const handler = panel.split('const handleSend = async () => {', 2)[1].split('const handleRegenerate', 1)[0];
+  const handler = panel.split(/const handleSend = async \([^)]*\) => \{/, 2)[1].split('const handleRegenerate', 1)[0];
   assert.ok(handler.indexOf('if (blockingAttachments.length > 0)') < handler.indexOf("setInput('')"));
 });
 

@@ -11,10 +11,12 @@ const more = read('src/components/assistant/ComposerMoreMenu.tsx');
 const message = read('src/components/assistant/ChatMessage.tsx');
 const sources = read('src/components/assistant/SourceCitationCard.tsx');
 const session = read('src/components/assistant/AssistantSessionContext.tsx');
+const composer = read('src/components/assistant/AIComposer.tsx');
+const composerSurface = `${panel}\n${composer}`;
 
 test('compact composer keeps the input primary and Context, Scope, Length, attachment, send, and More accessible', () => {
-  assert.match(panel, /data-testid="compact-chat-composer"/);
-  assert.match(panel, /grid-rows-\[minmax\(3rem,auto\)_auto\]/);
+  assert.match(composer, /testId = 'compact-chat-composer'/);
+  assert.match(composer, /grid-rows-\[minmax\(3rem,auto\)_auto\]/);
   assert.match(context, /\{totalContextCount\} item/);
   assert.match(context, /ShieldCheck/);
   assert.match(settings, /selectedOption\.title/);
@@ -106,5 +108,5 @@ test('composer retains multiline growth, enter submission, loading disablement, 
   assert.match(panel, /disabled=\{!input\.trim\(\) \|\| isLoading \|\| !chatReady \|\| blockingAttachments\.length > 0\}/);
   assert.match(panel, /min-w-0/);
   assert.match(panel, /overflow-x-auto/);
-  assert.match(panel, /min-h-\[108px\]/);
+  assert.match(composerSurface, /min-h-\[108px\]/);
 });
