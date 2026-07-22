@@ -9,7 +9,7 @@ import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from backend.app.models.conversations import ChatSession
@@ -146,14 +146,21 @@ class SearchService:
                     "file_type": None, "updated_at": item.updated_at, "document_id": None, "page": None, "chunk_id": None,
                     "can_use_as_context": False, "deep_link": f"/assistant?session={item.id}"})
 
-        if payload.mode == "full" and include("summary") and payload.filters.scope != "enterprise":
-            summaries = list(self.session.scalars(select(SummaryArtifact).where(SummaryArtifact.owner_user_id == user_id, SummaryArtifact.workspace_id == workspace.id, SummaryArtifact.deleted_at.is_(None)).order_by(SummaryArtifact.updated_at.desc()).limit(150)))
+        if payload.mode == "full" and include("summary"):
+            summaries = list(self.session.scalars(select(SummaryArtifact).where(
+                SummaryArtifact.deleted_at.is_(None), SummaryArtifact.status.in_(["completed", "stale"]),
+                or_(
+                    SummaryArtifact.document_id.in_(accessible_ids) if accessible_ids else false(),
+                    (SummaryArtifact.document_id.is_(None)) & (SummaryArtifact.owner_user_id == user_id) & (SummaryArtifact.workspace_id == workspace.id),
+                ),
+            ).order_by(SummaryArtifact.updated_at.desc()).limit(150)))
             for item in summaries:
                 score, reasons = _rank(item.title, item.content_markdown, query)
                 if score: rows.append({"id": str(item.id), "type": "summary", "title": item.title, "excerpt": _excerpt(item.content_markdown, query),
                     "match_reasons": reasons, "relevance": _band(score), "_score": score, "workspace": "My Workspace", "department": None,
-                    "file_type": None, "updated_at": item.updated_at, "document_id": None, "page": None, "chunk_id": None,
-                    "can_use_as_context": False, "deep_link": f"/workspace/summaries/{item.id}"})
+                    "file_type": None, "updated_at": item.updated_at, "document_id": str(item.document_id) if item.document_id else None, "page": None, "chunk_id": None,
+                    "summary_type": item.summary_type, "summary_length": item.summary_length,
+                    "can_use_as_context": False, "deep_link": f"/knowledge/document/{item.document_id}?analysis={item.id}" if item.document_id else f"/workspace/summaries/{item.id}"})
 
         if payload.mode == "full" and include("saved_knowledge") and payload.filters.scope != "enterprise":
             saved = list(self.session.scalars(select(SavedKnowledgeItem).where(SavedKnowledgeItem.owner_user_id == user_id, SavedKnowledgeItem.workspace_id == workspace.id, SavedKnowledgeItem.deleted_at.is_(None)).order_by(SavedKnowledgeItem.updated_at.desc()).limit(150)))

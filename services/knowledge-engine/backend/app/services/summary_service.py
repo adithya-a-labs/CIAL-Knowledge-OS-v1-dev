@@ -24,6 +24,11 @@ class SummaryService:
     def _identity(self,access):
         workspace=PersonalWorkspaceService(self.db).get_or_create(access); return access.principal.user_id,workspace
     def _artifact(self,access,summary_id):
+        candidate=self.db.scalar(select(SummaryArtifact).where(SummaryArtifact.id==summary_id,SummaryArtifact.deleted_at.is_(None)))
+        if candidate is not None and candidate.document_id is not None:
+            document=self.db.get(Document,candidate.document_id)
+            if document is None or not document_is_accessible(document,access): raise WorkspaceNotFound("Summary not found.")
+            return candidate
         user_id,workspace=self._identity(access)
         row=self.db.scalar(select(SummaryArtifact).where(SummaryArtifact.id==summary_id,SummaryArtifact.owner_user_id==user_id,SummaryArtifact.workspace_id==workspace.id,SummaryArtifact.deleted_at.is_(None)))
         if row is None: raise WorkspaceNotFound("Summary not found.")
@@ -174,11 +179,21 @@ class SummaryService:
     def ask_follow_up(self,access,summary_id,mode="original_versions"):
         row=self._artifact(access,summary_id)
         if row.status!="completed": raise SummaryError("Only completed summaries support follow-up.")
+        current_user_id=access.principal.user_id
+        if current_user_id is None: raise WorkspaceNotFound("Summary not found.")
         sources=list(self.db.scalars(select(SummarySource).where(SummarySource.summary_id==row.id).order_by(SummarySource.ordinal)))
         if mode=="original_versions":
             for source in sources:
                 if source.source_type=="document" and (source.document_version_id is None or self.db.get(DocumentVersion,source.document_version_id) is None): raise SummaryError("Source version unavailable.")
                 if source.source_type=="note" and (source.note_version_id is None or self.db.get(NoteVersion,source.note_version_id) is None): raise SummaryError("Source version unavailable.")
-        session=ChatSession(user_id=row.owner_user_id,title=f"Follow-up: {row.title}"[:255]);self.db.add(session);self.db.flush()
+        document_ids=[str(source.source_id) for source in sources if source.source_type=="document" and source.source_id]
+        context_snapshot=[]
+        for source in sources:
+            if source.source_type=="document" and source.source_id:
+                document=self.db.get(Document,source.source_id)
+                context_snapshot.append({"id":str(source.source_id),"type":"document","title":source.title,"file_type":document.file_type if document else None})
+            elif source.source_type=="note" and source.source_id:
+                context_snapshot.append({"id":str(source.source_id),"type":"note","title":source.title})
+        session=ChatSession(user_id=current_user_id,organization_id=row.organization_id,workspace_id=row.workspace_id,title=f"Follow-up: {row.title}"[:255],origin="knowledge_center",created_from_document=row.document_id,context_scope="selected_documents" if document_ids else "selected_context",selected_document_ids=document_ids,selected_note_ids=[str(source.source_id) for source in sources if source.source_type=="note" and source.source_id],context_snapshot=context_snapshot);self.db.add(session);self.db.flush()
         binding=[{"source_type":source.source_type,"source_id":str(source.source_id) if source.source_id else None,"title":source.title,"document_version_id":str(source.document_version_id) if source.document_version_id else None,"note_version_id":str(source.note_version_id) if source.note_version_id else None,"chat_session_id":str(source.chat_session_id) if source.chat_session_id else None} for source in sources]
-        self.db.add(SummaryConversationBinding(summary_id=row.id,chat_session_id=session.id,owner_user_id=row.owner_user_id,mode=mode,source_binding=binding));self.db.add(AuditEvent(user_id=row.owner_user_id,actor_user_id=row.owner_user_id,action="summary.follow_up.created",entity_type="summary",entity_id=row.id,status="succeeded",metadata_={"chat_session_id":str(session.id),"mode":mode}));self.db.commit();return {"chat_session_id":session.id,"url":f"/assistant?session={session.id}","mode":mode,"sources":binding}
+        self.db.add(SummaryConversationBinding(summary_id=row.id,chat_session_id=session.id,owner_user_id=current_user_id,mode=mode,source_binding=binding));self.db.add(AuditEvent(user_id=current_user_id,actor_user_id=current_user_id,action="summary.follow_up.created",entity_type="summary",entity_id=row.id,status="succeeded",metadata_={"chat_session_id":str(session.id),"mode":mode}));self.db.commit();return {"chat_session_id":session.id,"url":f"/assistant?session={session.id}","mode":mode,"sources":binding}
