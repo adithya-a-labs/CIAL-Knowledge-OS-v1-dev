@@ -12,6 +12,7 @@ class NoteCreate(BaseModel):
 class NoteUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(ge=1)
+    force: bool = False
     title: str | None = Field(default=None, max_length=255)
     content_json: dict[str, Any] | None = None
     content_markdown: str | None = Field(default=None, max_length=1_000_000)

@@ -183,6 +183,21 @@ class ChatSessionRecord(BaseModel):
     messages: list[ChatMessageRecord] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+    origin: str = "assistant"
+    created_from_document: UUID | None = None
+    context_scope: str = "all_accessible"
+    selected_document_ids: list[str] = Field(default_factory=list)
+    selected_note_ids: list[str] = Field(default_factory=list)
+    context_snapshot: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ChatSessionCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    origin: Literal["assistant", "homepage", "knowledge_center", "global_search", "saved_knowledge"] = "assistant"
+    created_from_document: UUID | None = None
+    context_scope: Literal["all_accessible", "selected_documents", "selected_context"] = "all_accessible"
+    selected_document_ids: list[UUID] = Field(default_factory=list, max_length=20)
+    selected_note_ids: list[UUID] = Field(default_factory=list, max_length=20)
 
 
 class ChatSessionList(BaseModel):

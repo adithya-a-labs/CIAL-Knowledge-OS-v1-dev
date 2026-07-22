@@ -28,6 +28,13 @@ class SummaryRecord(BaseModel):
 
 class SummaryList(BaseModel): items:list[SummaryRecord]
 
+class SummaryConfig(BaseModel):
+    summary_types:list[str]=["executive","detailed","key_points","action_items"]
+    summary_lengths:list[str]=["brief","standard","detailed"]
+    multi_document_modes:list[str]=["together","separate","compare"]
+    max_sources:int=50
+    max_custom_instructions:int=2000
+
 class SaveSummaryNote(BaseModel):
     model_config=ConfigDict(extra="forbid")
     title:str|None=Field(default=None,max_length=255)
