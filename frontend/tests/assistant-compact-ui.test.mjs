@@ -15,7 +15,7 @@ const session = read('src/components/assistant/AssistantSessionContext.tsx');
 test('compact composer keeps the input primary and Context, Scope, Length, attachment, send, and More accessible', () => {
   assert.match(panel, /data-testid="compact-chat-composer"/);
   assert.match(panel, /grid-rows-\[minmax\(3rem,auto\)_auto\]/);
-  assert.match(context, /\{totalContextCount\} document/);
+  assert.match(context, /\{totalContextCount\} item/);
   assert.match(context, /ShieldCheck/);
   assert.match(settings, /selectedOption\.title/);
   assert.match(controls, /attachedContext/);
@@ -56,8 +56,25 @@ test('context removal and clear update the same session arrays used by outgoing 
   assert.match(panel, /uploadedFiles: \[\]/);
   assert.match(panel, /selectedDocumentIds: \[\.\.\.explicitDocumentIds, \.\.\.uploadedDocumentIds\]/);
   assert.match(panel, /selectedFolderIds: explicitFolderIds/);
+  assert.match(panel, /selectedNoteIds: explicitNoteIds/);
   assert.match(controls, /scopeLocked = totalContextCount > 0/);
   assert.match(controls, /disabled=\{scopeLocked\}/);
+});
+
+test('private notes are searchable context items and retain hard-boundary semantics', () => {
+  const manager = read('src/components/assistant/ContextManagerDialog.tsx');
+  assert.match(manager, /listMyNotes/);
+  assert.match(manager, /type:'note'/);
+  assert.match(manager, /Private/);
+  assert.match(context, /NotebookPen/);
+  assert.match(panel, /item\.type === 'note'/);
+});
+
+test('real token deltas are buffered per animation frame and stale requests are ignored', () => {
+  assert.match(panel, /event\.type === 'token'/);
+  assert.match(panel, /requestAnimationFrame/);
+  assert.match(panel, /activeRequestControllerRef\.current === controller/);
+  assert.match(panel, /streamingText/);
 });
 
 test('source summary is collapsed by default and replaces permanent citation/source cards', () => {
@@ -72,6 +89,7 @@ test('source summary is collapsed by default and replaces permanent citation/sou
 });
 
 test('source grouping prefers stable document id and deduplicates pages and citation ids in order', () => {
+  assert.match(sources, /source\.noteId \|\| source\.documentId/);
   assert.match(sources, /if \(stableId\) return `id:\$\{stableId\}`/);
   assert.match(sources, /source\.relativePath \|\| source\.documentTitle/);
   assert.match(sources, /const groups = new Map<string, GroupedSource>\(\)/);

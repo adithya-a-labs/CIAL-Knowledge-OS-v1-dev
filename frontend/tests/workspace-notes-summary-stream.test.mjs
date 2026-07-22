@@ -13,6 +13,18 @@ test('notes UI uses durable APIs, revision autosave, and no production demo fall
   assert.match(notes, /expected_revision/);
   assert.match(notes, /Editing conflict/);
   assert.match(notes, /Move to Trash/);
+  const editor = read('src/components/workspace/RichNoteEditor.tsx');
+  assert.match(editor, /StableBlockId/);
+  assert.match(editor, /data-block-id/);
+  assert.match(editor, /tiptapToMarkdown/);
+  assert.match(editor, /BubbleMenu/);
+  assert.match(notes, /content_format: 'editor_json'/);
+  assert.match(notes, /Add to AI context/);
+  assert.match(notes, /listNoteTags/);
+  assert.match(notes, /renameNoteTag/);
+  assert.match(notes, /deleteNoteTag/);
+  assert.match(notes, /linkNoteDocument/);
+  assert.match(notes, /unlinkNoteDocument/);
 });
 
 test('summary entry and every visible result action map to real endpoints', () => {
@@ -24,6 +36,16 @@ test('summary entry and every visible result action map to real endpoints', () =
   assert.match(page, /saveSummaryToNote/);
   assert.match(page, /getSummaryExportUrl/);
   assert.match(client, /\/api\/summaries\/stream/);
+  assert.match(page, /Export PDF/);
+  assert.match(page, /Export DOCX/);
+  assert.match(page, /saveSummaryToSavedKnowledge/);
+  assert.match(page, /askSummaryFollowUp/);
+  assert.match(client, /save-to-saved-knowledge/);
+  assert.match(client, /ask-follow-up/);
+  for (const contract of ['getCorpusTree', 'uploadMyWorkspaceFiles', 'listMyNotes', 'listChatSessions', 'Pasted text', "source_type:'folder'"]) assert.match(page, new RegExp(contract));
+  const saved = read('src/components/workspace/SavedKnowledgeWorkspace.tsx');
+  assert.match(saved, /listSavedKnowledge/);
+  assert.match(saved, /removeSavedKnowledge/);
 });
 
 test('generation status is inline, event-driven, accessible, and abortable', () => {
