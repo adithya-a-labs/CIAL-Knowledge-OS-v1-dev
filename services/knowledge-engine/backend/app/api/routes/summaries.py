@@ -8,20 +8,39 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from backend.app.db.session import get_db_session
-from backend.app.schemas.summaries import SaveSummaryNote, SummaryConfig, SummaryCreate, SummaryFollowUp, SummaryList, SummaryRecord
+from typing import Literal
+from backend.app.schemas.summaries import DocumentAnalysisCreate, DocumentAnalysisCreateResponse, DocumentAnalysisListResponse, SaveSummaryNote, SummaryConfig, SummaryCreate, SummaryFollowUp, SummaryList, SummaryRecord
 from backend.app.security.access import require_authenticated_access_context
 from backend.app.services.personal_workspace_service import WorkspaceNotFound
 from backend.app.services.summary_service import SummaryCancelled, SummaryError, SummaryService
+from backend.app.services.document_summary_service import DocumentSummaryError, DocumentSummaryService
+from backend.app.models.workspace_content import SummaryArtifact
 from backend.app.services.export_document import ExportDocument, ExportSource, MarkdownExportParser, cited_reference_ids
 from backend.app.services.export_renderers import DocxRenderer, PdfRenderer
 
 router=APIRouter()
 def svc(request:Request,db:Session=Depends(get_db_session)): return SummaryService(db,request.app.state.transformation_generator)
+def document_svc(request:Request,db:Session=Depends(get_db_session)): return DocumentSummaryService(db,request.app.state.transformation_generator)
 def invoke(request,service,method,*args):
     access=require_authenticated_access_context(request)
     try:return getattr(service,method)(access,*args)
     except WorkspaceNotFound as exc: raise HTTPException(404,detail=str(exc)) from exc
     except SummaryError as exc: raise HTTPException(422,detail={"code":"summary_error","message":str(exc)}) from exc
+
+def invoke_document(request,service,method,*args):
+    access=require_authenticated_access_context(request)
+    try:return getattr(service,method)(access,*args)
+    except DocumentSummaryError as exc: raise HTTPException(exc.status_code,detail={"code":exc.code,"message":str(exc)}) from exc
+
+@router.get("/documents/{document_id}/analysis",response_model=DocumentAnalysisListResponse)
+def get_document_analysis(document_id:uuid.UUID,request:Request,summary_type:Literal["overview","detailed","key_points","action_items"]="overview",length:Literal["brief","standard","detailed"]="standard",service:DocumentSummaryService=Depends(document_svc)):
+    return invoke_document(request,service,"get_analysis",document_id,summary_type,length)
+
+@router.post("/documents/{document_id}/analysis",response_model=DocumentAnalysisCreateResponse,status_code=202)
+def create_document_analysis(document_id:uuid.UUID,payload:DocumentAnalysisCreate,request:Request,service:DocumentSummaryService=Depends(document_svc)):
+    result=invoke_document(request,service,"create",document_id,payload)
+    if result["disposition"]=="queued": request.app.state.summary_worker.enqueue(result["summary"]["id"])
+    return result
 
 @router.post("/summaries",response_model=SummaryRecord,status_code=201)
 def create_summary(payload:SummaryCreate,request:Request,service:SummaryService=Depends(svc)): return invoke(request,service,"create",payload)
@@ -61,7 +80,13 @@ def stream_summary(payload:SummaryCreate,request:Request,service:SummaryService=
     return StreamingResponse(body(),media_type="application/x-ndjson",headers={"Cache-Control":"no-store","X-Accel-Buffering":"no"})
 
 @router.get("/summaries/{summary_id}",response_model=SummaryRecord)
-def get_summary(summary_id:uuid.UUID,request:Request,service:SummaryService=Depends(svc)): return invoke(request,service,"get",summary_id)
+def get_summary(summary_id:uuid.UUID,request:Request,service:SummaryService=Depends(svc),document_service:DocumentSummaryService=Depends(document_svc)):
+    row=service.db.get(SummaryArtifact,summary_id)
+    return invoke_document(request,document_service,"get",summary_id) if row is not None and row.document_id is not None else invoke(request,service,"get",summary_id)
+@router.get("/summaries/{summary_id}/status",response_model=SummaryRecord)
+def get_summary_status(summary_id:uuid.UUID,request:Request,service:DocumentSummaryService=Depends(document_svc)): return invoke_document(request,service,"get",summary_id)
+@router.post("/summaries/{summary_id}/cancel",response_model=SummaryRecord)
+def cancel_document_summary(summary_id:uuid.UUID,request:Request,service:DocumentSummaryService=Depends(document_svc)): return invoke_document(request,service,"cancel",summary_id)
 @router.delete("/summaries/{summary_id}",status_code=204)
 def delete_summary(summary_id:uuid.UUID,request:Request,service:SummaryService=Depends(svc)): invoke(request,service,"delete",summary_id)
 @router.post("/summaries/{summary_id}/save-to-note")
