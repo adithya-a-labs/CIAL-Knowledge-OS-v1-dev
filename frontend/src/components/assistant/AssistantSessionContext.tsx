@@ -29,12 +29,12 @@ const AssistantSessionsContext = createContext<AssistantSessionsValue | null>(nu
 
 function buildSession(value: Partial<AssistantSession> = {}): AssistantSession {
   const now = new Date().toISOString();
-  return { id: value.id ?? crypto.randomUUID(), title: value.title ?? 'New conversation', messages: value.messages ?? [], selectedContextItems: value.selectedContextItems ?? [], uploadedFiles: value.uploadedFiles ?? [], searchScope: value.searchScope ?? DEFAULT_SEARCH_SCOPE, activeProfile: value.activeProfile ?? DEFAULT_RESPONSE_LENGTH, feedbackByMessageId: value.feedbackByMessageId ?? {}, createdAt: value.createdAt ?? now, updatedAt: value.updatedAt ?? now };
+  return { id: value.id ?? crypto.randomUUID(), title: value.title ?? 'New conversation', messages: value.messages ?? [], selectedContextItems: value.selectedContextItems ?? [], uploadedFiles: value.uploadedFiles ?? [], searchScope: value.searchScope ?? DEFAULT_SEARCH_SCOPE, activeProfile: value.activeProfile ?? DEFAULT_RESPONSE_LENGTH, feedbackByMessageId: value.feedbackByMessageId ?? {}, createdAt: value.createdAt ?? now, updatedAt: value.updatedAt ?? now, origin:value.origin??'assistant', contextScope:value.contextScope??'all_accessible' };
 }
 
 function fromApi(session: ChatHistorySession): AssistantSession {
   const feedbackByMessageId = Object.fromEntries(session.messages.filter((message) => message.feedback?.length).map((message) => [message.id, message.feedback as FeedbackType[]]));
-  return buildSession({ id: session.id, title: session.title, createdAt: session.created_at, updatedAt: session.updated_at, feedbackByMessageId, messages: session.messages.map((message) => {
+  return buildSession({ id: session.id, title: session.title, createdAt: session.created_at, updatedAt: session.updated_at, origin:session.origin, contextScope:session.context_scope, selectedContextItems:session.context_snapshot, feedbackByMessageId, messages: session.messages.map((message) => {
     const timestamp = new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     if (message.role === 'user') return { id: message.id, role: 'user', content: message.content, timestamp };
     const metadata = message.metadata;

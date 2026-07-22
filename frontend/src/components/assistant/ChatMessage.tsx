@@ -4,6 +4,7 @@ import {
   Download,
   RefreshCcw,
   Sparkles,
+  Star,
   ThumbsDown,
   ThumbsUp,
   XCircle,
@@ -33,7 +34,7 @@ interface ChatMessageProps {
   onSourceOpen: (source: ChatSource) => void;
   onRelatedQuestionClick: (question: string) => void;
   onCopy: (message: ChatMessageData) => Promise<void>;
-  onAction: (message: ChatMessageData, action: 'regenerate' | 'explain_simpler' | 'create_checklist' | 'export_pdf' | 'export_docx' | 'copy_formatted' | 'export_markdown') => void;
+  onAction: (message: ChatMessageData, action: 'regenerate' | 'explain_simpler' | 'create_checklist' | 'export_pdf' | 'export_docx' | 'copy_formatted' | 'export_markdown' | 'save_knowledge') => void;
   loadingAction?: string;
   onFeedback: (messageId: string, feedback: FeedbackType) => void;
   includeSourceExcerpts: boolean;
@@ -418,6 +419,7 @@ export default function ChatMessage({
             {loadingAction === 'copied' ? 'Copied' : 'Copy'}
           </button>
           {[
+            { label: 'Save to Knowledge', action: 'save_knowledge', icon: Star },
             { label: 'Regenerate', action: 'regenerate', icon: RefreshCcw },
             { label: 'Export PDF', action: 'export_pdf', icon: Download },
             { label: 'Export DOCX', action: 'export_docx', icon: Download },

@@ -10,7 +10,7 @@ import ContextManagerDialog from './ContextManagerDialog';
 import RetrievalTimeline from './RetrievalTimeline';
 import SourceViewerPanel from './SourceViewerPanel';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
-import { createAssistantExport, getCorpusTree, getHealth, regenerateMessage, streamQuestion, toggleMessageFeedback, transformMessage, uploadChatAttachment } from '@/api/client';
+import { createAssistantExport, getCorpusTree, regenerateMessage, streamQuestion, toggleMessageFeedback, transformMessage, uploadChatAttachment } from '@/api/client';
 import type { AssistantExportFormat, GenerationEvent } from '@/api/types';
 import ExportPreviewDialog from './ExportPreviewDialog';
 import { flattenCorpusTree, toAssistantMessage, toChatRequest } from '@/api/adapters';
@@ -24,6 +24,10 @@ import type {
   UploadedFileContext,
 } from '@/types/assistant';
 import { useDocumentIndexingStatuses } from '@/hooks/useDocumentIndexingStatuses';
+import { useBackendHealth } from '@/hooks/useBackendHealth';
+import { AIComposerFrame } from './AIComposer';
+import { PENDING_COMPOSER_SUBMIT_KEY } from '@/lib/conversationHandoff';
+import SaveToKnowledgeDialog from './SaveToKnowledgeDialog';
 
 const supportedFileTypes = '.pdf,.docx,.pptx,.xlsx,.csv,.txt,image/*';
 const ASSISTANT_CONTEXT_STORAGE_KEY = 'cial-assistant-selected-context';
@@ -89,6 +93,7 @@ export default function ChatPanel() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [actionByMessage, setActionByMessage] = useState<Record<string, string>>({});
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [saveKnowledgeMessage,setSaveKnowledgeMessage]=useState<ChatMessageData|null>(null);
   const [activeExportId, setActiveExportId] = useState<string | null>(null);
   const exportSourceRef = useRef<{ sessionId: string; messageId: string; title: string } | null>(null);
   const actionGenerationRef = useRef<Record<string, number>>({});
@@ -127,12 +132,7 @@ export default function ChatPanel() {
   const searchScope = activeSession.searchScope;
   const activeProfile = activeSession.activeProfile;
 
-  const healthQuery = useQuery({
-    queryKey: ['backend-health'],
-    queryFn: getHealth,
-    retry: false,
-    refetchInterval: 5000,
-  });
+  const healthQuery = useBackendHealth();
   const corpusTreeQuery = useQuery({
     queryKey: ['corpus-tree-assistant'],
     queryFn: getCorpusTree,
@@ -288,14 +288,18 @@ export default function ChatPanel() {
   };
 
   const clearActiveContext = () => {
+    if(activeSession.contextScope==='selected_documents'||activeSession.contextScope==='selected_context'){
+      toast({title:'Context is pinned',description:'This dedicated conversation remains scoped to its authorized source context.'});return;
+    }
     updateActiveSession({
       selectedContextItems: [],
       uploadedFiles: [],
     });
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+  const handleSend = async (questionOverride?: string, profileOverride?: typeof activeProfile) => {
+    const question = (questionOverride ?? input).trim();
+    if (!question || isLoading) return;
     if (blockingAttachments.length > 0) {
       const preparing = blockingAttachments.filter((file) => file.uploadStatus === 'uploading' || ['pending', 'indexing', undefined].includes(file.indexingStatus));
       toast({ title: preparing.length ? 'Preparing attached files' : 'An attached file is not ready',
@@ -325,9 +329,9 @@ export default function ChatPanel() {
 
     const requestSessionId = activeSession.id;
     const requestPayload: ChatRequestPayload = {
-      query: input.trim(),
+      query: question,
       searchScope,
-      activeProfile,
+      activeProfile: profileOverride ?? activeProfile,
       selectedDocumentIds: [...explicitDocumentIds, ...uploadedDocumentIds],
       selectedFolderIds: explicitFolderIds,
       selectedNoteIds: explicitNoteIds,
@@ -410,6 +414,17 @@ export default function ChatPanel() {
     }
   };
 
+  useEffect(() => {
+    if (!chatReady || isLoading) return;
+    const raw=localStorage.getItem(PENDING_COMPOSER_SUBMIT_KEY);if(!raw)return;
+    try{
+      const pending=JSON.parse(raw) as {sessionId:string;question:string;profile?:typeof activeProfile};
+      if(pending.sessionId!==activeSession.id||!pending.question.trim())return;
+      localStorage.removeItem(PENDING_COMPOSER_SUBMIT_KEY);
+      void handleSend(pending.question,pending.profile);
+    }catch{localStorage.removeItem(PENDING_COMPOSER_SUBMIT_KEY);}
+  },[activeSession.id,chatReady,isLoading]);
+
   const handleFileChange = async (files: FileList | null) => {
     if (!files?.length) return;
 
@@ -468,7 +483,8 @@ export default function ChatPanel() {
     return { id: record.id, role: 'assistant', content: adapted.content, citations: adapted.citations, sources: adapted.sources, metadata: adapted.metadata, timestamp: new Date(record.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
   };
 
-  const handleResponseAction = async (message: ChatMessageData, action: 'regenerate' | 'explain_simpler' | 'create_checklist' | 'export_pdf' | 'export_docx' | 'copy_formatted' | 'export_markdown') => {
+  const handleResponseAction = async (message: ChatMessageData, action: 'regenerate' | 'explain_simpler' | 'create_checklist' | 'export_pdf' | 'export_docx' | 'copy_formatted' | 'export_markdown' | 'save_knowledge') => {
+    if(action==='save_knowledge'){setSaveKnowledgeMessage(message);return;}
     if (action === 'copy_formatted') return void copyResponse(message);
     if (action === 'export_markdown') {
       const blob = new Blob([message.content], { type: 'text/markdown;charset=utf-8' }); const url = URL.createObjectURL(blob);
@@ -591,7 +607,7 @@ export default function ChatPanel() {
       </div>
 
       <div className="shrink-0 bg-white px-2 pb-2 pt-1 sm:px-4 sm:pb-3">
-        <div className="mx-auto grid min-h-[108px] max-w-6xl grid-cols-[minmax(0,1fr)_auto] grid-rows-[minmax(3rem,auto)_auto] rounded-[1.4rem] border border-[#dfe6dc] bg-white shadow-sm transition focus-within:border-[#c8d7c3]" data-testid="compact-chat-composer">
+        <AIComposerFrame>
           <input
             ref={fileInputRef}
             type="file"
@@ -654,7 +670,7 @@ export default function ChatPanel() {
                     selectedContextItems={selectedContextItems}
                     uploadedFiles={effectiveUploadedFiles}
                     searchScope={searchScope}
-                    onRemoveContext={(id) => updateActiveSession({ selectedContextItems: selectedContextItems.filter((context) => context.id !== id) })}
+                    onRemoveContext={(id) => activeSession.contextScope==='all_accessible' ? updateActiveSession({ selectedContextItems: selectedContextItems.filter((context) => context.id !== id) }) : toast({title:'Context is pinned',description:'Start a new conversation to use different context.'})}
                     onRemoveFile={(id) => updateActiveSession({ uploadedFiles: uploadedFiles.filter((file) => file.id !== id) })}
                     onManageContext={() => setContextManagerOpen(true)}
                   />
@@ -674,7 +690,7 @@ export default function ChatPanel() {
           >
             <Send size={18} />
           </button>
-        </div>
+        </AIComposerFrame>
 
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-1 pt-1.5 text-[11px] leading-4 text-slate-500">
           <span>CIAL Knowledge OS uses AI to assist with enterprise knowledge. Responses may contain mistakes.</span>
@@ -688,6 +704,7 @@ export default function ChatPanel() {
         onApply={(items) => updateActiveSession({ selectedContextItems: items })}
         onClose={() => setContextManagerOpen(false)}
       />
+      <SaveToKnowledgeDialog message={saveKnowledgeMessage} suggestedTitle={saveKnowledgeMessage?messages.slice(0,messages.findIndex((item)=>item.id===saveKnowledgeMessage.id)).reverse().find((item)=>item.role==='user')?.content:null} onClose={()=>setSaveKnowledgeMessage(null)}/>
     </div>
   );
 
