@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from backend.app.models.conversations import ChatMessage, ChatSession
 from backend.app.models.knowledge import Document, DocumentChunk, DocumentVersion, Folder
 from backend.app.models.operations import AuditEvent
-from backend.app.models.workspace_content import Note, NoteVersion, SavedKnowledgeItem, SummaryArtifact, SummaryCitation, SummaryConversationBinding, SummarySource
+from backend.app.models.workspace_content import Note, NoteVersion, SavedKnowledgeItem, SavedKnowledgeVersion, SummaryArtifact, SummaryCitation, SummaryConversationBinding, SummarySource
 from backend.app.schemas.summaries import SummaryCreate
 from backend.app.security.access import RequestAccessContext, document_is_accessible
 from backend.app.services.note_service import NoteService
@@ -157,8 +157,11 @@ class SummaryService:
         if existing:
             if existing.deleted_at is not None: existing.deleted_at=None; existing.title=row.title; self.db.commit()
             return self._saved_payload(existing,row,self.db.scalar(select(func.count()).select_from(SummarySource).where(SummarySource.summary_id==row.id)) or 0)
-        item=SavedKnowledgeItem(organization_id=row.organization_id,workspace_id=row.workspace_id,owner_user_id=row.owner_user_id,item_type="summary",summary_id=row.id,title=row.title)
-        self.db.add(item);self.db.add(AuditEvent(user_id=row.owner_user_id,actor_user_id=row.owner_user_id,action="saved_knowledge.created",entity_type="summary",entity_id=row.id,status="succeeded"));self.db.commit();self.db.refresh(item);return self._saved_payload(item,row,self.db.scalar(select(func.count()).select_from(SummarySource).where(SummarySource.summary_id==row.id)) or 0)
+        citations=list(self.db.scalars(select(SummaryCitation).where(SummaryCitation.summary_id==row.id)))
+        snapshot=[{"id":citation.citation_id,"document_id":str(citation.document_id) if citation.document_id else None,"note_id":str(citation.note_id) if citation.note_id else None,"page":citation.page_number,"chunk_id":citation.chunk_id,"snippet":citation.excerpt} for citation in citations]
+        item=SavedKnowledgeItem(organization_id=row.organization_id,workspace_id=row.workspace_id,owner_user_id=row.owner_user_id,item_type="summary",summary_id=row.id,title=row.title,body_markdown=row.content_markdown or "",citation_snapshot=snapshot,source_references=snapshot,context_scope="selected_context",prompt_version=row.prompt_version,model_name=row.model_name,visibility="private",provenance_hash=hashlib.sha256(f"summary:{row.id}:{row.source_fingerprint}".encode()).hexdigest())
+        self.db.add(item);self.db.flush();self.db.add(SavedKnowledgeVersion(saved_knowledge_id=item.id,version=1,title=item.title,description=None,body_markdown=item.body_markdown,citation_snapshot=snapshot,tags=[],created_by_user_id=row.owner_user_id))
+        self.db.add(AuditEvent(user_id=row.owner_user_id,actor_user_id=row.owner_user_id,action="saved_knowledge.created",entity_type="summary",entity_id=row.id,status="succeeded"));self.db.commit();self.db.refresh(item);return self._saved_payload(item,row,self.db.scalar(select(func.count()).select_from(SummarySource).where(SummarySource.summary_id==row.id)) or 0)
     @staticmethod
     def _saved_payload(item,summary,source_count): return {"id":item.id,"item_type":item.item_type,"summary_id":item.summary_id,"title":item.title,"source_count":source_count,"created_at":item.created_at,"updated_at":item.updated_at}
     def list_saved_knowledge(self,access):
