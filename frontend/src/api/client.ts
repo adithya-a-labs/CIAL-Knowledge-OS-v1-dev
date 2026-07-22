@@ -21,11 +21,18 @@ import type {
   RebuildIndexResponse,
   SignupRequest,
   AuthResponse,
+  ChatHistorySession,
+  ChatSessionCreatePayload,
+  GlobalSearchFilters,
+  GlobalSearchResponse,
+  RecentSearchList,
+  SavedKnowledgeList,
+  SavedKnowledgeRecord,
 } from './types';
 import type { WorkspaceFolderResponse, WorkspaceNote, WorkspaceNoteList, WorkspacePreferences, WorkspaceSummaryResponse, WorkspaceTreeResponse } from '@/data/workspace/workspaceTypes';
 import { ApiError } from './types';
 
-const CONFIGURED_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '');
+const CONFIGURED_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 export const AUTH_INVALIDATED_EVENT = 'cial-auth-invalidated';
 let authInvalidationDispatched = false;
 
@@ -39,12 +46,20 @@ function isLoopbackHost(hostname: string) {
 }
 
 function resolveApiBaseUrl() {
+  if (!CONFIGURED_API_BASE_URL) return '';
   if (typeof window === 'undefined') {
     return CONFIGURED_API_BASE_URL;
   }
   try {
     const apiUrlValue = new URL(CONFIGURED_API_BASE_URL);
     const pageHostname = window.location.hostname;
+    if (
+      isLoopbackHost(apiUrlValue.hostname)
+      && isLoopbackHost(pageHostname)
+      && apiUrlValue.origin !== window.location.origin
+    ) {
+      return '';
+    }
     if (isLoopbackHost(apiUrlValue.hostname) && pageHostname && apiUrlValue.hostname !== pageHostname) {
       apiUrlValue.hostname = pageHostname;
       return apiUrlValue.toString().replace(/\/$/, '');
@@ -180,7 +195,7 @@ export function listMyNotes(params: { query?: string; filter?: string; cursor?: 
   return request<WorkspaceNoteList>(`/api/workspaces/me/notes${query.size ? `?${query}` : ''}`);
 }
 export function createMyNote(title = 'Untitled') { return request<WorkspaceNote>('/api/workspaces/me/notes', { method: 'POST', body: JSON.stringify({ title }) }); }
-export function updateMyNote(id: string, payload: Partial<WorkspaceNote> & { expected_revision: number }) { return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }); }
+export function updateMyNote(id: string, payload: Partial<WorkspaceNote> & { expected_revision: number; force?: boolean }) { return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }); }
 export async function deleteMyNote(id: string) { const response = await fetch(apiUrl(`/api/workspaces/me/notes/${encodeURIComponent(id)}`), { method: 'DELETE', credentials: 'include' }); if (!response.ok) throw new ApiError('Could not delete note.', response.status, null); }
 export function restoreMyNote(id: string) { return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(id)}/restore`, { method: 'POST' }); }
 export function duplicateMyNote(id: string) { return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(id)}/duplicate`, { method: 'POST' }); }
@@ -214,8 +229,18 @@ export function getSummary(id:string){return request<SummaryRecord>(`/api/summar
 export function getSummaryExportUrl(id:string,format:'markdown'|'pdf'|'docx'='markdown'){return apiUrl(`/api/summaries/${encodeURIComponent(id)}/export?format=${format}`);}
 export function saveSummaryToSavedKnowledge(id:string){return request<{id:string;summary_id:string;title:string}>(`/api/summaries/${encodeURIComponent(id)}/save-to-saved-knowledge`,{method:'POST'});}
 export function askSummaryFollowUp(id:string,mode:'original_versions'|'latest_versions'='original_versions'){return request<{chat_session_id:string;url:string;sources:Array<{source_type:string;source_id:string|null;title:string}>}>(`/api/summaries/${encodeURIComponent(id)}/ask-follow-up`,{method:'POST',body:JSON.stringify({mode})});}
-export function listSavedKnowledge(){return request<{items:Array<{id:string;summary_id:string;title:string;source_count:number;created_at:string}>}>('/api/saved-knowledge');}
+export function listSavedKnowledge(params:{query?:string;favorite?:boolean;collection?:string}={}){const query=new URLSearchParams();if(params.query)query.set('query',params.query);if(params.favorite)query.set('favorite','true');if(params.collection)query.set('collection',params.collection);return request<SavedKnowledgeList>(`/api/saved-knowledge${query.size?`?${query}`:''}`);}
+export function getSavedKnowledge(id:string){return request<SavedKnowledgeRecord>(`/api/saved-knowledge/${encodeURIComponent(id)}`);}
+export function saveAnswerToKnowledge(payload:{message_id:string;title:string;collection?:string|null;tags:string[];description?:string|null;save_citations:boolean;save_original_question:boolean;save_conversation_context:boolean}){return request<SavedKnowledgeRecord>('/api/saved-knowledge',{method:'POST',body:JSON.stringify(payload)});}
+export function updateSavedKnowledge(id:string,payload:{expected_version:number;title?:string;collection?:string|null;tags?:string[];description?:string|null;is_favorite?:boolean;state?:'active'|'archived'}){return request<SavedKnowledgeRecord>(`/api/saved-knowledge/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
+export function duplicateSavedKnowledge(id:string){return request<SavedKnowledgeRecord>(`/api/saved-knowledge/${encodeURIComponent(id)}/duplicate`,{method:'POST'});}
+export function convertSavedKnowledgeToNote(id:string){return request<WorkspaceNote>(`/api/saved-knowledge/${encodeURIComponent(id)}/convert-to-note`,{method:'POST'});}
 export async function removeSavedKnowledge(id:string){const response=await fetch(apiUrl(`/api/saved-knowledge/${encodeURIComponent(id)}`),{method:'DELETE',credentials:'include'});if(!response.ok)throw new ApiError('Could not remove saved item.',response.status,null);}
+
+export function createChatSession(payload:ChatSessionCreatePayload){return request<ChatHistorySession>('/api/chat/sessions',{method:'POST',body:JSON.stringify(payload)});}
+export function globalSearch(payload:{query:string;mode:'instant'|'full';filters:GlobalSearchFilters;cursor?:string|null;limit?:number;interpret?:boolean},signal?:AbortSignal){return request<GlobalSearchResponse>('/api/search',{method:'POST',body:JSON.stringify(payload),signal});}
+export function listRecentSearches(){return request<RecentSearchList>('/api/search/recent');}
+export async function clearRecentSearches(id?:string){const response=await fetch(apiUrl(id?`/api/search/recent/${encodeURIComponent(id)}`:'/api/search/recent'),{method:'DELETE',credentials:'include'});if(!response.ok)throw new ApiError('Could not clear search history.',response.status,null);}
 
 export function askQuestion(payload: ChatRequest, signal?: AbortSignal) {
   // Chat generation deliberately has no deadline. The caller supplies a

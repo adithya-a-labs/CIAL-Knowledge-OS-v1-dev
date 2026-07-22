@@ -211,9 +211,33 @@ export interface ChatHistorySession {
   messages: ChatHistoryMessage[];
   created_at: string;
   updated_at: string;
+  origin: string;
+  created_from_document: string | null;
+  context_scope: string;
+  selected_document_ids: string[];
+  selected_note_ids: string[];
+  context_snapshot: SelectedContextItem[];
 }
 
 export interface ChatHistoryList { sessions: ChatHistorySession[]; }
+
+export interface ChatSessionCreatePayload {
+  title: string;
+  origin: 'assistant' | 'homepage' | 'knowledge_center' | 'global_search' | 'saved_knowledge';
+  created_from_document?: string | null;
+  context_scope: 'all_accessible' | 'selected_documents' | 'selected_context';
+  selected_document_ids: string[];
+  selected_note_ids?: string[];
+}
+
+export type GlobalSearchType = 'document' | 'passage' | 'note' | 'conversation' | 'summary' | 'saved_knowledge' | 'folder';
+export interface GlobalSearchFilters { types: GlobalSearchType[]; scope: 'all_accessible' | 'enterprise' | 'my_workspace'; file_types: string[]; updated_after?: string | null; department_ids: string[]; workspace_ids: string[]; }
+export interface GlobalSearchResult { id:string; type:GlobalSearchType; title:string; excerpt:string|null; match_reasons:string[]; relevance:'Highly relevant'|'Relevant'|'Related'; workspace:string|null; department:string|null; file_type:string|null; updated_at:string|null; document_id:string|null; page:number|null; chunk_id:string|null; can_use_as_context:boolean; deep_link:string; }
+export interface GlobalSearchResponse { query:string; items:GlobalSearchResult[]; counts:Record<string,number>; next_cursor:string|null; interpretation:{applied:boolean;explanation:string|null;chips:string[]}; lexical_available:boolean; semantic_available:boolean; }
+export interface RecentSearchList { items:Array<{id:string;query:string;updated_at:string}>; }
+
+export interface SavedKnowledgeRecord { id:string; item_type:'summary'|'answer'; title:string; description:string|null; body_markdown:string; original_question:string|null; citations:Array<Record<string,unknown>>; source_references:Array<Record<string,unknown>>; selected_document_ids:string[]; context_scope:string|null; conversation_id:string|null; source_message_id:string|null; summary_id:string|null; profile:string|null; model_name:string|null; prompt_version:string|null; collection:string|null; tags:string[]; visibility:string; is_favorite:boolean; version:number; state:string; source_count:number; created_at:string; updated_at:string; }
+export interface SavedKnowledgeList { items:SavedKnowledgeRecord[]; next_cursor:string|null; }
 
 export type ApiDocumentType =
   | 'pdf'

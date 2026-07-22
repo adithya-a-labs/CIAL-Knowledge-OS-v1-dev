@@ -146,4 +146,6 @@ export interface AssistantSession {
   feedbackByMessageId: Record<string, FeedbackType[]>;
   createdAt: string;
   updatedAt: string;
+  origin: string;
+  contextScope: string;
 }
