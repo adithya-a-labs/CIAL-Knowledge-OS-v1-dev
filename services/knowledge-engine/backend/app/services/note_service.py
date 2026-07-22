@@ -64,7 +64,7 @@ class NoteService:
     def get(self, access, note_id): return self._payload(self._get(access,note_id))
     def update(self, access, note_id, payload):
         note=self._get(access,note_id)
-        if note.revision!=payload.expected_revision: raise NoteConflict(self._payload(note))
+        if note.revision!=payload.expected_revision and not payload.force: raise NoteConflict(self._payload(note))
         before=(note.is_pinned,note.is_archived)
         for field in ("title","content_json","content_markdown","content_format","is_pinned","is_archived"):
             value=getattr(payload,field,None)
@@ -122,10 +122,18 @@ class NoteService:
     def _audit(self,user_id,action,entity_id): self.session.add(AuditEvent(user_id=user_id,actor_user_id=user_id,action=action,entity_type="note",entity_id=entity_id,status="succeeded"))
     def _schedule_index(self,note:Note,action:str):
         active=list(self.session.scalars(select(IndexingJob).where(IndexingJob.status=="pending",IndexingJob.document_id.is_(None),IndexingJob.document_version_id.is_(None))))
-        for job in active:
-            if str((job.metadata_ or {}).get("note_id"))==str(note.id): job.status="skipped";job.message="Superseded by a newer note revision.";job.completed_at=datetime.now(timezone.utc)
+        pending=next((job for job in active if str((job.metadata_ or {}).get("note_id"))==str(note.id)),None)
         state=self.session.get(NoteIndexState,note.id)
         if state is None:state=NoteIndexState(note_id=note.id,status="pending");self.session.add(state)
         state.status="pending"
-        job=IndexingJob(status="pending",force_rebuild=False,repository_id=f"personal:{note.owner_user_id}",content_hash=hashlib.sha256((note.content_markdown or "").encode()).hexdigest(),metadata_={"entity_type":"note","note_id":str(note.id),"note_revision":note.revision,"action":action,"owner_user_id":str(note.owner_user_id),"workspace_id":str(note.workspace_id)})
-        self.session.add(job);self.session.flush();self.last_index_job_id=job.id
+        metadata={"entity_type":"note","note_id":str(note.id),"note_revision":note.revision,"action":action,"owner_user_id":str(note.owner_user_id),"workspace_id":str(note.workspace_id)}
+        available_at=datetime.now(timezone.utc)+timedelta(seconds=3)
+        if pending is None:
+            pending=IndexingJob(status="pending",force_rebuild=False,repository_id=f"personal:{note.owner_user_id}")
+            self.session.add(pending)
+        pending.content_hash=hashlib.sha256((note.content_markdown or "").encode()).hexdigest()
+        pending.metadata_=metadata
+        pending.available_at=available_at
+        pending.message="Coalescing note changes before incremental indexing."
+        pending.attempts=0
+        self.session.flush();self.last_index_job_id=pending.id

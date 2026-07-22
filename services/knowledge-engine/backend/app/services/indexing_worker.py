@@ -15,6 +15,7 @@ from backend.app.core.runtime_state import RuntimeState
 from backend.app.db.session import SessionLocal
 from backend.app.models.knowledge import Document, DocumentVersion
 from backend.app.models.operations import IndexingJob
+from backend.app.models.workspace_content import Note, NoteIndexState
 from cial_knowledge_os.corpus.metadata import CorpusMetadataStore
 
 logger = logging.getLogger(__name__)
@@ -130,7 +131,10 @@ class IndexingWorker:
         if SessionLocal is None:
             return None
         with SessionLocal() as session, session.begin():
-            statement = select(IndexingJob).where(IndexingJob.status == "pending")
+            statement = select(IndexingJob).where(
+                IndexingJob.status == "pending",
+                IndexingJob.available_at <= datetime.now(timezone.utc),
+            )
             if preferred_id is not None:
                 statement = statement.where(IndexingJob.id == preferred_id)
             job = session.scalar(statement.order_by(IndexingJob.created_at, IndexingJob.id).with_for_update(skip_locked=True).limit(1))
@@ -183,8 +187,9 @@ class IndexingWorker:
 
         started = perf_counter()
         try:
-            # Sync corpus metadata first (ensures DB is current)
-            if self.corpus_sync is not None:
+            # Notes are PostgreSQL entities; never invoke filesystem corpus sync
+            # for their incremental vector/lexical update path.
+            if entity_type != "note" and self.corpus_sync is not None:
                 try:
                     self.corpus_sync()
                 except Exception:
@@ -216,6 +221,24 @@ class IndexingWorker:
             with SessionLocal() as session:
                 job = session.get(IndexingJob, job_id)
                 if job is None: return
+                if entity_type == "note" and note_id:
+                    note = session.get(Note, uuid.UUID(str(note_id)))
+                    current_revision = int(note.revision) if note is not None else note_revision
+                    queued_revision = int((job.metadata_ or {}).get("note_revision") or 0)
+                    if current_revision != note_revision or queued_revision != note_revision:
+                        job.metadata_ = {**(job.metadata_ or {}), "note_revision": current_revision}
+                        job.status = "pending"
+                        job.available_at = datetime.now(timezone.utc) + timedelta(seconds=1)
+                        job.completed_at = None
+                        job.updated_at = datetime.now(timezone.utc)
+                        job.message = "A newer note revision arrived while indexing; retrying the latest revision."
+                        state = session.get(NoteIndexState, uuid.UUID(str(note_id)))
+                        if state is not None:
+                            state.status = "pending"
+                            state.updated_at = datetime.now(timezone.utc)
+                        session.commit()
+                        self.enqueue(None)
+                        return
                 if entity_type != "note": self._persist_and_verify(session, job)
                 job.status = "succeeded"; job.message = f"Indexed successfully in {elapsed_ms}ms."
                 job.completed_at = job.updated_at = datetime.now(timezone.utc); job.error_detail = None
