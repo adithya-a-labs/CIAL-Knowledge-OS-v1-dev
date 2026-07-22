@@ -26,6 +26,7 @@ class ChatRequest(BaseModel):
     search_scope: Literal["enterprise", "workspace", "hybrid", "current_upload"] = "hybrid"
     selected_document_ids: list[str] = Field(default_factory=list)
     selected_folder_ids: list[str] = Field(default_factory=list)
+    selected_note_ids: list[str] = Field(default_factory=list)
     response_length: ChatProfile = "standard"
     profile: ChatProfile | None = None
     max_answer_words: int | None = None
@@ -70,6 +71,11 @@ class ChatCitation(BaseModel):
     preview_url: str | None = None
     download_url: str | None = None
     score: float | None = None
+    source_type: Literal["document", "note"] = "document"
+    note_id: str | None = None
+    note_revision: int | None = None
+    workspace_id: str | None = None
+    block_id: str | None = None
 
 
 class ChatSource(BaseModel):
@@ -97,6 +103,11 @@ class ChatSource(BaseModel):
     mime_type: str | None = None
     file_url: str | None = None
     score: float | None = None
+    source_type: Literal["document", "note"] = "document"
+    note_id: str | None = None
+    note_revision: int | None = None
+    workspace_id: str | None = None
+    block_id: str | None = None
 
 
 class ChatMetadata(BaseModel):
@@ -122,6 +133,7 @@ class ChatMetadata(BaseModel):
     selected_context_applied: bool = False
     selected_document_count: int = 0
     selected_folder_count: int = 0
+    selected_note_count: int = 0
     effective_document_count: int = 0
     selected_context_filter_mode: str | None = None
 

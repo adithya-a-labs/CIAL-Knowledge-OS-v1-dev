@@ -24,6 +24,8 @@ class TagCreate(BaseModel):
     name: str = Field(min_length=1, max_length=64)
     color: str | None = Field(default=None, max_length=32)
 
+class TagUpdate(TagCreate): pass
+
 class LinkDocumentCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     document_id: UUID
@@ -31,6 +33,7 @@ class LinkDocumentCreate(BaseModel):
 class NoteRecord(BaseModel):
     id: UUID; title: str; content_json: dict[str, Any] | None; content_markdown: str; content_format: str; plain_text: str
     is_pinned: bool; is_archived: bool; revision: int; created_at: datetime; updated_at: datetime
+    indexing_status: str = "pending"; indexed_revision: int | None = None
     tags: list[dict[str, Any]] = Field(default_factory=list); linked_documents: list[dict[str, Any]] = Field(default_factory=list)
 
 class NoteList(BaseModel):

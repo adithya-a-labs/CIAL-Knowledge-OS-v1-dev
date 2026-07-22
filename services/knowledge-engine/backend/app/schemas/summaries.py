@@ -7,8 +7,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class SummarySourceRequest(BaseModel):
     model_config=ConfigDict(extra="forbid")
-    source_type: Literal["document","note","conversation"]
-    source_id: UUID
+    source_type: Literal["document","folder","note","conversation","pasted_text"]
+    source_id: UUID|None=None
+    title:str|None=Field(default=None,max_length=255)
+    content:str|None=Field(default=None,max_length=200_000)
 
 class SummaryCreate(BaseModel):
     model_config=ConfigDict(extra="forbid")
@@ -29,3 +31,8 @@ class SummaryList(BaseModel): items:list[SummaryRecord]
 class SaveSummaryNote(BaseModel):
     model_config=ConfigDict(extra="forbid")
     title:str|None=Field(default=None,max_length=255)
+
+class SummaryFollowUp(BaseModel):
+    model_config=ConfigDict(extra="forbid")
+    question:str|None=Field(default=None,max_length=4000)
+    mode:Literal["original_versions","latest_versions"]="original_versions"
