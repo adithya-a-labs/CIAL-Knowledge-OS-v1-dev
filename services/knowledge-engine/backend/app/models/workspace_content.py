@@ -152,14 +152,25 @@ class SummaryArtifact(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "summary_artifacts"
     __table_args__ = (
         Index("ix_summary_artifacts_owner_status_created", "owner_user_id", "status", "created_at"),
-        CheckConstraint("summary_type in ('executive','detailed','key_points','action_items')", name="ck_summary_artifacts_type"),
+        Index("ix_summary_artifacts_document_version_created", "document_version_id", "created_at"),
+        Index("ix_summary_artifacts_reuse_key", "reuse_key"),
+        Index(
+            "uq_summary_artifacts_active_document_analysis",
+            "reuse_key",
+            unique=True,
+            postgresql_where=text("reuse_key is not null and status in ('queued','running') and deleted_at is null"),
+        ),
+        CheckConstraint("summary_type in ('executive','overview','detailed','key_points','action_items')", name="ck_summary_artifacts_type"),
         CheckConstraint("summary_length in ('brief','standard','detailed')", name="ck_summary_artifacts_length"),
         CheckConstraint("multi_document_mode in ('together','separate','compare')", name="ck_summary_artifacts_mode"),
-        CheckConstraint("status in ('pending','running','completed','failed','cancelled')", name="ck_summary_artifacts_status"),
+        CheckConstraint("status in ('pending','queued','running','completed','failed','cancelled','stale')", name="ck_summary_artifacts_status"),
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     owner_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    document_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"))
+    document_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("document_versions.id", ondelete="RESTRICT"))
     parent_summary_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("summary_artifacts.id", ondelete="SET NULL"))
     title: Mapped[str] = mapped_column(Text, nullable=False)
     summary_type: Mapped[str] = mapped_column(Text, nullable=False)
@@ -169,10 +180,19 @@ class SummaryArtifact(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
     content_markdown: Mapped[str | None] = mapped_column(Text)
     content_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    citation_snapshot: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     prompt_name: Mapped[str] = mapped_column(Text, nullable=False)
     prompt_version: Mapped[str] = mapped_column(Text, nullable=False)
     model_name: Mapped[str | None] = mapped_column(Text)
     source_fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    reuse_key: Mapped[str | None] = mapped_column(Text)
+    language: Mapped[str] = mapped_column(Text, nullable=False, server_default="en")
+    generation_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    provenance_hash: Mapped[str | None] = mapped_column(Text)
+    source_chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    source_token_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    map_group_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    progress: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     citation_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     document_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -180,6 +200,7 @@ class SummaryArtifact(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_code: Mapped[str | None] = mapped_column(Text)
     error_message_safe: Mapped[str | None] = mapped_column(Text)
+    superseded_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("summary_artifacts.id", ondelete="SET NULL"))
 
 
 class SummarySource(UUIDPrimaryKeyMixin, Base):
@@ -204,9 +225,34 @@ class SummaryCitation(UUIDPrimaryKeyMixin, Base):
     citation_id: Mapped[str] = mapped_column(Text, nullable=False)
     source_record_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("summary_sources.id", ondelete="CASCADE"), nullable=False)
     document_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"))
+    document_version_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("document_versions.id", ondelete="RESTRICT"))
     note_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("notes.id", ondelete="SET NULL"))
     page_number: Mapped[int | None] = mapped_column(Integer)
     section: Mapped[str | None] = mapped_column(Text)
     chunk_id: Mapped[str | None] = mapped_column(Text)
     excerpt: Mapped[str | None] = mapped_column(Text)
+    ordering: Mapped[int | None] = mapped_column(Integer)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+
+
+class SummaryMapResult(UUIDPrimaryKeyMixin, Base):
+    """Immutable checkpoint for one completed map or recursive-reduce group."""
+
+    __tablename__ = "summary_map_results"
+    __table_args__ = (
+        UniqueConstraint("summary_id", "stage", "level", "group_index", name="uq_summary_map_results_group"),
+        Index("ix_summary_map_results_summary_stage", "summary_id", "stage", "level", "group_index"),
+        CheckConstraint("stage in ('map','reduce')", name="ck_summary_map_results_stage"),
+    )
+    summary_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("summary_artifacts.id", ondelete="CASCADE"), nullable=False)
+    stage: Mapped[str] = mapped_column(Text, nullable=False)
+    level: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    group_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    input_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    source_reference_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    structured_output: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    input_token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    output_token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
