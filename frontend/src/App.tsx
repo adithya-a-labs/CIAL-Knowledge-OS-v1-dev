@@ -86,6 +86,7 @@ function ProtectedRouter() {
           <Route path="/admin/:sub" component={AdminSettingsPage} />
           <Route path="/workspace" component={WorkspacePage} />
           <Route path="/workspace/summaries/new" component={SummaryWorkspacePage} />
+          <Route path="/workspace/summaries/:id" component={SummaryWorkspacePage} />
           <Route path="/workspace/:sub" component={WorkspacePage} />
           <Route component={NotFound} />
         </Switch>

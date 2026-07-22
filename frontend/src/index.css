@@ -1,5 +1,22 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+
+.cial-note-editor h1 { font-size: 1.75rem; font-weight: 650; line-height: 1.25; margin: 1rem 0 .5rem; }
+.cial-note-editor h2 { font-size: 1.4rem; font-weight: 650; line-height: 1.3; margin: 1rem 0 .4rem; }
+.cial-note-editor h3 { font-size: 1.15rem; font-weight: 650; margin: .8rem 0 .3rem; }
+.cial-note-editor p { margin: .25rem 0; }
+.cial-note-editor ul:not([data-type="taskList"]), .cial-note-editor ol { padding-left: 1.4rem; margin: .5rem 0; }
+.cial-note-editor ul:not([data-type="taskList"]) { list-style: disc; }
+.cial-note-editor ol { list-style: decimal; }
+.cial-note-editor ul[data-type="taskList"] { list-style: none; padding: 0; }
+.cial-note-editor ul[data-type="taskList"] li { display: flex; gap: .5rem; align-items: flex-start; }
+.cial-note-editor blockquote { border-left: 3px solid #b9cab1; color: #475569; margin: .75rem 0; padding-left: .8rem; }
+.cial-note-editor pre { overflow-x: auto; border-radius: .5rem; background: #f1f5f9; padding: .75rem; font-family: ui-monospace, monospace; }
+.cial-note-editor a { color: #176b2c; text-decoration: underline; }
+.cial-note-editor .is-editor-empty:first-child::before { color: #94a3b8; content: attr(data-placeholder); float: left; height: 0; pointer-events: none; }
+.note-citation-highlight { animation: note-citation-highlight 2.4s ease-out; border-radius: .25rem; }
+@keyframes note-citation-highlight { 0%, 45% { background: #dcf2d6; } 100% { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .note-citation-highlight { animation: none; outline: 2px solid #6b9e52; } }
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));

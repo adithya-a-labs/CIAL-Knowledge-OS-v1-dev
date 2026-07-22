@@ -16,6 +16,7 @@ import PrivacyBadge from '@/components/workspace/PrivacyBadge';
 import FileIndexingStatus from '@/components/documents/FileIndexingStatus';
 import WorkspaceCustomizeDrawer from '@/components/workspace/WorkspaceCustomizeDrawer';
 import NotesWorkspace from '@/components/workspace/NotesWorkspace';
+import SavedKnowledgeWorkspace from '@/components/workspace/SavedKnowledgeWorkspace';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -145,7 +146,7 @@ export default function WorkspacePage() {
       </header>
       {treeQuery.isError || preferencesQuery.isError ? <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800" role="alert">The private workspace could not be loaded. <button className="font-semibold underline" onClick={() => { void treeQuery.refetch(); void preferencesQuery.refetch(); }}>Retry</button></div> : null}
       <nav className="flex gap-1 overflow-x-auto border-b border-slate-200" aria-label="Workspace sections">{tabs.map((tab) => <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={cn('border-b-2 px-4 py-2.5 text-sm font-medium', activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-slate-500 hover:text-slate-900')}>{tab.label}</button>)}</nav>
-      {treeQuery.isLoading || preferencesQuery.isLoading ? <div className="grid gap-3"><Skeleton className="h-12" /><Skeleton className="h-96" /></div> : activeTab === 'notes' ? <NotesWorkspace createSignal={createNoteSignal} initialNoteId={new URLSearchParams(location.split('?')[1] ?? '').get('note')} /> : activeTab === 'files' || activeTab === 'overview' ? (
+      {treeQuery.isLoading || preferencesQuery.isLoading ? <div className="grid gap-3"><Skeleton className="h-12" /><Skeleton className="h-96" /></div> : activeTab === 'notes' ? <NotesWorkspace createSignal={createNoteSignal} initialNoteId={new URLSearchParams(location.split('?')[1] ?? '').get('note')} /> : activeTab === 'saved' ? <SavedKnowledgeWorkspace/> : activeTab === 'files' || activeTab === 'overview' ? (
         <>
           <div className={cn('grid min-w-0 gap-5', preferences.rightRailVisible && !preferences.rightRailCollapsed ? 'xl:grid-cols-[minmax(0,1fr)_18rem]' : 'grid-cols-1')}>
             <div className="flex min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.05)]"><FolderRail folders={folders} activeId={activeFolder} onSelect={setActiveFolder} onNew={() => void newFolder()} /><FileBrowser files={files} folders={folders} activeFolder={activeFolder} view={view} onView={setView} onFolderSelect={setActiveFolder} density={preferences.density} /></div>
