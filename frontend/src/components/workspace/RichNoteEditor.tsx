@@ -104,10 +104,9 @@ function Tool({ active, label, onClick, children }: { active?: boolean; label: s
 
 export default function RichNoteEditor({ noteId, contentJson, markdown, citationBlockId, onChange }: { noteId: string; contentJson: Record<string, unknown> | null; markdown: string; citationBlockId?: string | null; onChange: (change: ChangePayload) => void }) {
   const editor = useEditor({
-    extensions: [StarterKit, Underline, Link.configure({ openOnClick: false, HTMLAttributes: { rel: 'noopener noreferrer' } }), TaskList, TaskItem.configure({ nested: true }), Placeholder.configure({ placeholder: 'Start writing…' }), StableBlockId],
+    extensions: [StarterKit.configure({ link: false, underline: false }), Underline, Link.configure({ openOnClick: false, HTMLAttributes: { rel: 'noopener noreferrer' } }), TaskList, TaskItem.configure({ nested: true }), Placeholder.configure({ placeholder: 'Start writing…' }), StableBlockId],
     content: contentJson?.type === 'doc' ? contentJson as JSONContent : markdownToTiptap(markdown),
     editorProps: { attributes: { class: 'cial-note-editor min-h-[26rem] px-1 py-2 text-[15px] leading-7 text-slate-800 outline-none' } },
-    onCreate: ({ editor: instance }) => { requestAnimationFrame(() => { const json=instance.getJSON();onChange({content_json:json as Record<string,unknown>,content_markdown:tiptapToMarkdown(json),plain_text:instance.getText({blockSeparator:'\n'})}); }); },
     onUpdate: ({ editor: instance, transaction }) => { if (transaction.getMeta('addToHistory') === false) return; const json = instance.getJSON(); onChange({ content_json: json as Record<string, unknown>, content_markdown: tiptapToMarkdown(json), plain_text: instance.getText({ blockSeparator: '\n' }) }); },
   }, [noteId]);
 

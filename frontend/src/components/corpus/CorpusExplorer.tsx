@@ -18,8 +18,7 @@ import {
 } from 'lucide-react';
 import { getCorpusFolder, getCorpusTree, getDocumentThumbnailUrl } from '@/api/client';
 import { corpusDocumentToContext, corpusFolderToContext, normalizeCorpusFolderResponse } from '@/api/adapters';
-import type { CorpusDocument, CorpusFolder, CorpusFolderResponse, CorpusTreeNode, SelectedContextItem } from '@/api/types';
-import { driveFiles, driveFolders } from '@/data/knowledgeDriveData';
+import type { CorpusDocument, CorpusFolder, CorpusTreeNode, SelectedContextItem } from '@/api/types';
 import { cn } from '@/lib/utils';
 import FileIndexingStatus from '@/components/documents/FileIndexingStatus';
 
@@ -56,32 +55,6 @@ function fileIcon(file: CorpusDocument) {
   if (['csv', 'xlsx', 'xls'].includes(extension)) return FileSpreadsheet;
   if (['json', 'xml', 'yaml', 'yml', 'html', 'md'].includes(extension)) return FileCode2;
   return FileText;
-}
-
-function demoFolderResponse(): CorpusFolderResponse {
-  const now = new Date().toISOString();
-  return {
-    folder: { id: 'demo-root', parent_id: null, name: 'Demo data', relative_path: '', depth: 0, document_count: driveFiles.length, subfolder_count: driveFolders.length, last_scanned_at: null },
-    folders: driveFolders.slice(0, 6).map((folder) => ({ id: folder.id, parent_id: 'demo-root', name: folder.name, relative_path: folder.name, depth: 1, document_count: folder.itemCount, subfolder_count: 0, last_scanned_at: null })),
-    files: driveFiles.slice(0, 12).map((file) => ({
-      id: file.id,
-      folder_id: 'demo-root',
-      name: file.name,
-      relative_path: file.name,
-      extension: `.${file.previewType}`,
-      mime_type: null,
-      file_type: file.previewType,
-      size_bytes: file.sizeBytes,
-      content_hash: null,
-      modified_at: now,
-      indexed: true,
-      indexing_status: 'indexed',
-      indexed_at: null,
-      page_count: null,
-      created_at: now,
-      updated_at: now,
-    })),
-  };
 }
 
 function CorpusTree({
@@ -243,8 +216,7 @@ export default function CorpusExplorer({
   const treeQuery = useQuery({ queryKey: ['corpus-tree', mode], queryFn: getCorpusTree, retry: false, staleTime: 30_000 });
   const folderQuery = useQuery({ queryKey: ['corpus-folder', activePath, mode], queryFn: () => getCorpusFolder(activePath), retry: false, staleTime: 30_000,
     refetchInterval: (query) => query.state.data && normalizeCorpusFolderResponse(query.state.data).files.some((file) => ['pending', 'indexing'].includes(file.indexing_status)) ? 1500 : false });
-  const usingFallback = treeQuery.isError || folderQuery.isError;
-  const folderResponse = usingFallback ? demoFolderResponse() : folderQuery.data ? normalizeCorpusFolderResponse(folderQuery.data) : null;
+  const folderResponse = folderQuery.data ? normalizeCorpusFolderResponse(folderQuery.data) : null;
   const root = treeQuery.data?.root;
   const selectedIds = new Set(selectedItems.map((item) => item.id));
   const selectable = mode === 'select' || mode === 'browse';
@@ -295,7 +267,7 @@ export default function CorpusExplorer({
           {mode === 'browse' ? (
             <>
               <button type="button" onClick={() => onUseInAssistant?.(selectedItems)} disabled={selectedItems.length === 0} className="ce-action ce-action-primary h-12 px-3 disabled:opacity-50"><Sparkles size={16} />Use in AI Assistant</button>
-              <button type="button" className="ce-action h-12 px-3"><Upload size={16} />Upload Document</button>
+              <button type="button" onClick={()=>navigate('/workspace/documents')} className="ce-action h-12 px-3"><Upload size={16} />Upload Document</button>
             </>
           ) : (
             <>
@@ -307,13 +279,13 @@ export default function CorpusExplorer({
         </div>
       </div>
 
-      {usingFallback && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">Backend unavailable. Demo data is shown.</div>}
+      {(treeQuery.isError||folderQuery.isError)&&<div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-800">The local knowledge service is unavailable. Retry when the backend is ready.</div>}
 
       <div className="mt-4 flex min-h-0 flex-1 gap-5 overflow-hidden">
         <aside className="hidden w-72 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:flex xl:flex-col">
           <div className="border-b border-slate-200 p-3 text-sm font-semibold text-slate-900">Corpus Tree</div>
           <div className="scrollbar-soft flex-1 overflow-y-auto p-3">
-            {root && !usingFallback ? (
+            {root ? (
               <CorpusTree node={root} activePath={activePath} expanded={expandedPaths} onToggle={(path) => setExpandedPaths((current) => { const next = new Set(current); next.has(path) ? next.delete(path) : next.add(path); return next; })} onSelect={setActivePath} />
             ) : (
               <p className="text-sm text-slate-500">Corpus tree unavailable.</p>
