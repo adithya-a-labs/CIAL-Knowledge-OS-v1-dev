@@ -60,6 +60,8 @@ class OllamaJsonResult:
     output_tokens: int | None
     max_output_tokens: int
     schema_mode: bool
+    prompt_tokens: int | None = None
+    total_duration_ns: int | None = None
 
 
 def _schema_mode_unavailable(error: Exception) -> bool:
@@ -107,12 +109,13 @@ class OllamaTransformationGenerator:
             try:
                 from ollama import generate
                 schema_mode = bool(json_schema) and self._schema_mode_available is not False
-                output_format: str | dict[str, Any] = _ollama_grammar_schema(json_schema) if schema_mode and json_schema else "json"
+                output_format: str | dict[str, Any] = json_schema if schema_mode and json_schema else "json"
                 try:
                     response = generate(
                         model=self.model_name,
                         prompt=prompt,
                         format=output_format,
+                        stream=False,
                         options={
                             "temperature": 0,
                             "num_ctx": settings.summary_context_window_tokens,
@@ -129,6 +132,7 @@ class OllamaTransformationGenerator:
                         model=self.model_name,
                         prompt=prompt,
                         format="json",
+                        stream=False,
                         options={
                             "temperature": 0,
                             "num_ctx": settings.summary_context_window_tokens,
@@ -142,6 +146,8 @@ class OllamaTransformationGenerator:
                     output_tokens=int(value) if (value := getattr(response, "eval_count", None)) is not None else None,
                     max_output_tokens=max_output_tokens,
                     schema_mode=schema_mode,
+                    prompt_tokens=int(value) if (value := getattr(response, "prompt_eval_count", None)) is not None else None,
+                    total_duration_ns=int(value) if (value := getattr(response, "total_duration", None)) is not None else None,
                 )
             except Exception as exc:
                 last_error = exc

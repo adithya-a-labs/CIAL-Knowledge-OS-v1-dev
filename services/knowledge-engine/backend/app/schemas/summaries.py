@@ -55,39 +55,65 @@ class DocumentAnalysisCreate(BaseModel):
 
 class GroundedItem(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
-    text:str=Field(min_length=1,max_length=4000)
-    citation_ids:list[str]=Field(min_length=1,max_length=64)
+    text:str=Field(min_length=1,max_length=1200)
+    citation_ids:list[str]=Field(min_length=1,max_length=32)
 
-class DocumentMapOutput(BaseModel):
+class MapSummaryOutput(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
-    section_summary:list[GroundedItem]=Field(default_factory=list)
-    key_facts:list[GroundedItem]=Field(default_factory=list)
-    dates:list[GroundedItem]=Field(default_factory=list)
-    obligations:list[GroundedItem]=Field(default_factory=list)
-    exceptions:list[GroundedItem]=Field(default_factory=list)
-    risks:list[GroundedItem]=Field(default_factory=list)
-    actions:list[GroundedItem]=Field(default_factory=list)
-    definitions:list[GroundedItem]=Field(default_factory=list)
-    coverage_gaps:list[str]=Field(default_factory=list,max_length=100)
-    citation_ids:list[str]=Field(default_factory=list,max_length=512)
+    section_summary:list[GroundedItem]=Field(default_factory=list,max_length=24)
+    key_facts:list[GroundedItem]=Field(default_factory=list,max_length=48)
+    dates:list[GroundedItem]=Field(default_factory=list,max_length=32)
+    definitions:list[GroundedItem]=Field(default_factory=list,max_length=32)
+    obligations:list[GroundedItem]=Field(default_factory=list,max_length=48)
+    thresholds:list[GroundedItem]=Field(default_factory=list,max_length=32)
+    exceptions:list[GroundedItem]=Field(default_factory=list,max_length=32)
+    procedures:list[GroundedItem]=Field(default_factory=list,max_length=48)
+    decisions:list[GroundedItem]=Field(default_factory=list,max_length=32)
+    risks:list[GroundedItem]=Field(default_factory=list,max_length=32)
+    actions:list[GroundedItem]=Field(default_factory=list,max_length=32)
+    coverage_gaps:list[str]=Field(default_factory=list,max_length=64)
+    citation_ids:list[str]=Field(default_factory=list,max_length=256)
+
+
+class IntermediateReduceOutput(BaseModel):
+    """Compact recursive-reduce payload; deliberately has no final prose fields."""
+    model_config=ConfigDict(extra="forbid",strict=True)
+    facts:list[GroundedItem]=Field(default_factory=list,max_length=96)
+    dates:list[GroundedItem]=Field(default_factory=list,max_length=48)
+    definitions:list[GroundedItem]=Field(default_factory=list,max_length=48)
+    obligations:list[GroundedItem]=Field(default_factory=list,max_length=64)
+    thresholds:list[GroundedItem]=Field(default_factory=list,max_length=48)
+    exceptions:list[GroundedItem]=Field(default_factory=list,max_length=48)
+    procedures:list[GroundedItem]=Field(default_factory=list,max_length=64)
+    decisions:list[GroundedItem]=Field(default_factory=list,max_length=48)
+    risks:list[GroundedItem]=Field(default_factory=list,max_length=48)
+    actions:list[GroundedItem]=Field(default_factory=list,max_length=48)
+    coverage_gaps:list[str]=Field(default_factory=list,max_length=64)
+    citation_ids:list[str]=Field(default_factory=list,max_length=256)
 
 class AnalysisSection(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
     heading:str=Field(min_length=1,max_length=160)
     items:list[GroundedItem]=Field(default_factory=list)
 
-class DocumentFinalOutput(BaseModel):
+class FinalSummaryOutput(BaseModel):
     model_config=ConfigDict(extra="forbid",strict=True)
     title:str=Field(min_length=1,max_length=255)
     document_type:Literal["general","calendar","policy","standard","contract","report"]="general"
+    overview:list[GroundedItem]=Field(default_factory=list,max_length=24)
     sections:list[AnalysisSection]=Field(default_factory=list,max_length=40)
-    key_findings:list[GroundedItem]=Field(default_factory=list)
-    important_dates:list[GroundedItem]=Field(default_factory=list)
-    requirements:list[GroundedItem]=Field(default_factory=list)
-    action_items:list[GroundedItem]=Field(default_factory=list)
-    coverage_gaps:list[str]=Field(default_factory=list,max_length=100)
-    citation_ids:list[str]=Field(default_factory=list,max_length=512)
+    key_findings:list[GroundedItem]=Field(default_factory=list,max_length=64)
+    important_dates:list[GroundedItem]=Field(default_factory=list,max_length=48)
+    requirements:list[GroundedItem]=Field(default_factory=list,max_length=64)
+    action_items:list[GroundedItem]=Field(default_factory=list,max_length=48)
+    coverage_gaps:list[str]=Field(default_factory=list,max_length=64)
+    citation_ids:list[str]=Field(default_factory=list,max_length=256)
     suggested_questions:list[str]=Field(default_factory=list,max_length=8)
+
+
+# Compatibility names retained for API consumers and older persisted checkpoints.
+DocumentMapOutput = MapSummaryOutput
+DocumentFinalOutput = FinalSummaryOutput
 
 class DocumentAnalysisCreateResponse(BaseModel):
     disposition:Literal["reused","queued","running","completed"]
