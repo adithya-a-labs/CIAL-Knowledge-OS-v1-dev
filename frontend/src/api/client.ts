@@ -223,8 +223,14 @@ export interface SummaryRecord {
 export type DocumentAnalysisType='overview'|'detailed'|'key_points'|'action_items';
 export type DocumentAnalysisLength='brief'|'standard'|'detailed';
 export interface GroundedAnalysisItem{text:string;citation_ids:string[]}
-export interface DocumentAnalysisPayload{title:string;document_type:'general'|'calendar'|'policy'|'standard'|'contract'|'report';sections:Array<{heading:string;items:GroundedAnalysisItem[]}>;key_findings:GroundedAnalysisItem[];important_dates:GroundedAnalysisItem[];requirements:GroundedAnalysisItem[];action_items:GroundedAnalysisItem[];coverage_gaps:string[];citation_ids:string[];suggested_questions:string[]}
-export interface AnalysisProgress{stage:string;completed:number;total:number;message:string}
+export interface DocumentAnalysisPayload{title:string;document_type:'general'|'calendar'|'policy'|'standard'|'contract'|'report';overview?:GroundedAnalysisItem[];sections:Array<{heading:string;items:GroundedAnalysisItem[]}>;key_findings:GroundedAnalysisItem[];important_dates:GroundedAnalysisItem[];requirements:GroundedAnalysisItem[];action_items:GroundedAnalysisItem[];coverage_gaps:string[];citation_ids:string[];suggested_questions:string[]}
+export interface AnalysisProgress{
+  stage:string;completed:number;total:number;message:string;
+  map_completed?:number;map_total?:number;reduce_level?:number|null;reduce_group?:number|null;
+  reduce_total_groups?:number|null;model_calls?:number;repair_calls?:number;retries?:number;
+  elapsed_ms?:number;source_chunks_processed?:number;source_chunks_total?:number;
+  checkpoint_reuse?:number;background_message?:string;
+}
 export interface DocumentAnalysisList{document_id:string;current_version_id:string;summary_type:string;length:string;current:SummaryRecord|null;previous:SummaryRecord[]}
 export interface DocumentAnalysisCreateResponse{disposition:'reused'|'queued'|'running'|'completed';summary:SummaryRecord}
 export interface SummaryCreatePayload { sources:Array<{source_type:'document'|'folder'|'note'|'conversation'|'pasted_text';source_id?:string|null;title?:string|null;content?:string|null}>; summary_type:'executive'|'detailed'|'key_points'|'action_items'; summary_length:'brief'|'standard'|'detailed'; multi_document_mode:'together'|'separate'|'compare'; custom_instructions?:string|null; }

@@ -14,7 +14,11 @@ test('document analysis uses typed API boundary and versioned React Query identi
   assert.match(client, /getDocumentAnalysisStatus|\/status/);
   assert.match(card, /document\.current_version_id\?\?document\.content_hash/);
   assert.match(card, /refetchInterval/);
-  assert.match(card, /1500/);
+  assert.match(card, /analysisPollInterval/);
+  assert.match(card, /2_000/);
+  assert.match(card, /4_000/);
+  assert.match(card, /9_000/);
+  assert.match(card, /20_000/);
 });
 
 test('analysis UI has real initial progress ready stale failure and duplicate-safe states', () => {
@@ -29,7 +33,11 @@ test('analysis UI has real initial progress ready stale failure and duplicate-sa
 
 test('analysis polling stops for every terminal state and retryable structured-output failures render Retry', () => {
   assert.match(card, /new Set\(\['completed','failed','cancelled','stale'\]\)/);
-  assert.match(card, /!TERMINAL\.has\(status\)\?1500:false/);
+  assert.match(card, /TERMINAL\.has\(status\)/);
+  assert.match(card, /placeholderData:\(previous\)=>previous/);
+  assert.match(card, /cancelQueries\(\{queryKey,exact:true\}\)/);
+  assert.match(card, /visibilityState==='hidden'/);
+  assert.match(card, /You can leave; analysis continues in background/);
   assert.match(card, /current\.retryable!==false/);
   assert.match(card, />Retry<\/button>/);
   assert.match(client, /retryable\?:boolean/);
