@@ -2,19 +2,31 @@ version: 1
 prompts:
   summarization.document.v1.map:
     file: summarization/document/v1/map.md
-    version: v1
+    version: v2
     category: summarization
     description: Grounded all-material document map prompt with original-chunk provenance.
     variables: [document_label, summary_type, summary_length, evidence_blocks]
+  summarization.document.v1.intermediate:
+    file: summarization/document/v1/intermediate.md
+    version: v2
+    category: summarization
+    description: Compact recursive full-document reduce prompt.
+    variables: [allowed_reference_ids, partial_summaries]
+  summarization.document.v1.final:
+    file: summarization/document/v1/final.md
+    version: v2
+    category: summarization
+    description: Final synthesis from bounded validated compact outputs.
+    variables: [document_label, summary_type, summary_length, allowed_reference_ids, partial_summaries]
   summarization.document.v1.reduce:
     file: summarization/document/v1/reduce.md
     version: v1
     category: summarization
-    description: Recursive full-document reduce and final synthesis prompt.
+    description: Legacy document reduce prompt retained for checkpoint compatibility.
     variables: [document_label, summary_type, summary_length, output_kind, allowed_reference_ids, partial_summaries]
   summarization.document.v1.repair:
     file: summarization/document/v1/repair.md
-    version: v1
+    version: v2
     category: summarization
     description: Grounded structural repair for malformed document-summary JSON.
     variables: [malformed_output, validation_error, target_schema, allowed_citation_ids]

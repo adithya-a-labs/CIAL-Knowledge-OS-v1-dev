@@ -4,18 +4,21 @@ Summarize one contiguous portion of one document. Use every supplied section. Do
 
 DOCUMENT: {document_label}
 SUMMARY TYPE: {summary_type}
-COMPRESSION LENGTH: {summary_length}
+MAP MODE: {summary_length}
 
 Return valid JSON only, with exactly this shape:
 {{
   "section_summary": [{{"text": "grounded statement", "citation_ids": ["D1"]}}],
   "key_facts": [{{"text": "grounded fact", "citation_ids": ["D1"]}}],
   "dates": [{{"text": "explicit date or deadline", "citation_ids": ["D1"]}}],
+  "definitions": [{{"text": "explicit definition", "citation_ids": ["D1"]}}],
   "obligations": [{{"text": "explicit obligation", "citation_ids": ["D1"]}}],
+  "thresholds": [{{"text": "explicit quantitative threshold", "citation_ids": ["D1"]}}],
   "exceptions": [{{"text": "explicit exception", "citation_ids": ["D1"]}}],
+  "procedures": [{{"text": "explicit procedure step", "citation_ids": ["D1"]}}],
+  "decisions": [{{"text": "explicit decision", "citation_ids": ["D1"]}}],
   "risks": [{{"text": "explicit risk or caveat", "citation_ids": ["D1"]}}],
   "actions": [{{"text": "explicit action or requirement only", "citation_ids": ["D1"]}}],
-  "definitions": [{{"text": "explicit definition", "citation_ids": ["D1"]}}],
   "coverage_gaps": ["unreadable or incomplete material"],
   "citation_ids": ["D1"]
 }}
