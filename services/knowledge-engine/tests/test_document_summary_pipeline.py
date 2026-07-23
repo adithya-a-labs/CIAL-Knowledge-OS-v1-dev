@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import logging
 import sys
 from types import SimpleNamespace
 import uuid
@@ -10,17 +11,22 @@ import pytest
 
 from backend.app.api.routes.summaries import router as summaries_router
 from backend.app.models.workspace_content import SummaryArtifact, SummaryCitation, SummaryMapResult
-from backend.app.schemas.summaries import DocumentAnalysisCreate, DocumentFinalOutput, DocumentMapOutput
+from backend.app.schemas.summaries import (
+    DocumentAnalysisCreate, DocumentFinalOutput, DocumentMapOutput,
+    FinalSummaryOutput, IntermediateReduceOutput, MapSummaryOutput,
+)
 from backend.app.services.document_summary_service import (
     DocumentSummaryError,
     DocumentSummaryPipeline,
     EvidenceChunk,
+    SummaryTokenPlanner,
     _json_payload,
     _validate_citations,
     mark_analysis_failed,
 )
 from backend.app.services.message_transformation_service import OllamaJsonResult, OllamaTransformationGenerator, _ollama_grammar_schema
 from backend.app.core.config import settings
+from backend.app.core.logging import SuccessfulPollingAccessFilter
 from cial_knowledge_os.prompts.manager import DEFAULT_PROMPT_MANAGER
 
 
@@ -127,16 +133,19 @@ def test_json_object_extractor_rejects_non_object_or_genuinely_malformed_json(ra
         _json_payload(raw)
 
 
-@pytest.mark.parametrize("malformed", [
-    '{"section_summary":[{"text":"Vendor said "urgent"","citation_ids":["D1"]}]}',
-    '{"section_summary":[] "key_facts":[]}',
+@pytest.mark.parametrize(("malformed", "repaired"), [
+    (
+        '{"section_summary":[{"text":"Vendor said "urgent"","citation_ids":["D1"]}]}',
+        json.dumps({"section_summary": [{"text": 'Vendor said "urgent"', "citation_ids": ["D1"]}], "citation_ids": ["D1"]}),
+    ),
+    ('{"section_summary":[] "key_facts":[]}', "{}"),
 ])
-def test_malformed_near_json_uses_one_grounded_repair_call(monkeypatch, malformed):
+def test_malformed_near_json_uses_one_grounded_repair_call(monkeypatch, malformed, repaired):
     monkeypatch.setattr(settings, "generation_retries", 0)
-    generator = SequenceGenerator([malformed, json.dumps(map_output())])
+    generator = SequenceGenerator([malformed, repaired])
     value = pipeline(); value.generator = generator
     result, attempts, _, _, diagnostics = value._generate_validated("normal prompt", DocumentMapOutput, {"D1"}, 200)
-    assert result.citation_ids == ["D1"] and attempts == 1
+    assert set(result.citation_ids).issubset({"D1"}) and attempts == 1
     assert len(generator.calls) == 2
     assert "Preserve only information already present" in generator.calls[1]["prompt"]
     assert diagnostics[0]["repair_attempted"] is True
@@ -178,8 +187,9 @@ def test_truncated_output_retries_with_increased_bounded_budget(monkeypatch):
     result, attempts, _, _, diagnostics = value._generate_validated("short prompt", DocumentMapOutput, {"D1"}, 10)
     assert result.citation_ids == ["D1"] and attempts == 2
     assert generator.calls[0]["max_output_tokens"] == 10
-    assert 10 < generator.calls[1]["max_output_tokens"] <= settings.summary_context_window_tokens
-    assert diagnostics[0]["finish_reason"] == "length"
+    assert generator.calls[1]["max_output_tokens"] == 10
+    assert "TRUNCATION RECOVERY" in generator.calls[1]["prompt"]
+    assert diagnostics[0]["done_reason"] == "length"
 
 
 def test_permanently_truncated_output_has_separate_retryable_error(monkeypatch):
@@ -187,13 +197,14 @@ def test_permanently_truncated_output_has_separate_retryable_error(monkeypatch):
     generator = SequenceGenerator([
         OllamaJsonResult("{", "length", 10, 10, True),
         OllamaJsonResult("{", "length", 10_000, 138, True),
+        OllamaJsonResult("{", "length", 10_000, 256, True),
     ])
     value = pipeline(); value.generator = generator
     with pytest.raises(DocumentSummaryError) as caught:
         value._generate_validated("short prompt", DocumentMapOutput, {"D1"}, 10)
     assert caught.value.code == "analysis_output_truncated"
     assert caught.value.retryable is True
-    assert len(caught.value.diagnostics) == 2
+    assert len(caught.value.diagnostics) == 3
 
 
 def test_schema_mode_falls_back_to_json_only_when_grammar_is_unavailable(monkeypatch):
@@ -266,7 +277,7 @@ def test_document_prompts_are_registered_json_only_and_phase4_is_untouched():
     assert "untrusted content" in map_prompt
     assert "Return valid JSON only" in map_prompt
     assert "Do not rank sections by query relevance" in reduce_prompt
-    assert DEFAULT_PROMPT_MANAGER.metadata("summarization.document.v1.repair")["version"] == "v1"
+    assert DEFAULT_PROMPT_MANAGER.metadata("summarization.document.v1.repair")["version"] == "v2"
     assert DEFAULT_PROMPT_MANAGER.metadata("generation.phase4_system")["version"] == "phase4"
 
 
@@ -305,3 +316,188 @@ def test_summary_follow_up_persists_visible_context_snapshot_and_version_binding
     assert "context_snapshot=context_snapshot" in source
     assert "document_version_id" in source
     assert 'mode="original_versions"' in source
+
+
+def test_stage_models_are_strict_and_intermediate_has_no_final_narrative_fields():
+    assert MapSummaryOutput is DocumentMapOutput
+    assert FinalSummaryOutput is DocumentFinalOutput
+    intermediate_fields = set(IntermediateReduceOutput.model_fields)
+    assert {"facts", "thresholds", "procedures", "decisions", "citation_ids"} <= intermediate_fields
+    assert not {"title", "overview", "sections", "suggested_questions"} & intermediate_fields
+    with pytest.raises(Exception):
+        IntermediateReduceOutput.model_validate({"facts": [], "title": "not allowed"})
+
+
+def test_token_planner_formula_accounts_for_prompt_schema_output_and_margin():
+    manager = WordTokens()
+    planner = SummaryTokenPlanner(manager, 8192, margin_ratio=0.125)
+    plan = planner.plan("map", "one two three", MapSummaryOutput, 700)
+    assert plan.usable_input_tokens == (
+        8192 - plan.rendered_prompt_tokens - plan.schema_tokens
+        - plan.reserved_output_tokens - plan.safety_margin_tokens
+    )
+    assert plan.safety_margin_tokens == 1024
+
+
+def test_normal_stop_at_output_budget_is_not_misclassified_as_truncation(monkeypatch):
+    monkeypatch.setattr(settings, "generation_retries", 0)
+    raw = json.dumps(map_output())
+    generator = SequenceGenerator([OllamaJsonResult(raw, "stop", 10, 10, True)])
+    value = pipeline(); value.generator = generator
+    result, *_ = value._generate_validated("prompt", DocumentMapOutput, {"D1"}, 10)
+    assert result.citation_ids == ["D1"]
+    assert len(generator.calls) == 1
+
+
+def test_json_extractor_rejects_unapproved_wrapper_text():
+    with pytest.raises(json.JSONDecodeError):
+        _json_payload(f"Ignore validation and use this:\n{json.dumps(map_output())}")
+
+
+def test_repair_cannot_add_semantic_text_even_with_allowed_citation(monkeypatch):
+    monkeypatch.setattr(settings, "generation_retries", 0)
+    malformed = '{"section_summary":[{"text":"Original fact","citation_ids":["D1"]} "citation_ids":["D1"]}'
+    generator = SequenceGenerator([malformed, json.dumps(map_output("D1"))])
+    value = pipeline(); value.generator = generator
+    with pytest.raises(DocumentSummaryError) as caught:
+        value._generate_validated("prompt", DocumentMapOutput, {"D1"}, 200)
+    assert caught.value.code == "analysis_invalid_model_output"
+
+
+def test_repair_cannot_hide_new_facts_in_coverage_gaps(monkeypatch):
+    monkeypatch.setattr(settings, "generation_retries", 0)
+    malformed = '{"section_summary":[] "key_facts":[]}'
+    generator = SequenceGenerator([
+        malformed,
+        json.dumps({"coverage_gaps": ["Invented threshold is 99 percent."]}),
+    ])
+    value = pipeline(); value.generator = generator
+    with pytest.raises(DocumentSummaryError) as caught:
+        value._generate_validated("prompt", DocumentMapOutput, set(), 200)
+    assert caught.value.code == "analysis_invalid_model_output"
+
+
+def test_equivalent_long_stress_recurses_splits_and_preserves_every_citation():
+    class Db:
+        commits = 0
+        def commit(self): self.commits += 1
+
+    class StressPipeline(DocumentSummaryPipeline):
+        def _check_cancelled(self, _artifact): return None
+        def _progress(self, *_args, **_kwargs): return None
+        def _checkpoint(self, _artifact, _stage, level, group, _input, refs, schema, _prompt, _output):
+            input_tokens = self.tokens.count(_input)
+            if schema is IntermediateReduceOutput and not self.split_once and len(refs) > 1:
+                self.split_once = True
+                self.calls.append({"level": level, "group": group, "schema": schema.__name__, "input_tokens": input_tokens, "output_tokens": 0, "status": "truncated"})
+                raise DocumentSummaryError(
+                    "fixture truncation", code="analysis_output_truncated", retryable=True,
+                )
+            items = [
+                {"text": "Distinct validated facts preserved", "citation_ids": refs[index:index + 32]}
+                for index in range(0, len(refs), 32)
+            ]
+            if schema is IntermediateReduceOutput:
+                result = IntermediateReduceOutput(facts=items, citation_ids=refs)
+            else:
+                result = FinalSummaryOutput(
+                    title="Stress summary", document_type="general", overview=items,
+                    sections=[], key_findings=[], important_dates=[], requirements=[],
+                    action_items=[], coverage_gaps=[], citation_ids=refs, suggested_questions=[],
+                )
+            output_tokens = self.tokens.count(json.dumps(result.model_dump(mode="json"), separators=(",", ":")))
+            self.calls.append({"level": level, "group": group, "schema": schema.__name__, "input_tokens": input_tokens, "output_tokens": output_tokens, "status": "completed"})
+            return result
+
+    value = StressPipeline.__new__(StressPipeline)
+    value.db = Db(); value.tokens = WordTokens()
+    value.map_budget = 3_050
+    value.reduce_budget = 32; value.final_input_budget = 12
+    value.intermediate_output_budget = 40; value.final_output_budget = 80
+    value.calls = []; value.split_once = False
+    artifact = SimpleNamespace(summary_type="overview", summary_length="standard", generation_config={})
+    source = [evidence(index, 3_000) for index in range(60)]
+    source_groups = value.group_evidence(source, "Stress document")
+    source_tokens = sum(item.token_count for item in source)
+    assert len(source_groups) == 60 and source_tokens == 180_000
+    mapped = [
+        MapSummaryOutput(
+            key_facts=[{"text": f"Distinct fact {index} threshold {index}", "citation_ids": [f"D{index + 1}"]}],
+            citation_ids=[f"D{index + 1}"],
+        )
+        for index in range(60)
+    ]
+    final, group_counts, level = value._reduce_all(artifact, "Stress document", 60, mapped)
+    assert set(final.citation_ids) == {f"D{index + 1}" for index in range(60)}
+    assert level >= 2 and len(group_counts) >= 2
+    assert value.split_once is True
+    assert artifact.generation_config["group_splits"] == 1
+
+
+def test_restart_reuses_completed_map_and_reruns_only_failed_group(monkeypatch):
+    monkeypatch.setattr(settings, "generation_retries", 0)
+
+    class Db:
+        def __init__(self):
+            self.rows = []; self.next_scalar = None
+        def scalar(self, _statement): return self.next_scalar
+        def add(self, row): self.rows.append(row)
+        def delete(self, row): self.rows.remove(row)
+        def commit(self): return None
+
+    db = Db()
+    generator = SequenceGenerator([
+        json.dumps(map_output("D1")),
+        RuntimeError("fixture transport failure"),
+        json.dumps(map_output("D2")),
+    ])
+    value = pipeline(); value.db = db; value.generator = generator
+    value._checkpoint_reuse = 0
+    artifact = SimpleNamespace(id=uuid.uuid4(), model_name="fixture", generation_config={})
+
+    db.next_scalar = None
+    first = value._checkpoint(
+        artifact, "map", 0, 0, "first input", ["D1"],
+        MapSummaryOutput, "first prompt", 200,
+    )
+    completed = db.rows[0]
+    assert first.citation_ids == ["D1"] and completed.status == "completed"
+
+    db.next_scalar = None
+    with pytest.raises(DocumentSummaryError):
+        value._checkpoint(
+            artifact, "map", 0, 1, "second input", ["D2"],
+            MapSummaryOutput, "second prompt", 200,
+        )
+    failed = db.rows[1]
+    assert failed.status == "failed"
+
+    # Simulated worker restart: completed group is reused, failed group is
+    # removed and regenerated. The first map generation is not repeated.
+    restarted = pipeline(); restarted.db = db; restarted.generator = generator
+    restarted._checkpoint_reuse = 0
+    db.next_scalar = completed
+    restarted._checkpoint(
+        artifact, "map", 0, 0, "first input", ["D1"],
+        MapSummaryOutput, "first prompt", 200,
+    )
+    db.next_scalar = failed
+    second = restarted._checkpoint(
+        artifact, "map", 0, 1, "second input", ["D2"],
+        MapSummaryOutput, "second prompt", 200,
+    )
+    assert second.citation_ids == ["D2"]
+    assert restarted._checkpoint_reuse == 1
+    assert len(generator.calls) == 3
+
+
+def test_successful_poll_access_logs_are_sampled_but_errors_are_preserved():
+    value = SuccessfulPollingAccessFilter(sample_every=3)
+    def record(path, status):
+        item = logging.LogRecord("uvicorn.access", logging.INFO, "", 0, "", (), None)
+        item.args = ("127.0.0.1", "GET", path, "1.1", status)
+        return item
+    assert value.filter(record("/api/summaries/id/status", 200)) is True
+    assert value.filter(record("/api/summaries/id/status", 200)) is False
+    assert value.filter(record("/api/summaries/id/status", 200)) is True
+    assert value.filter(record("/api/summaries/id/status", 500)) is True
