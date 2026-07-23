@@ -243,6 +243,7 @@ class SummaryMapResult(UUIDPrimaryKeyMixin, Base):
         UniqueConstraint("summary_id", "stage", "level", "group_index", name="uq_summary_map_results_group"),
         Index("ix_summary_map_results_summary_stage", "summary_id", "stage", "level", "group_index"),
         CheckConstraint("stage in ('map','reduce')", name="ck_summary_map_results_stage"),
+        CheckConstraint("status in ('running','completed','failed')", name="ck_summary_map_results_status"),
     )
     summary_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("summary_artifacts.id", ondelete="CASCADE"), nullable=False)
     stage: Mapped[str] = mapped_column(Text, nullable=False)
@@ -250,6 +251,14 @@ class SummaryMapResult(UUIDPrimaryKeyMixin, Base):
     group_index: Mapped[int] = mapped_column(Integer, nullable=False)
     input_hash: Mapped[str] = mapped_column(Text, nullable=False)
     source_reference_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    child_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    prompt_name: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    prompt_version: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    schema_name: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    schema_version: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    model_name: Mapped[str | None] = mapped_column(Text)
+    budgets: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="completed")
     structured_output: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     input_token_count: Mapped[int] = mapped_column(Integer, nullable=False)
     output_token_count: Mapped[int] = mapped_column(Integer, nullable=False)
