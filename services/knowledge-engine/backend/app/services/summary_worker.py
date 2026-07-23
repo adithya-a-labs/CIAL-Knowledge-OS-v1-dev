@@ -3,15 +3,16 @@ from __future__ import annotations
 
 import logging
 import queue
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from threading import Thread
 import uuid
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 
 from backend.app.db.session import SessionLocal
 from backend.app.models.knowledge import Document, DocumentVersion
-from backend.app.models.workspace_content import SummaryArtifact
+from backend.app.models.workspace_content import SummaryArtifact, SummaryMapResult
+from backend.app.core.config import settings
 from backend.app.security.access import access_context_for_user, document_is_accessible
 from backend.app.services.document_summary_service import (
     DocumentSummaryError,
@@ -40,6 +41,11 @@ class SummaryWorker:
                 db.execute(update(SummaryArtifact).where(
                     SummaryArtifact.document_id.is_not(None), SummaryArtifact.status == "running",
                 ).values(status="queued", progress={"stage": "queued", "completed": 0, "total": 0, "message": "Recovered after interrupted worker"}))
+                cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, settings.summary_checkpoint_retention_days))
+                db.execute(delete(SummaryMapResult).where(
+                    SummaryMapResult.status == "failed",
+                    SummaryMapResult.created_at < cutoff,
+                ))
                 db.commit()
         self._thread = Thread(target=self._loop, name="document-summary-worker", daemon=True)
         self._thread.start(); self.ready = True; self.enqueue()
@@ -102,7 +108,15 @@ class SummaryWorker:
                 if document is None or version is None or version.document_id != document.id or not document_is_accessible(document, access):
                     raise DocumentSummaryError("Analysis source is unavailable.", code="analysis_source_unavailable", status_code=404)
                 DocumentSummaryPipeline(db, self.generator).run(artifact, document, version)
-                logger.info("document_summary_completed", extra={"event": "document_summary_completed", "summary_id": str(artifact_id)})
+                metrics = artifact.generation_config or {}
+                logger.info("document_summary_completed", extra={
+                    "event": "document_summary_completed", "summary_id": str(artifact_id),
+                    **{key: metrics.get(key) for key in (
+                        "queue_latency_ms", "total_latency_ms", "model_calls", "repair_calls",
+                        "input_tokens", "output_tokens", "retries", "reduce_levels",
+                        "checkpoint_reuse", "citation_count", "coverage_gap_count",
+                    )},
+                })
             except Exception as exc:
                 db.rollback(); mark_analysis_failed(db, artifact_id, exc)
-                logger.exception("document_summary_failed", extra={"event": "document_summary_failed", "summary_id": str(artifact_id), "error_code": getattr(exc, "code", "analysis_generation_failed")})
+                logger.error("document_summary_failed", extra={"event": "document_summary_failed", "summary_id": str(artifact_id), "error_code": getattr(exc, "code", "analysis_generation_failed")})

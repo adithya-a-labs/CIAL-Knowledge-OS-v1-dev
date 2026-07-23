@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Iterable, TypeVar
@@ -21,9 +22,10 @@ from backend.app.models.operations import AuditEvent
 from backend.app.models.workspace_content import SummaryArtifact, SummaryCitation, SummaryMapResult, SummarySource
 from backend.app.schemas.summaries import (
     DocumentAnalysisCreate,
-    DocumentFinalOutput,
-    DocumentMapOutput,
+    FinalSummaryOutput,
     GroundedItem,
+    IntermediateReduceOutput,
+    MapSummaryOutput,
 )
 from backend.app.security.access import RequestAccessContext, document_is_accessible
 from cial_knowledge_os.prompts.manager import DEFAULT_PROMPT_MANAGER
@@ -31,10 +33,13 @@ from cial_knowledge_os.token_budget import TokenManager, create_token_manager
 
 
 MAP_PROMPT = "summarization.document.v1.map"
-REDUCE_PROMPT = "summarization.document.v1.reduce"
+INTERMEDIATE_PROMPT = "summarization.document.v1.intermediate"
+FINAL_PROMPT = "summarization.document.v1.final"
+REDUCE_PROMPT = FINAL_PROMPT
 REPAIR_PROMPT = "summarization.document.v1.repair"
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 T = TypeVar("T", bound=BaseModel)
+logger = logging.getLogger(__name__)
 
 
 class DocumentSummaryError(RuntimeError):
@@ -93,9 +98,25 @@ def _canonical_hash(value: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+_HARMLESS_JSON_LEADING = {
+    "",
+    "json:",
+    "here is the json:",
+    "here is the object:",
+    "here is the requested json:",
+    "here is the requested object:",
+}
+_HARMLESS_JSON_TRAILING = {
+    "",
+    "end of json.",
+    "end of object.",
+    "end of response.",
+}
+
+
 def _json_payload(raw: str) -> dict[str, Any]:
     """Extract the first JSON object without repairing or rewriting model text."""
-    value = raw.strip()
+    value = raw.lstrip("\ufeff").strip()
     if value.startswith("```"):
         newline = value.find("\n")
         if newline >= 0 and value[3:newline].strip().casefold() in {"", "json"}:
@@ -105,24 +126,46 @@ def _json_payload(raw: str) -> dict[str, Any]:
     start = value.find("{")
     if start < 0:
         raise json.JSONDecodeError("No JSON object found", value, 0)
-    payload, _ = json.JSONDecoder().raw_decode(value, start)
+    leading = value[:start].strip().casefold()
+    if leading not in _HARMLESS_JSON_LEADING:
+        raise json.JSONDecodeError("Unexpected text before JSON object", value, 0)
+    payload, end = json.JSONDecoder().raw_decode(value, start)
     if not isinstance(payload, dict):
         raise ValueError("Structured output must be a JSON object.")
+    trailing = value[end:].strip()
+    if trailing.startswith("```"):
+        trailing = trailing[3:].strip()
+    if trailing.casefold() not in _HARMLESS_JSON_TRAILING:
+        raise json.JSONDecodeError("Unexpected text after JSON object", value, end)
     return payload
 
 
-def _grounded_items(output: DocumentMapOutput | DocumentFinalOutput) -> Iterable[GroundedItem]:
-    if isinstance(output, DocumentMapOutput):
-        for field in ("section_summary", "key_facts", "dates", "obligations", "exceptions", "risks", "actions", "definitions"):
+def _grounded_items(output: MapSummaryOutput | IntermediateReduceOutput | FinalSummaryOutput) -> Iterable[GroundedItem]:
+    if isinstance(output, MapSummaryOutput):
+        for field in (
+            "section_summary", "key_facts", "dates", "definitions", "obligations",
+            "thresholds", "exceptions", "procedures", "decisions", "risks", "actions",
+        ):
             yield from getattr(output, field)
         return
+    if isinstance(output, IntermediateReduceOutput):
+        for field in (
+            "facts", "dates", "definitions", "obligations", "thresholds",
+            "exceptions", "procedures", "decisions", "risks", "actions",
+        ):
+            yield from getattr(output, field)
+        return
+    yield from output.overview
     for section in output.sections:
         yield from section.items
     for field in ("key_findings", "important_dates", "requirements", "action_items"):
         yield from getattr(output, field)
 
 
-def _validate_citations(output: DocumentMapOutput | DocumentFinalOutput, allowed: set[str]) -> None:
+def _validate_citations(
+    output: MapSummaryOutput | IntermediateReduceOutput | FinalSummaryOutput,
+    allowed: set[str],
+) -> None:
     cited: set[str] = set()
     for item in _grounded_items(output):
         unknown = set(item.citation_ids) - allowed
@@ -133,6 +176,115 @@ def _validate_citations(output: DocumentMapOutput | DocumentFinalOutput, allowed
     if declared - allowed:
         raise ValueError("Generated output declared an unknown source chunk.")
     output.citation_ids = sorted(cited, key=lambda value: int(value[1:]) if value[1:].isdigit() else value)
+
+
+def _validate_repair_preservation(output: BaseModel, malformed: str) -> None:
+    """Reject repair output that introduces semantic text or citation IDs."""
+    haystack = " ".join(malformed.casefold().split())
+    payload = output.model_dump(mode="json")
+    harmless_gap_messages = {
+        "irreparable structured item omitted",
+        "malformed item omitted",
+        "structural repair omitted an irreparable item",
+    }
+
+    def visit(value: Any, key: str = "") -> None:
+        if isinstance(value, dict):
+            for child_key, child in value.items():
+                visit(child, child_key)
+        elif isinstance(value, list):
+            for child in value:
+                visit(child, key)
+        elif isinstance(value, str):
+            normalized = " ".join(value.casefold().split())
+            if not normalized:
+                return
+            if key == "citation_ids":
+                if value not in malformed:
+                    raise ValueError("Repair introduced a citation ID.")
+            elif key == "coverage_gaps" and normalized.rstrip(".") in harmless_gap_messages:
+                return
+            elif normalized not in haystack:
+                raise ValueError("Repair introduced semantic text.")
+
+    visit(payload)
+
+
+def _validate_required_citations(output: BaseModel, required: set[str]) -> None:
+    missing = required - set(getattr(output, "citation_ids", []))
+    if missing:
+        raise ValueError("Reduction omitted citations carried by validated child items.")
+
+
+@dataclass(frozen=True, slots=True)
+class TokenPlan:
+    stage: str
+    context_tokens: int
+    rendered_prompt_tokens: int
+    schema_tokens: int
+    reserved_output_tokens: int
+    safety_margin_tokens: int
+    usable_input_tokens: int
+
+    @property
+    def fits(self) -> bool:
+        return self.usable_input_tokens >= 0
+
+
+class SummaryTokenPlanner:
+    """One auditable context formula shared by map, reduce, final, and repair."""
+
+    def __init__(self, tokens: TokenManager, context_tokens: int, margin_ratio: float = 0.125) -> None:
+        self.tokens = tokens
+        self.context_tokens = max(2048, int(context_tokens))
+        self.margin_ratio = min(0.15, max(0.10, margin_ratio))
+
+    def plan(
+        self,
+        stage: str,
+        rendered_prompt: str,
+        schema: type[BaseModel],
+        reserved_output_tokens: int,
+        *,
+        variable_input_tokens: int = 0,
+    ) -> TokenPlan:
+        schema_text = json.dumps(schema.model_json_schema(), ensure_ascii=False, separators=(",", ":"))
+        prompt_tokens = self.tokens.count(rendered_prompt)
+        schema_tokens = self.tokens.count(schema_text)
+        margin = max(256, int(self.context_tokens * self.margin_ratio))
+        usable = (
+            self.context_tokens - prompt_tokens - schema_tokens
+            - int(reserved_output_tokens) - margin - int(variable_input_tokens)
+        )
+        return TokenPlan(
+            stage, self.context_tokens, prompt_tokens, schema_tokens,
+            int(reserved_output_tokens), margin, usable,
+        )
+
+    def require_fit(
+        self,
+        stage: str,
+        rendered_prompt: str,
+        schema: type[BaseModel],
+        reserved_output_tokens: int,
+    ) -> TokenPlan:
+        plan = self.plan(stage, rendered_prompt, schema, reserved_output_tokens)
+        if not plan.fits:
+            raise DocumentSummaryError(
+                "Analysis call exceeds the measured local context budget.",
+                code="analysis_context_budget_exceeded",
+                status_code=422,
+                retryable=True,
+                diagnostics=[{
+                    "stage": stage,
+                    "rendered_prompt_tokens": plan.rendered_prompt_tokens,
+                    "schema_tokens": plan.schema_tokens,
+                    "reserved_output_tokens": plan.reserved_output_tokens,
+                    "safety_margin_tokens": plan.safety_margin_tokens,
+                    "context_tokens": plan.context_tokens,
+                }],
+            )
+        return plan
 
 
 def _deterministic_questions(document_type: str) -> list[str]:
@@ -152,12 +304,90 @@ class DocumentSummaryPipeline:
         self.db = db
         self.generator = generator
         self.tokens = token_manager or create_token_manager()
-        context = max(2048, int(settings.summary_context_window_tokens))
-        self.map_budget = min(max(512, int(settings.summary_map_input_tokens)), context - int(settings.summary_map_output_tokens) - 1024)
-        self.reduce_budget = min(max(1024, int(settings.summary_reduce_input_tokens)), context - int(settings.summary_final_output_tokens) - 1024)
+        self.planner = SummaryTokenPlanner(self.tokens, settings.summary_context_window_tokens)
+        self.map_output_budget = int(settings.summary_map_output_tokens)
+        self.intermediate_output_budget = int(getattr(settings, "summary_intermediate_output_tokens", 700))
+        self.final_output_budget = int(settings.summary_final_output_tokens)
+        self.repair_output_budget = int(getattr(settings, "summary_repair_output_tokens", 800))
+        self.map_budget = self._stage_input_budget("map", MapSummaryOutput, self.map_output_budget)
+        self.reduce_budget = self._stage_input_budget(
+            "intermediate", IntermediateReduceOutput, self.intermediate_output_budget,
+        )
+        self.final_input_budget = self._stage_input_budget(
+            "final", FinalSummaryOutput, self.final_output_budget,
+        )
+        self._started = perf_counter()
+        self._model_calls = 0
+        self._repair_calls = 0
+        self._retries = 0
+        self._checkpoint_reuse = 0
 
-    def _progress(self, artifact: SummaryArtifact, stage: str, completed: int = 0, total: int = 0, message: str | None = None) -> None:
-        artifact.progress = {"stage": stage, "completed": completed, "total": total, "message": message or stage.replace("_", " ").title()}
+    def _stage_input_budget(
+        self,
+        stage: str,
+        schema: type[BaseModel],
+        output_budget: int,
+    ) -> int:
+        if stage == "map":
+            prompt = DEFAULT_PROMPT_MANAGER.render(
+                MAP_PROMPT, document_label="", summary_type="overview",
+                summary_length="coverage-preserving", evidence_blocks="",
+            )
+            configured = int(settings.summary_map_input_tokens)
+        elif stage == "intermediate":
+            prompt = DEFAULT_PROMPT_MANAGER.render(
+                INTERMEDIATE_PROMPT, allowed_reference_ids="", partial_summaries="",
+            )
+            configured = int(settings.summary_reduce_input_tokens)
+        else:
+            prompt = DEFAULT_PROMPT_MANAGER.render(
+                FINAL_PROMPT, document_label="", summary_type="overview",
+                summary_length="standard", allowed_reference_ids="", partial_summaries="",
+            )
+            configured = int(settings.summary_reduce_input_tokens)
+        plan = self.planner.plan(stage, prompt, schema, output_budget)
+        if plan.usable_input_tokens <= 0:
+            raise DocumentSummaryError(
+                "Analysis stage has no usable local context budget.",
+                code="analysis_context_budget_exceeded",
+                status_code=422,
+                retryable=True,
+            )
+        # Leave headroom for document labels and the allowed-reference manifest,
+        # whose token counts vary with each concrete group.
+        return max(1, min(configured, plan.usable_input_tokens - 128))
+
+    def _progress(
+        self,
+        artifact: SummaryArtifact,
+        stage: str,
+        completed: int = 0,
+        total: int = 0,
+        message: str | None = None,
+        *,
+        reduce_level: int | None = None,
+        source_chunks_processed: int | None = None,
+    ) -> None:
+        previous = artifact.progress or {}
+        artifact.progress = {
+            "stage": stage,
+            "completed": completed,
+            "total": total,
+            "map_completed": completed if stage == "mapping" else previous.get("map_completed", 0),
+            "map_total": total if stage == "mapping" else previous.get("map_total", artifact.map_group_count or 0),
+            "reduce_level": reduce_level,
+            "reduce_group": completed + 1 if stage == "reducing" and total else None,
+            "reduce_total_groups": total if stage == "reducing" else None,
+            "model_calls": self._model_calls,
+            "repair_calls": self._repair_calls,
+            "retries": self._retries,
+            "elapsed_ms": int((perf_counter() - self._started) * 1000),
+            "source_chunks_processed": source_chunks_processed if source_chunks_processed is not None else previous.get("source_chunks_processed", 0),
+            "source_chunks_total": artifact.source_chunk_count or previous.get("source_chunks_total", 0),
+            "checkpoint_reuse": self._checkpoint_reuse,
+            "message": message or stage.replace("_", " ").title(),
+            "background_message": "You can leave; analysis continues in background.",
+        }
         artifact.updated_at = datetime.now(timezone.utc)
         self.db.commit()
 
@@ -301,7 +531,22 @@ class DocumentSummaryPipeline:
             groups.append(EvidenceGroup(len(groups), tuple(current), "\n\n".join(rendered), used))
         return groups
 
-    def _call_json(self, prompt: str, schema: type[T], max_output_tokens: int) -> tuple[str, str | None, int, bool | None]:
+    def _token_planner(self) -> SummaryTokenPlanner:
+        planner = getattr(self, "planner", None)
+        if planner is None:
+            planner = SummaryTokenPlanner(self.tokens, settings.summary_context_window_tokens)
+            self.planner = planner
+        return planner
+
+    def _call_json(
+        self,
+        prompt: str,
+        schema: type[T],
+        max_output_tokens: int,
+        *,
+        stage: str,
+    ) -> tuple[str, str | None, int, bool | None, int | None, int | None]:
+        self._token_planner().require_fit(stage, prompt, schema, max_output_tokens)
         method = getattr(self.generator, "generate_json", None)
         if callable(method):
             try:
@@ -316,21 +561,45 @@ class DocumentSummaryPipeline:
         finish_reason = getattr(raw, "finish_reason", None)
         reported_tokens = getattr(raw, "output_tokens", None)
         output_tokens = int(reported_tokens) if reported_tokens is not None else self.tokens.count(text)
-        return text, str(finish_reason) if finish_reason else None, output_tokens, getattr(raw, "schema_mode", None)
+        self._model_calls = getattr(self, "_model_calls", 0) + 1
+        logger.debug(
+            "document_summary_generation_completed",
+            extra={
+                "event": "document_summary_generation_completed", "stage": stage,
+                "schema": schema.__name__, "done_reason": str(finish_reason or ""),
+                "prompt_eval_count": getattr(raw, "prompt_tokens", None),
+                "eval_count": output_tokens, "response_length": len(text),
+                "max_output_tokens": max_output_tokens,
+                "total_duration_ns": getattr(raw, "total_duration_ns", None),
+            },
+        )
+        return (
+            text, str(finish_reason) if finish_reason else None, output_tokens,
+            getattr(raw, "schema_mode", None),
+            getattr(raw, "prompt_tokens", None),
+            getattr(raw, "total_duration_ns", None),
+        )
 
     @staticmethod
     def _diagnostic(
         *, text: str, finish_reason: str | None, output_tokens: int, max_output_tokens: int,
         attempt: int, repair_attempted: bool, schema: type[BaseModel], error: Exception | None = None,
         phase: str = "generation", schema_mode: bool | None = None,
+        stage: str = "unknown", prompt_tokens: int | None = None,
+        total_duration_ns: int | None = None,
     ) -> dict[str, Any]:
         return {
-            "finish_reason": finish_reason,
+            "stage": stage,
+            "done_reason": finish_reason,
             "response_character_count": len(text),
             "output_token_count": output_tokens,
+            "prompt_eval_count": prompt_tokens,
             "max_output_tokens": max_output_tokens,
+            "total_duration_ns": total_duration_ns,
+            "parser_error_class": type(error).__name__ if error is not None else None,
             "json_error_line": error.lineno if isinstance(error, json.JSONDecodeError) else None,
             "json_error_column": error.colno if isinstance(error, json.JSONDecodeError) else None,
+            "json_error_position": error.pos if isinstance(error, json.JSONDecodeError) else None,
             "attempt_number": attempt,
             "repair_attempted": repair_attempted,
             "schema_name": schema.__name__,
@@ -338,9 +607,10 @@ class DocumentSummaryPipeline:
             "schema_mode": schema_mode,
         }
 
-    def _next_output_budget(self, prompt: str, current: int) -> int:
-        available = max(1, int(settings.summary_context_window_tokens) - self.tokens.count(prompt) - 256)
-        return min(available, max(current + 128, current * 2))
+    def _next_output_budget(self, prompt: str, schema: type[BaseModel], current: int, stage: str) -> int:
+        probe = self._token_planner().plan(stage, prompt, schema, 0)
+        available = max(1, probe.usable_input_tokens)
+        return min(available, max(current + 128, int(current * 1.5)))
 
     @staticmethod
     def _validation_detail(error: Exception) -> str:
@@ -361,42 +631,168 @@ class DocumentSummaryPipeline:
 
     def _generate_validated(
         self, prompt: str, schema: type[T], allowed: set[str], max_output_tokens: int,
+        *, stage: str = "generation", required_citations: set[str] | None = None,
     ) -> tuple[T, int, int, int, list[dict[str, Any]]]:
         last_error: Exception | None = None
         last_failure_code = "analysis_invalid_model_output"
         diagnostics: list[dict[str, Any]] = []
         started = perf_counter()
-        output_budget = max_output_tokens
+        repair_used = False
+        compact_instruction = (
+            "\n\nTRUNCATION RECOVERY: Return compact JSON only. No narrative or Markdown. "
+            "Merge only true duplicates, cap each item at 35 words, and preserve every "
+            "materially distinct fact, date, threshold, exception, risk, action, and citation."
+        )
         for attempt in range(1, settings.generation_retries + 2):
             try:
-                text, finish_reason, output_tokens, schema_mode = self._call_json(prompt, schema, output_budget)
-                truncated = (finish_reason or "").casefold() in {"length", "max_tokens", "token_limit"} or output_tokens >= output_budget
+                text, finish_reason, output_tokens, schema_mode, prompt_tokens, duration = self._call_json(
+                    prompt, schema, max_output_tokens, stage=stage,
+                )
+                truncated = (finish_reason or "").casefold() in {"length", "max_tokens", "token_limit"}
                 if truncated:
+                    logger.info(
+                        "document_summary_output_truncated",
+                        extra={"event": "document_summary_output_truncated", "stage": stage, "schema": schema.__name__, "attempt": attempt},
+                    )
                     diagnostics.append(self._diagnostic(
                         text=text, finish_reason=finish_reason, output_tokens=output_tokens,
-                        max_output_tokens=output_budget, attempt=attempt, repair_attempted=False,
-                        schema=schema, phase="generation", schema_mode=schema_mode,
+                        max_output_tokens=max_output_tokens, attempt=attempt, repair_attempted=False,
+                        schema=schema, phase="generation", schema_mode=schema_mode, stage=stage,
+                        prompt_tokens=prompt_tokens, total_duration_ns=duration,
                     ))
                     last_error = ValueError("Structured output reached its token cap.")
                     last_failure_code = "analysis_output_truncated"
-                    increased = self._next_output_budget(prompt, output_budget)
-                    if increased > output_budget:
-                        output_budget = increased
-                    continue
+                    compact_prompt = prompt + compact_instruction
+                    self._retries = getattr(self, "_retries", 0) + 1
+                    compact = self._call_json(
+                        compact_prompt, schema, max_output_tokens, stage=f"{stage}.compact",
+                    )
+                    compact_text, compact_finish, compact_tokens, compact_schema_mode, compact_prompt_tokens, compact_duration = compact
+                    compact_truncated = (compact_finish or "").casefold() in {"length", "max_tokens", "token_limit"}
+                    diagnostics.append(self._diagnostic(
+                        text=compact_text, finish_reason=compact_finish, output_tokens=compact_tokens,
+                        max_output_tokens=max_output_tokens, attempt=attempt, repair_attempted=False,
+                        schema=schema, phase="compact_retry", schema_mode=compact_schema_mode,
+                        stage=stage, prompt_tokens=compact_prompt_tokens, total_duration_ns=compact_duration,
+                    ))
+                    if not compact_truncated:
+                        try:
+                            compact_result = schema.model_validate(_json_payload(compact_text))
+                            _validate_citations(compact_result, allowed)
+                            _validate_required_citations(compact_result, required_citations or set())
+                            return compact_result, attempt + 1, compact_tokens, int((perf_counter() - started) * 1000), diagnostics
+                        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+                            last_error = exc
+                            last_failure_code = "analysis_invalid_model_output"
+                            if not repair_used:
+                                repair_used = True
+                                self._repair_calls = getattr(self, "_repair_calls", 0) + 1
+                                repair_prompt = self._repair_prompt(compact_text, exc, schema, allowed)
+                                repair_budget = min(
+                                    max_output_tokens,
+                                    int(getattr(self, "repair_output_budget", getattr(settings, "summary_repair_output_tokens", 800))),
+                                )
+                                try:
+                                    repair_call = self._call_json(
+                                        repair_prompt, schema, repair_budget, stage="repair",
+                                    )
+                                    repaired_text, repaired_finish, repaired_tokens, repaired_schema_mode, repaired_prompt_tokens, repaired_duration = repair_call
+                                    repair_error: Exception | None = None
+                                    if (repaired_finish or "").casefold() in {"length", "max_tokens", "token_limit"}:
+                                        repair_error = ValueError("Repair output reached its token cap.")
+                                    else:
+                                        try:
+                                            repaired = schema.model_validate(_json_payload(repaired_text))
+                                            _validate_citations(repaired, allowed)
+                                            _validate_repair_preservation(repaired, compact_text)
+                                            _validate_required_citations(repaired, required_citations or set())
+                                        except (json.JSONDecodeError, ValidationError, ValueError) as repair_exc:
+                                            repair_error = repair_exc
+                                    diagnostics.append(self._diagnostic(
+                                        text=repaired_text, finish_reason=repaired_finish,
+                                        output_tokens=repaired_tokens, max_output_tokens=repair_budget,
+                                        attempt=attempt, repair_attempted=True, schema=schema,
+                                        error=repair_error, phase="repair", schema_mode=repaired_schema_mode,
+                                        stage=stage, prompt_tokens=repaired_prompt_tokens,
+                                        total_duration_ns=repaired_duration,
+                                    ))
+                                    if repair_error is None:
+                                        return repaired, attempt + 2, repaired_tokens, int((perf_counter() - started) * 1000), diagnostics
+                                except (RuntimeError, OSError, DocumentSummaryError) as repair_transport_error:
+                                    last_error = repair_transport_error
+                            self._retries = getattr(self, "_retries", 0) + 1
+                            continue
+                    increased = self._next_output_budget(compact_prompt, schema, max_output_tokens, f"{stage}.expanded")
+                    if increased > max_output_tokens:
+                        self._retries += 1
+                        expanded = self._call_json(
+                            compact_prompt, schema, increased, stage=f"{stage}.expanded",
+                        )
+                        expanded_text, expanded_finish, expanded_tokens, expanded_schema_mode, expanded_prompt_tokens, expanded_duration = expanded
+                        expanded_truncated = (expanded_finish or "").casefold() in {"length", "max_tokens", "token_limit"}
+                        diagnostics.append(self._diagnostic(
+                            text=expanded_text, finish_reason=expanded_finish, output_tokens=expanded_tokens,
+                            max_output_tokens=increased, attempt=attempt, repair_attempted=False,
+                            schema=schema, phase="bounded_increase", schema_mode=expanded_schema_mode,
+                            stage=stage, prompt_tokens=expanded_prompt_tokens, total_duration_ns=expanded_duration,
+                        ))
+                        if not expanded_truncated:
+                            try:
+                                expanded_result = schema.model_validate(_json_payload(expanded_text))
+                                _validate_citations(expanded_result, allowed)
+                                _validate_required_citations(expanded_result, required_citations or set())
+                                return expanded_result, attempt + 2, expanded_tokens, int((perf_counter() - started) * 1000), diagnostics
+                            except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+                                last_error = exc
+                                last_failure_code = "analysis_invalid_model_output"
+                                break
+                    raise DocumentSummaryError(
+                        "Local model output was truncated.",
+                        code="analysis_output_truncated", status_code=422, retryable=True,
+                        diagnostics=diagnostics,
+                    )
                 try:
                     result = schema.model_validate(_json_payload(text))
-                except (json.JSONDecodeError, ValidationError) as validation_error:
+                except (json.JSONDecodeError, ValidationError, ValueError) as validation_error:
+                    logger.info(
+                        "document_summary_parse_failed",
+                        extra={
+                            "event": "document_summary_parse_failed", "stage": stage,
+                            "schema": schema.__name__, "attempt": attempt,
+                            "parser_error_class": type(validation_error).__name__,
+                            "position": validation_error.pos if isinstance(validation_error, json.JSONDecodeError) else None,
+                        },
+                    )
                     diagnostics.append(self._diagnostic(
                         text=text, finish_reason=finish_reason, output_tokens=output_tokens,
-                        max_output_tokens=output_budget, attempt=attempt, repair_attempted=True,
+                        max_output_tokens=max_output_tokens, attempt=attempt, repair_attempted=not repair_used,
                         schema=schema, error=validation_error, phase="generation", schema_mode=schema_mode,
+                        stage=stage, prompt_tokens=prompt_tokens, total_duration_ns=duration,
                     ))
                     last_error = validation_error
                     last_failure_code = "analysis_invalid_model_output"
-                    repair_prompt = self._repair_prompt(text, validation_error, schema, allowed)
-                    try:
-                        repaired_text, repaired_finish, repaired_tokens, repaired_schema_mode = self._call_json(repair_prompt, schema, output_budget)
-                        repair_truncated = (repaired_finish or "").casefold() in {"length", "max_tokens", "token_limit"} or repaired_tokens >= output_budget
+                    if not repair_used:
+                        logger.info(
+                            "document_summary_repair_attempted",
+                            extra={"event": "document_summary_repair_attempted", "stage": stage, "schema": schema.__name__, "attempt": attempt},
+                        )
+                        repair_used = True
+                        self._repair_calls = getattr(self, "_repair_calls", 0) + 1
+                        repair_prompt = self._repair_prompt(text, validation_error, schema, allowed)
+                        repair_budget = min(
+                            max_output_tokens,
+                            int(getattr(self, "repair_output_budget", getattr(settings, "summary_repair_output_tokens", 800))),
+                        )
+                        try:
+                            repaired_text, repaired_finish, repaired_tokens, repaired_schema_mode, repaired_prompt_tokens, repaired_duration = self._call_json(
+                                repair_prompt, schema, repair_budget, stage="repair",
+                            )
+                        except DocumentSummaryError as budget_error:
+                            if budget_error.code != "analysis_context_budget_exceeded":
+                                raise
+                            diagnostics.extend(budget_error.diagnostics)
+                            continue
+                        repair_truncated = (repaired_finish or "").casefold() in {"length", "max_tokens", "token_limit"}
                         repair_error: Exception | None = None
                         if repair_truncated:
                             repair_error = ValueError("Repair output reached its token cap.")
@@ -404,36 +800,39 @@ class DocumentSummaryPipeline:
                             try:
                                 repaired = schema.model_validate(_json_payload(repaired_text))
                                 _validate_citations(repaired, allowed)
+                                _validate_repair_preservation(repaired, text)
+                                _validate_required_citations(repaired, required_citations or set())
                             except (json.JSONDecodeError, ValidationError, ValueError) as exc:
                                 repair_error = exc
                         diagnostics.append(self._diagnostic(
                             text=repaired_text, finish_reason=repaired_finish, output_tokens=repaired_tokens,
-                            max_output_tokens=output_budget, attempt=attempt, repair_attempted=True,
+                            max_output_tokens=repair_budget, attempt=attempt, repair_attempted=True,
                             schema=schema, error=repair_error, phase="repair", schema_mode=repaired_schema_mode,
+                            stage=stage, prompt_tokens=repaired_prompt_tokens, total_duration_ns=repaired_duration,
                         ))
                         if repair_error is None:
                             return repaired, attempt, repaired_tokens, int((perf_counter() - started) * 1000), diagnostics
                         last_error = repair_error
                         if repair_truncated:
                             last_failure_code = "analysis_output_truncated"
-                            increased = self._next_output_budget(prompt, output_budget)
-                            if increased > output_budget:
-                                output_budget = increased
-                    except (RuntimeError, OSError) as repair_transport_error:
-                        last_error = repair_transport_error
+                    self._retries = getattr(self, "_retries", 0) + 1
                     continue
                 diagnostic = self._diagnostic(
                     text=text, finish_reason=finish_reason, output_tokens=output_tokens,
-                    max_output_tokens=output_budget, attempt=attempt, repair_attempted=False,
+                    max_output_tokens=max_output_tokens, attempt=attempt, repair_attempted=False,
                     schema=schema, phase="generation", schema_mode=schema_mode,
+                    stage=stage, prompt_tokens=prompt_tokens, total_duration_ns=duration,
                 )
                 try:
                     _validate_citations(result, allowed)
+                    _validate_required_citations(result, required_citations or set())
                 except ValueError:
                     diagnostics.append(diagnostic)
                     raise
                 diagnostics.append(diagnostic)
                 return result, attempt, output_tokens, int((perf_counter() - started) * 1000), diagnostics
+            except DocumentSummaryError:
+                raise
             except (RuntimeError, OSError, ValueError) as exc:
                 last_error = exc
                 last_failure_code = "analysis_invalid_model_output"
@@ -445,18 +844,84 @@ class DocumentSummaryPipeline:
         ) from None
 
     def _checkpoint(self, artifact: SummaryArtifact, stage: str, level: int, group_index: int, input_text: str, refs: list[str], schema: type[T], prompt: str, max_output: int) -> T:
-        digest = hashlib.sha256(input_text.encode("utf-8")).hexdigest()
+        digest = _canonical_hash({
+            "input": input_text,
+            "refs": refs,
+            "prompt": MAP_PROMPT if stage == "map" else (FINAL_PROMPT if schema is FinalSummaryOutput else INTERMEDIATE_PROMPT),
+            "prompt_version": PROMPT_VERSION,
+            "schema": schema.__name__,
+            "schema_hash": _canonical_hash(schema.model_json_schema()),
+            "model": artifact.model_name,
+            "max_output": max_output,
+            "context": settings.summary_context_window_tokens,
+        })
         existing = self.db.scalar(select(SummaryMapResult).where(
             SummaryMapResult.summary_id == artifact.id, SummaryMapResult.stage == stage,
             SummaryMapResult.level == level, SummaryMapResult.group_index == group_index,
         ))
         if existing is not None:
-            if existing.input_hash != digest:
-                raise DocumentSummaryError("Analysis checkpoint does not match its immutable source.", code="analysis_checkpoint_mismatch")
+            if getattr(existing, "status", "completed") != "completed":
+                self.db.delete(existing)
+                self.db.commit()
+                existing = None
+            elif existing.input_hash != digest:
+                if stage == "map":
+                    raise DocumentSummaryError("Analysis checkpoint does not match its immutable source.", code="analysis_checkpoint_mismatch")
+                self.db.delete(existing)
+                self.db.commit()
+                existing = None
+        if existing is not None:
             result = schema.model_validate(existing.structured_output)
             _validate_citations(result, set(refs))
+            self._checkpoint_reuse = getattr(self, "_checkpoint_reuse", 0) + 1
+            logger.debug(
+                "document_summary_checkpoint_reused",
+                extra={"event": "document_summary_checkpoint_reused", "stage": stage, "level": level, "group": group_index},
+            )
             return result
-        result, attempts, output_tokens, latency_ms, diagnostics = self._generate_validated(prompt, schema, set(refs), max_output)
+        input_tokens = self.tokens.count(input_text)
+        checkpoint = SummaryMapResult(
+            summary_id=artifact.id, stage=stage, level=level, group_index=group_index,
+            input_hash=digest, source_reference_ids=refs, structured_output={},
+            input_token_count=input_tokens, output_token_count=0, attempts=0, latency_ms=0,
+            child_ids=refs,
+            prompt_name=MAP_PROMPT if stage == "map" else (FINAL_PROMPT if schema is FinalSummaryOutput else INTERMEDIATE_PROMPT),
+            prompt_version=PROMPT_VERSION, schema_name=schema.__name__, schema_version="1",
+            model_name=artifact.model_name,
+            budgets={"context_tokens": settings.summary_context_window_tokens, "reserved_output_tokens": max_output},
+            status="running",
+        )
+        self.db.add(checkpoint)
+        self.db.commit()
+        checkpoint_started = perf_counter()
+        try:
+            result, attempts, output_tokens, latency_ms, diagnostics = self._generate_validated(
+                prompt, schema, set(refs), max_output,
+                stage="map" if stage == "map" else ("final" if schema is FinalSummaryOutput else f"reduce.{level}"),
+                required_citations=set(refs) if stage == "reduce" else set(),
+            )
+        except Exception as exc:
+            checkpoint.status = "failed"
+            checkpoint.attempts = max(1, len(getattr(exc, "diagnostics", []) or []))
+            checkpoint.latency_ms = max(0, int((perf_counter() - checkpoint_started) * 1000))
+            self.db.commit()
+            raise
+        validated_output_tokens = self.tokens.count(
+            json.dumps(result.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")),
+        )
+        if schema is IntermediateReduceOutput and validated_output_tokens >= input_tokens:
+            checkpoint.status = "failed"
+            checkpoint.attempts = attempts
+            checkpoint.output_token_count = validated_output_tokens
+            checkpoint.latency_ms = latency_ms
+            self.db.commit()
+            raise DocumentSummaryError(
+                "Intermediate reduction did not reduce its validated input.",
+                code="analysis_output_truncated",
+                status_code=422,
+                retryable=True,
+                diagnostics=diagnostics,
+            )
         artifact.generation_config = {
             **(artifact.generation_config or {}),
             "structured_output_diagnostics": [
@@ -464,27 +929,142 @@ class DocumentSummaryPipeline:
                 *diagnostics,
             ],
         }
-        self.db.add(SummaryMapResult(
-            summary_id=artifact.id, stage=stage, level=level, group_index=group_index,
-            input_hash=digest, source_reference_ids=refs, structured_output=result.model_dump(mode="json"),
-            input_token_count=self.tokens.count(input_text), output_token_count=output_tokens,
-            attempts=attempts, latency_ms=latency_ms,
-        ))
+        checkpoint.structured_output = result.model_dump(mode="json")
+        checkpoint.output_token_count = validated_output_tokens
+        checkpoint.attempts = attempts
+        checkpoint.latency_ms = latency_ms
+        checkpoint.status = "completed"
         self.db.commit()
         return result
 
-    def _group_partials(self, partials: list[DocumentMapOutput | DocumentFinalOutput]) -> list[list[DocumentMapOutput | DocumentFinalOutput]]:
-        groups: list[list[DocumentMapOutput | DocumentFinalOutput]] = []
-        current: list[DocumentMapOutput | DocumentFinalOutput] = []
+    def _group_partials(
+        self,
+        partials: list[MapSummaryOutput | IntermediateReduceOutput],
+        budget: int | None = None,
+    ) -> list[list[MapSummaryOutput | IntermediateReduceOutput]]:
+        groups: list[list[MapSummaryOutput | IntermediateReduceOutput]] = []
+        current: list[MapSummaryOutput | IntermediateReduceOutput] = []
         used = 0
+        limit = budget or self.reduce_budget
         for item in partials:
             count = self.tokens.count(json.dumps(item.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")))
-            if current and used + count > self.reduce_budget:
+            if count > limit:
+                raise DocumentSummaryError(
+                    "A validated child summary exceeds the next-stage input budget.",
+                    code="analysis_context_budget_exceeded",
+                    status_code=422,
+                    retryable=True,
+                )
+            if current and used + count > limit:
                 groups.append(current); current = []; used = 0
             current.append(item); used += count
         if current:
             groups.append(current)
         return groups
+
+    @staticmethod
+    def _partial_refs(partials: list[MapSummaryOutput | IntermediateReduceOutput]) -> list[str]:
+        return sorted(
+            {ref for item in partials for ref in item.citation_ids},
+            key=lambda value: int(value[1:]) if value[1:].isdigit() else value,
+        )
+
+    @staticmethod
+    def _partial_text(partials: list[MapSummaryOutput | IntermediateReduceOutput]) -> str:
+        return json.dumps(
+            [item.model_dump(mode="json") for item in partials],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
+    def _reduce_all(
+        self,
+        artifact: SummaryArtifact,
+        document_label: str,
+        evidence_count: int,
+        mapped: list[MapSummaryOutput],
+    ) -> tuple[FinalSummaryOutput, list[int], int]:
+        current: list[MapSummaryOutput | IntermediateReduceOutput] = list(mapped)
+        level = 1
+        reduce_group_counts: list[int] = []
+        while True:
+            self._check_cancelled(artifact)
+            final_groups = self._group_partials(current, self.final_input_budget)
+            if len(final_groups) == 1:
+                input_text = self._partial_text(current)
+                refs = self._partial_refs(current)
+                prompt = DEFAULT_PROMPT_MANAGER.render(
+                    FINAL_PROMPT, document_label=document_label,
+                    summary_type=artifact.summary_type, summary_length=artifact.summary_length,
+                    allowed_reference_ids=", ".join(refs), partial_summaries=input_text,
+                )
+                self._progress(
+                    artifact, "reducing", 0, 1,
+                    f"Consolidating findings—level {level} group 1/1",
+                    reduce_level=level, source_chunks_processed=evidence_count,
+                )
+                try:
+                    final = self._checkpoint(
+                        artifact, "reduce", level, 0, input_text, refs,
+                        FinalSummaryOutput, prompt, self.final_output_budget,
+                    )
+                    reduce_group_counts.append(1)
+                    return final, reduce_group_counts, level
+                except DocumentSummaryError as exc:
+                    if exc.code not in {"analysis_output_truncated", "analysis_context_budget_exceeded"} or len(current) < 2:
+                        raise
+                    midpoint = len(current) // 2
+                    partial_groups = [current[:midpoint], current[midpoint:]]
+            else:
+                partial_groups = self._group_partials(current, self.reduce_budget)
+
+            reduced: list[IntermediateReduceOutput] = []
+            queue_groups = list(partial_groups)
+            group_index = 0
+            while queue_groups:
+                partial_group = queue_groups.pop(0)
+                total = len(reduced) + len(queue_groups) + 1
+                self._progress(
+                    artifact, "reducing", group_index, total,
+                    f"Consolidating findings—level {level} group {group_index + 1}/{total}",
+                    reduce_level=level, source_chunks_processed=evidence_count,
+                )
+                input_text = self._partial_text(partial_group)
+                refs = self._partial_refs(partial_group)
+                prompt = DEFAULT_PROMPT_MANAGER.render(
+                    INTERMEDIATE_PROMPT, allowed_reference_ids=", ".join(refs),
+                    partial_summaries=input_text,
+                )
+                try:
+                    reduced.append(self._checkpoint(
+                        artifact, "reduce", level, group_index, input_text, refs,
+                        IntermediateReduceOutput, prompt, self.intermediate_output_budget,
+                    ))
+                    group_index += 1
+                except DocumentSummaryError as exc:
+                    if exc.code not in {"analysis_output_truncated", "analysis_context_budget_exceeded"} or len(partial_group) < 2:
+                        raise
+                    midpoint = len(partial_group) // 2
+                    queue_groups[0:0] = [partial_group[:midpoint], partial_group[midpoint:]]
+                    logger.info(
+                        "document_summary_group_split",
+                        extra={"event": "document_summary_group_split", "level": level, "group": group_index, "children": len(partial_group)},
+                    )
+                    artifact.generation_config = {
+                        **(artifact.generation_config or {}),
+                        "group_splits": int((artifact.generation_config or {}).get("group_splits", 0)) + 1,
+                    }
+                    self.db.commit()
+            reduce_group_counts.append(len(reduced))
+            if len(reduced) >= len(current) and len(current) > 1:
+                raise DocumentSummaryError(
+                    "Recursive reduction could not produce a smaller validated level.",
+                    code="analysis_output_truncated",
+                    status_code=422,
+                    retryable=True,
+                )
+            current = reduced
+            level += 1
 
     def run(self, artifact: SummaryArtifact, document: Document, version: DocumentVersion) -> None:
         self._progress(artifact, "loading_chunks", message="Reading document sections")
@@ -497,60 +1077,49 @@ class DocumentSummaryPipeline:
         artifact.generation_config = {
             **(artifact.generation_config or {}),
             "temperature": 0, "context_window_tokens": settings.summary_context_window_tokens,
-            "map_input_budget": self.map_budget, "map_output_budget": settings.summary_map_output_tokens,
-            "reduce_input_budget": self.reduce_budget, "final_output_budget": settings.summary_final_output_tokens,
+            "safety_margin_ratio": self.planner.margin_ratio,
+            "token_formula": "num_ctx-rendered_prompt_tokens-schema_tokens-reserved_output_tokens-safety_margin",
+            "map_input_budget": self.map_budget, "map_output_budget": self.map_output_budget,
+            "intermediate_input_budget": self.reduce_budget,
+            "intermediate_output_budget": self.intermediate_output_budget,
+            "final_input_budget": self.final_input_budget, "final_output_budget": self.final_output_budget,
+            "repair_output_budget": self.repair_output_budget,
             "tokenizer": self.tokens.encoding_name, "ordered_chunk_ids": [item.chunk_id for item in evidence],
             "map_boundaries": boundaries, "coverage_gaps": coverage_gaps,
-            "map_prompt": MAP_PROMPT, "reduce_prompt": REDUCE_PROMPT, "repair_prompt": REPAIR_PROMPT,
+            "map_prompt": MAP_PROMPT, "intermediate_prompt": INTERMEDIATE_PROMPT,
+            "final_prompt": FINAL_PROMPT, "repair_prompt": REPAIR_PROMPT,
         }
         self.db.commit()
 
-        mapped: list[DocumentMapOutput] = []
+        mapped: list[MapSummaryOutput] = []
+        processed_chunks = 0
         for group in groups:
             self._check_cancelled(artifact)
-            self._progress(artifact, "mapping", group.index, len(groups), f"Reading {group.index + 1} of {len(groups)} sections")
+            self._progress(
+                artifact, "mapping", group.index, len(groups),
+                f"Reading sections {group.index + 1}/{len(groups)}",
+                source_chunks_processed=processed_chunks,
+            )
             prompt = DEFAULT_PROMPT_MANAGER.render(
                 MAP_PROMPT, document_label=document.name, summary_type=artifact.summary_type,
-                summary_length=artifact.summary_length, evidence_blocks=group.rendered,
+                summary_length="coverage-preserving", evidence_blocks=group.rendered,
             )
             mapped.append(self._checkpoint(
                 artifact, "map", 0, group.index, group.rendered, group.reference_ids,
-                DocumentMapOutput, prompt, settings.summary_map_output_tokens,
+                MapSummaryOutput, prompt, self.map_output_budget,
             ))
+            processed_chunks += len(group.chunks)
 
-        current: list[DocumentMapOutput | DocumentFinalOutput] = list(mapped)
-        level = 0
-        while True:
-            self._check_cancelled(artifact)
-            partial_groups = self._group_partials(current)
-            final_level = len(partial_groups) == 1
-            reduced: list[DocumentFinalOutput] = []
-            total = len(partial_groups)
-            for index, partial_group in enumerate(partial_groups):
-                self._progress(artifact, "reducing", index, total, "Combining grounded section summaries")
-                input_text = json.dumps([item.model_dump(mode="json") for item in partial_group], ensure_ascii=False, separators=(",", ":"))
-                refs = sorted({ref for item in partial_group for ref in item.citation_ids}, key=lambda value: int(value[1:]) if value[1:].isdigit() else value)
-                prompt = DEFAULT_PROMPT_MANAGER.render(
-                    REDUCE_PROMPT, document_label=document.name, summary_type=artifact.summary_type,
-                    summary_length=artifact.summary_length, output_kind="final synthesis" if final_level else f"recursive reduction level {level}",
-                    allowed_reference_ids=", ".join(refs), partial_summaries=input_text,
-                )
-                reduced.append(self._checkpoint(
-                    artifact, "reduce", level, index, input_text, refs,
-                    DocumentFinalOutput, prompt, settings.summary_final_output_tokens,
-                ))
-            if final_level:
-                final = reduced[0]
-                break
-            current = reduced
-            level += 1
+        final, reduce_group_counts, level = self._reduce_all(
+            artifact, document.name, len(evidence), mapped,
+        )
 
         self._progress(artifact, "validating", message="Validating citations and coverage")
         if coverage_gaps:
             final.coverage_gaps = list(dict.fromkeys([*coverage_gaps, *final.coverage_gaps]))
         final.suggested_questions = _deterministic_questions(final.document_type)
         if artifact.summary_type == "action_items":
-            final.sections = []; final.key_findings = []; final.important_dates = []; final.requirements = []
+            final.overview = []; final.sections = []; final.key_findings = []; final.important_dates = []; final.requirements = []
         allowed = {item.reference_id for item in evidence}
         _validate_citations(final, allowed)
         used_refs = set(final.citation_ids)
@@ -589,10 +1158,14 @@ class DocumentSummaryPipeline:
         completed_at = datetime.now(timezone.utc)
         artifact.generation_config = {
             **(artifact.generation_config or {}),
-            "model_calls": len(checkpoints),
+            "model_calls": self._model_calls,
+            "repair_calls": self._repair_calls,
             "input_tokens": sum(row.input_token_count for row in checkpoints),
             "output_tokens": sum(row.output_token_count for row in checkpoints),
-            "retries": sum(max(0, row.attempts - 1) for row in checkpoints),
+            "retries": self._retries,
+            "checkpoint_reuse": self._checkpoint_reuse,
+            "reduce_levels": len(reduce_group_counts),
+            "reduce_groups_per_level": reduce_group_counts,
             "map_latency_ms": sum(row.latency_ms for row in checkpoints if row.stage == "map"),
             "reduce_latency_ms": sum(row.latency_ms for row in checkpoints if row.stage == "reduce"),
             "total_latency_ms": max(0, int((completed_at - (artifact.started_at or artifact.created_at)).total_seconds() * 1000)),
@@ -602,7 +1175,16 @@ class DocumentSummaryPipeline:
         }
         artifact.status = "completed"
         artifact.completed_at = artifact.updated_at = completed_at
-        artifact.progress = {"stage": "completed", "completed": len(groups), "total": len(groups), "message": "Document analysis ready"}
+        artifact.progress = {
+            "stage": "completed", "completed": len(groups), "total": len(groups),
+            "map_completed": len(groups), "map_total": len(groups),
+            "reduce_level": level, "model_calls": self._model_calls,
+            "repair_calls": self._repair_calls, "retries": self._retries,
+            "source_chunks_processed": len(evidence), "source_chunks_total": len(evidence),
+            "checkpoint_reuse": self._checkpoint_reuse,
+            "elapsed_ms": int((perf_counter() - self._started) * 1000),
+            "message": "Document analysis ready",
+        }
         previous = list(self.db.scalars(select(SummaryArtifact).where(
             SummaryArtifact.document_id == document.id, SummaryArtifact.id != artifact.id,
             SummaryArtifact.status == "completed", SummaryArtifact.deleted_at.is_(None),
@@ -618,7 +1200,7 @@ class DocumentSummaryPipeline:
         self.db.commit()
 
     @staticmethod
-    def render_markdown(final: DocumentFinalOutput) -> str:
+    def render_markdown(final: FinalSummaryOutput) -> str:
         lines = [f"# {final.title}"]
         def add_items(heading: str, items: list[GroundedItem]) -> None:
             if not items:
@@ -627,6 +1209,7 @@ class DocumentSummaryPipeline:
             for item in items:
                 markers = " ".join(f"[{value}]" for value in item.citation_ids)
                 lines.append(f"- {item.text} {markers}".rstrip())
+        add_items("Overview", final.overview)
         for section in final.sections:
             add_items(section.heading, section.items)
         add_items("Key Findings", final.key_findings)
