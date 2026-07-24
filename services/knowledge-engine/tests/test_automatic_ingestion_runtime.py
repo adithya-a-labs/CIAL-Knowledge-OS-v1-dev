@@ -5,6 +5,7 @@ import tempfile
 import uuid
 
 from backend.app.services.export_service import ExportService
+from cial_knowledge_os.corpus.scanner import FilesystemCorpusScanner, is_ignored_managed_path
 from cial_knowledge_os.corpus.watcher import CorpusWatcher
 
 
@@ -15,6 +16,84 @@ def test_watcher_stability_accepts_closed_file_and_deleted_path():
         assert CorpusWatcher._wait_until_stable(path, attempts=2, interval=0)
         path.unlink()
         assert CorpusWatcher._wait_until_stable(path, attempts=2, interval=0)
+
+
+def test_watcher_passes_coalesced_event_paths_to_reconciliation():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        path = root / "document.txt"
+        path.write_text("stable", encoding="utf-8")
+        calls = []
+        watcher = CorpusWatcher(
+            root=root,
+            sync_callback=calls.append,
+            debounce_seconds=0,
+            stability_attempts=2,
+            stability_interval=0,
+        )
+        watcher._run_sync([path, path])
+        assert len(calls) == 1
+        assert set(calls[0]) == {path}
+
+
+def test_scanner_reuses_hash_after_size_and_mtime_precheck(monkeypatch):
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        path = root / "document.txt"
+        path.write_text("stable", encoding="utf-8")
+        scanner = FilesystemCorpusScanner(root)
+        first = scanner.scan().files[0]
+        monkeypatch.setattr(
+            "cial_knowledge_os.corpus.scanner.hash_file",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("unchanged files must not be re-hashed")
+            ),
+        )
+        second = scanner.scan(
+            known_files={
+                first.relative_path: (
+                    first.size_bytes,
+                    first.modified_at,
+                    first.content_hash,
+                )
+            }
+        ).files[0]
+        assert second.content_hash == first.content_hash
+
+
+def test_watcher_target_forces_hash_even_when_size_and_mtime_match(monkeypatch):
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        path = root / "document.txt"
+        path.write_text("stable", encoding="utf-8")
+        scanner = FilesystemCorpusScanner(root)
+        first = scanner.scan().files[0]
+        calls = []
+        monkeypatch.setattr(
+            "cial_knowledge_os.corpus.scanner.hash_file",
+            lambda *_args, **_kwargs: calls.append(path) or "forced-hash",
+        )
+        result = scanner.scan(
+            known_files={
+                first.relative_path: (
+                    first.size_bytes,
+                    first.modified_at,
+                    first.content_hash,
+                )
+            },
+            force_hash_paths={first.relative_path},
+        )
+        assert calls == [path]
+        assert result.files[0].content_hash == "forced-hash"
+
+
+def test_managed_ignore_and_containment_policy():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        assert is_ignored_managed_path(root / "~$draft.docx", root)
+        assert is_ignored_managed_path(root / "copy.uploading", root)
+        assert is_ignored_managed_path(root.parent / "outside.pdf", root)
+        assert not is_ignored_managed_path(root / "approved.pdf", root)
 
 
 def test_export_save_wakes_exact_job_once(monkeypatch):
