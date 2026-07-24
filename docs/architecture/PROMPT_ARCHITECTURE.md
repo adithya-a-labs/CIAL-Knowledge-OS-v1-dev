@@ -127,3 +127,8 @@ The manager renders only the prompt strings implied by those existing settings.
 ## Phase Boundaries
 
 This architecture intentionally excludes Phase 5, agentic planning, notebook behavior changes, retrieval rewrites, generation rewrites, and prompt rewrites. Agentic-adjacent prompts from the catalog remain documented only unless a separate Phase 5 implementation explicitly adds them under a new versioned registry path.
+
+The continuous-indexing process split does not modify prompt files, registry
+resolution, response profiles, evidence selection, citation discipline,
+safe-failure text, retry prompts, or temperature. It changes only how committed
+retrieval generations become available to the existing prompt pipeline.

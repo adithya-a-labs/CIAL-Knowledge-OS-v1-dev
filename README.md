@@ -10,6 +10,10 @@ Current structure:
 - `data/` - benchmark/manual QA assets and optional test corpus; runtime stores and enterprise corpus mounts must remain uncommitted.
 
 Metadata/control-plane storage uses PostgreSQL through SQLAlchemy and Alembic.
+PostgreSQL also provides the durable continuous-indexing queue, worker leases,
+heartbeats, and committed index-generation pointer. The production indexer is
+a standalone process; ordinary FastAPI startup never scans or rebuilds the
+corpus. See `docs/architecture/CONTINUOUS_INDEXING_ARCHITECTURE.md`.
 Authenticated conversation history is authoritative in PostgreSQL
 `chat_sessions`/`chat_messages`; browser storage is limited to UI preferences
 and transient context handoff and must never seed or replace chat history.
@@ -37,6 +41,7 @@ From the repository root:
 ```powershell
 scripts\start_qdrant.bat
 scripts\start_backend.bat
+scripts\start_indexer.bat
 scripts\start_frontend.bat
 ```
 
@@ -44,6 +49,7 @@ PowerShell variants are also available:
 
 ```powershell
 .\scripts\start_backend.ps1
+.\scripts\start_indexer.ps1
 .\scripts\start_frontend.ps1
 ```
 
@@ -65,6 +71,14 @@ cd services/knowledge-engine
 uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
+Standalone indexer (a second terminal):
+
+```powershell
+cd services/knowledge-engine
+$env:PYTHONPATH="$PWD;$PWD\src"
+..\..\.venv\Scripts\python.exe backend\indexer_main.py
+```
+
 Frontend:
 
 ```powershell
@@ -81,7 +95,7 @@ cd services/knowledge-engine
 cd ..\..
 curl.exe http://localhost:8000/api/health
 curl.exe http://localhost:8000/api/corpus/tree
-curl.exe -X POST http://localhost:8000/api/corpus/sync
+curl.exe http://localhost:8000/api/index/status
 curl.exe http://localhost:8000/api/documents
 cd frontend
 pnpm run typecheck

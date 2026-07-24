@@ -806,3 +806,21 @@ Leave these as generated runtime folders in the new repo and keep them gitignore
 - `data/outputs/`
 
 Do not copy the current contents from the old repo into those folders.
+
+## Continuous Indexer Runtime Inventory
+
+Runtime-critical additions:
+
+- `backend/indexer_main.py`
+- `backend/app/services/continuous_indexer.py`
+- `backend/app/services/indexing_queue.py`
+- `src/cial_knowledge_os/bm25_snapshot.py`
+- `alembic/versions/20260724_0016_continuous_indexing.py`
+- `scripts/start_indexer.bat`
+- `scripts/start_indexer.ps1`
+- `docs/architecture/CONTINUOUS_INDEXING_ARCHITECTURE.md`
+
+The API and indexer must migrate together with Qdrant server configuration.
+Do not migrate a backend composition root that starts `IndexingWorker` or
+`CorpusWatcher` in FastAPI. Do not copy BM25 runtime snapshots as source; they
+are regenerated and atomically published under the configured app-data root.

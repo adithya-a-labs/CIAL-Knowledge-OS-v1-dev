@@ -204,3 +204,10 @@ All caches are content-hash aware so changed files naturally invalidate older pr
 - Add new backend format dispatch in `document_preview_service.py`.
 - Add new conversion strategies in `document_rendering_service.py`.
 - Add new frontend renderers behind `DocumentPreviewRenderer` only, so Knowledge Center, Chat, and Manage Context continue to share one document-viewer architecture.
+
+## Indexing Boundary
+
+Preview, thumbnail, and legacy Office rendering remain outside the continuous
+indexer's critical path. Upload completion and indexing do not wait for preview
+generation. Existing access-filtered file/preview/download routes and citation
+deep links are unchanged by the worker process split.

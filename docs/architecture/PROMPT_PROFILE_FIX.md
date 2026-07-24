@@ -96,3 +96,7 @@ active_generation_prompt  : generation.phase4_system
 active_section_prompt     : generation.adaptive_sections
 temperature               : 0
 ```
+
+Continuous indexing is a prompt non-regression change. No mapping, word limit,
+selected-context rule, debug field, safe-failure string, prompt registry entry,
+or generation temperature in this document was changed.

@@ -29,6 +29,8 @@ npm, Corepack, and pnpm from the verified Node.js installation, installs
 frontend dependencies with `pnpm install --frozen-lockfile`, builds and
 typechecks the frontend, starts PostgreSQL/Qdrant/Ollama, runs Alembic,
 validates CUDA, and then launches the application.
+The canonical requirements already include `watchdog`. Alembic revision
+`20260724_0016` adds queue leases, worker heartbeats, and index generations.
 
 To verify a true clean frontend dependency installation:
 
@@ -73,8 +75,8 @@ Launch-CIAL-Knowledge-OS.bat
 
 The launcher does not reinstall dependencies. It verifies the configured
 repository, starts Docker/PostgreSQL/Qdrant/Ollama only when needed, starts the
-backend and frontend only when their ports are not already serving the expected
-app, waits for readiness, and opens:
+backend, standalone indexer, and frontend independently, waits for API/frontend
+readiness and a fresh indexer heartbeat (not queue drain), and opens:
 
 ```text
 http://127.0.0.1:5173/login
@@ -85,6 +87,11 @@ Runtime logs are written under:
 ```text
 outputs\launcher\logs
 ```
+
+Backend, indexer, and frontend stdout/stderr use separate timestamped files.
+The launcher applies `alembic upgrade head` before starting the API. It does
+not force a rebuild when a valid generation exists. Qdrant server mode is
+required because API and indexer are concurrent processes.
 
 ## Default Ports
 
@@ -113,3 +120,7 @@ The scripts are designed to be rerunnable. They preserve:
 
 The installer stops if CUDA is unavailable to PyTorch. It never intentionally
 continues in CPU-only mode.
+
+When `CIAL_INDEXER_DEVICE=cuda`, indexer startup also fails if the embedding
+model is not actually on CUDA. `auto` may choose CPU on a machine without
+CUDA. The actual model device is published through `/api/index/status`.

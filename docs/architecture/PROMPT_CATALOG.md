@@ -989,3 +989,10 @@ Prompts and constraints most likely responsible for higher-quality original Phas
    Per-question context artifacts make regressions visible because the old system preserved the exact prompt boundary.
 
 The single most important restore target is the full Phase 4 prompt builder, including its conditional fragments and the config defaults that activate adaptive sections.
+
+## Continuous Indexing Non-Regression
+
+The standalone indexing architecture does not alter any catalog prompt,
+variable, response profile, evidence rule, citation instruction, safe-failure
+string, retry prompt, or temperature. It only hot-publishes verified retrieval
+generations consumed by the unchanged Phase 4.5 prompt flow.

@@ -123,7 +123,19 @@ Migration `20260720_0009` adds `folders.system_key`, document JSON metadata for 
 
 `document_chunks` stores chunk-level metadata such as `document_version_id`, `chunk_index`, `section`, `text`, and JSON metadata. The indexing pipeline hydrates PostgreSQL metadata before Qdrant upserts so payloads now include `workspace_id` in addition to `document_id`, `document_version_id`, `storage_scope`, `owner_user_id`, `department_id`, `folder_id`, `visibility`, and `lifecycle_status`.
 
-`indexing_jobs` remains the operational queue table. A partial unique index still prevents duplicate active jobs for the same `document_version_id`.
+`indexing_jobs` is the durable operational queue for documents, note versions,
+metadata refreshes, deletes, reconciliation, and rebuild plans. Revision
+`20260724_0016` adds explicit target families and operations, priority,
+availability, bounded attempts, worker ownership, leases, heartbeats, error
+codes, and the expanded stage state machine. Partial unique indexes prevent an
+active duplicate for the same version/operation without blocking newer
+versions.
+
+`indexer_workers` stores service state, fresh heartbeat, safe queue/throughput
+metrics, actual embedding device, and reconciliation state.
+`index_generations` is the single committed pointer for dense and BM25
+generations. See
+[Continuous Indexing Architecture](CONTINUOUS_INDEXING_ARCHITECTURE.md).
 
 ## Search and Observability Additions
 
@@ -153,3 +165,7 @@ The new schema is intentionally ahead of the runtime in a few places:
 - conversation summarization writes during chat execution
 
 Those are application-layer follow-ups, not blockers for the current migration.
+
+Continuous indexing, personal-document processing, note coalescing, worker
+leases, and generation publication are implemented runtime wiring, not items
+in this deferred list.

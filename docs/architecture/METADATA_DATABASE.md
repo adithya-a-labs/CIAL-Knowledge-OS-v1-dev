@@ -22,8 +22,11 @@ If PostgreSQL is unavailable, FastAPI still starts and `/api/health` reports:
 - `database_configured=true` when `DATABASE_URL` exists
 - `database_message` with the connection failure
 
-Chat, retrieval, prompt rendering, Qdrant indexing, and generation are not
-blocked by PostgreSQL readiness in this foundation phase.
+The API may start and serve a previously loaded retrieval generation during a
+temporary PostgreSQL outage, but continuous indexing requires PostgreSQL.
+Without it the indexer stops durable claims, leases, finalization, and
+generation publication. It never continues vector work that cannot be
+finalized.
 
 ## Migration
 
@@ -62,3 +65,11 @@ The development login flow is backed by the `users` and `user_credentials` table
 - No prompt, retrieval, reranking, or generation behavior changes.
 - No Dockerization.
 - No Phase 5 functionality.
+
+## Continuous Indexing Control Plane
+
+PostgreSQL now owns `indexing_jobs`, `indexer_workers`, and
+`index_generations`. Source bodies remain on disk and vectors remain in
+Qdrant. Revision `20260724_0016` is additive and backfills legacy job targets,
+operations, and statuses. See
+[Continuous Indexing Architecture](CONTINUOUS_INDEXING_ARCHITECTURE.md).

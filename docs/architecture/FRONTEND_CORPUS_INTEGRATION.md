@@ -46,3 +46,13 @@ Citations / Sources
 ## My Workspace Integration
 
 My Workspace consumes `/api/workspaces/me/tree`, `/root`, `/folders/{id}`, `/summary`, and `/preferences`. It uses the shared `/knowledge/document/{id}` viewer route and Corpus preview/file endpoints rather than introducing a second viewer. If workspace APIs are unavailable, its static preview is explicitly labelled and preference persistence is clearly labelled browser-local.
+
+## Background Indexing States
+
+The frontend reads `api_ready`, `retrieval_ready`, `indexer_seen`,
+`indexer_state`, and `queue_counts`. Chat is gated by `retrieval_ready`, not by
+an empty queue. When a committed generation exists, active indexing produces a
+non-blocking banner and chat remains usable. Upload rows appear immediately,
+poll document status, and present Queued, Extracting, Preparing, Embedding,
+Indexing, Ready, Failed, or Unavailable labels. Note database save state is not
+conflated with its separate AI-index state.

@@ -124,7 +124,17 @@ Returns document metadata by PostgreSQL document id.
 
 `POST /api/corpus/sync`
 
-Runs a manual Corpus synchronization and returns the sync summary.
+Queues a durable reconciliation request and returns `202 Accepted`. The
+standalone indexer performs the scan; FastAPI never performs vector work.
+
+## Continuous Runtime
+
+Enterprise filesystem reconciliation, real-time events, personal workspace
+uploads, chat attachments, and note revisions converge on the same PostgreSQL
+queue. The sync engine remains metadata-only. `delete_asset` removes vectors,
+while same-content moves and ACL/path changes use `refresh_metadata` without
+embedding. See
+[Continuous Indexing Architecture](CONTINUOUS_INDEXING_ARCHITECTURE.md).
 
 ## Architectural Pillars
 

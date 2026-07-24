@@ -83,12 +83,19 @@ Implemented:
 - shared preview/file endpoints fall back to authorized personal metadata and resolve personal files only below the workspace root
 - request-layer filters prevent non-owned personal documents from appearing in corpus, preview, file, or chat responses
 
-Partially implemented:
+Implemented:
 
-- indexing jobs are durable, but the incremental personal-document worker path still needs end-to-end production validation
-- widget preferences implement system/workspace/user precedence; a separate organization-default administration surface is deferred
+- personal document/version creation and the indexing job commit together
+- chat attachments and saved exports reuse the same owner-private upload path
+- the standalone worker processes personal documents continuously and publishes
+  authoritative private Qdrant/BM25 payloads
+- watcher reconciliation deduplicates the already-created upload job
+- widget preferences implement system/workspace/user precedence
 
 Deferred:
 
 - sharing, transfer, and revocation APIs and their audit lifecycle
 - durable chat-upload conversation folders and attachment association APIs
+
+The queue/worker details are in
+[Continuous Indexing Architecture](CONTINUOUS_INDEXING_ARCHITECTURE.md).

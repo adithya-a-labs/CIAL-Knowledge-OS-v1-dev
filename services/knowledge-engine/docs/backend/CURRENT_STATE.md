@@ -85,16 +85,15 @@ empty canonical repositories produce an empty corpus rather than a fallback.
 copies legacy PDFs to `data/files/legacy_pdf/` by default and supports
 `--dry-run` and explicit `--move` modes.
 
-Indexing scans the canonical root on startup and compares SHA-256 fingerprints
-with `data/indexes/document_manifest.json`. Only new and changed processable
-registry files are loaded, chunked, and embedded. Changed and deleted document
-points are removed from Qdrant before upsert. The complete stored chunk corpus
-is then reused for neighbor operations and BM25, which is rebuilt safely when
-corpus membership changes. Indexing, file-format readiness, and OCR summaries
-are logged and added to Phase 4 summary/metrics/HTML/CSV/XLSX artifacts.
-`incremental_indexing_enabled=False` preserves full processing;
-`force_rebuild_index=True` recreates the configured collection. The manifest is
-collection-bound, so switching collection names safely causes a full scan.
+Production indexing is continuous and runs in the standalone
+`backend/indexer_main.py` process. Filesystem events and periodic reconciliation
+enqueue durable PostgreSQL jobs; FastAPI startup never scans, chunks, embeds, or
+rebuilds the corpus. The indexer fingerprints stable files, skips unchanged
+content, batches chunks across documents, verifies each new Qdrant document
+version before deleting stale points, and atomically publishes generation-tagged
+BM25 snapshots. The legacy manifest-driven `index()` path, including
+`incremental_indexing_enabled` and `force_rebuild_index`, remains available only
+to frozen notebooks and explicit batch experiments.
 
 The current LLM adapter uses Ollama. The surrounding pipeline accepts replaceable
 local model objects, but adapters for other local runtimes such as vLLM and
@@ -105,10 +104,14 @@ llama.cpp are still future work.
 `KnowledgeOSConfig` provides `qdrant_mode`, `qdrant_url`,
 `qdrant_api_key`, `qdrant_collection_name`, `qdrant_dir`,
 `qdrant_batch_size`, and `qdrant_upsert_wait`. Omitting `qdrant_mode`
-preserves the `embedded` default and the existing path-based client.
+preserves the `embedded` default for batch/notebook compatibility.
 `qdrant_mode="server"` uses the configured URL and performs a health probe
 before indexing or retrieval. An unreachable service reports local Docker
 start commands rather than a low-level connection error.
+
+The production API and standalone indexer require server mode so both processes
+can safely share the collection. Their typed environment setting defaults to
+`CIAL_QDRANT_MODE=server`; embedded mode is rejected by the indexer.
 
 Indexing constructs and submits bounded point batches rather than serializing
 the full corpus update in one JSON request. The resolved default is 256 points
@@ -586,3 +589,18 @@ EOF writes `execution_trace.jsonl`, `progress.json`, and `progress.log` under
 to plain or omitted output. The framework has no cloud dependency and no
 authority over pipeline control flow. Existing artifacts and checkpoint/resume
 behavior remain the source of truth for work products.
+
+## Continuous Incremental Indexing (Implemented 2026-07-24)
+
+FastAPI no longer scans, extracts, embeds, recreates Qdrant, or rebuilds the
+corpus during ordinary startup. `backend/indexer_main.py` runs the standalone
+PostgreSQL-leased worker, startup/periodic reconciliation, enterprise/personal
+watchers, bounded CPU extraction, cross-document embedding batches, verified
+Qdrant replacement, and atomic BM25 generation publication. Uploads, chat
+attachments, committed note versions, deletes, metadata refreshes, and
+confirmed admin rebuilds use the same `indexing_jobs` queue.
+
+Qdrant server mode is the concurrent runtime requirement. Embedded mode remains
+for isolated tests/notebooks. Multi-GPU scheduling beyond one worker per
+explicitly assigned device remains deferred. The canonical description is
+`docs/architecture/CONTINUOUS_INDEXING_ARCHITECTURE.md`.

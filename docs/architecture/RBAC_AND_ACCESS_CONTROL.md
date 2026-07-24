@@ -136,3 +136,13 @@ For development-only integration paths, the backend can still resolve access con
 Cookie identity takes precedence over those headers. In production, the header fallback should remain disabled.
 
 My Workspace routes require an authenticated principal and derive organization, workspace, owner, visibility, and storage scope exclusively from that principal. Folder ids are always constrained to the caller's personal workspace. Shared corpus preview/file/download routes apply the same document access filter before resolving a personal storage path; department membership does not satisfy that filter.
+
+## Index Payload Authorization
+
+The standalone indexer ignores client-supplied security fields. It hydrates
+organization, workspace, owner, storage scope, department, folder, visibility,
+and lifecycle values from PostgreSQL immediately before Qdrant writes.
+`refresh_metadata` updates those payloads without embedding when ownership,
+ACL, visibility, path, or workspace metadata changes. Personal note/document
+text enters BM25 only with owner-private metadata and is filtered before
+candidate scoring. Department classification never grants personal access.

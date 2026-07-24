@@ -1,273 +1,72 @@
 # Full-Stack Integration
 
-Status: development integration only. This is not Dockerization, production handover, authentication, live orchestration, reporting, or Phase 5.
+Status: API and continuous indexer are independent runtime processes.
 
-## Architecture
+The canonical runtime specification is
+[Continuous Indexing Architecture](CONTINUOUS_INDEXING_ARCHITECTURE.md).
 
-```text
-React/Vite frontend
-  -> frontend/src/api/client.ts
-  -> services/knowledge-engine/backend/app
-  -> services/knowledge-engine/backend/app/services/*
-  -> services/knowledge-engine/src/cial_knowledge_os Phase 4.5 engine
-  -> configured corpus repository, app data indexes/cache, Qdrant vectors, PostgreSQL metadata, outputs
-```
-
-Routes stay thin and call services. Retrieval, reranking, evidence selection, context building, generation, citations, exports, OCR, and indexing remain in the migrated Phase 4.5 engine.
-
-PostgreSQL is now present as the metadata/control-plane database only. It stores
-identity, folder/document metadata, permissions, chat history, audit events, and
-indexing state. It does not store embeddings, source files, or replace Qdrant.
-See `docs/architecture/METADATA_DATABASE.md`.
-
-The backend also owns the Corpus layer. The Knowledge Center and future
-document-picking UI should consume the Corpus API backed by PostgreSQL metadata
-instead of scanning the filesystem directly. See `docs/architecture/CORPUS_ARCHITECTURE.md`.
-Frontend wiring details are in `docs/architecture/FRONTEND_CORPUS_INTEGRATION.md`.
-
-The real FastAPI backend source is `services/knowledge-engine/backend/app`.
-The root-level `backend/` directory is not importable and contains only a
-migration note.
-
-## Startup Readiness Workflow
-
-The FastAPI lifespan starts `StartupService.run_startup()` in-process. The service wrapper creates required runtime folders, detects documents, checks Qdrant, checks the configured Ollama model, builds `Phase4Config`, and initializes the long-lived `Phase4RAGPipeline`.
-
-The startup indexing sequence intentionally mirrors `services/knowledge-engine/scripts/run_phase4_batch.py`:
+## Runtime
 
 ```text
-Build Phase4Config
-Create Phase4RAGPipeline(config)
-pipeline.load()
-pipeline.chunk()
-pipeline.embed()
-pipeline.index()
-load the Phase 4 reranker
-keep the initialized pipeline in KnowledgeEngineService
+React/Vite -> FastAPI -> PostgreSQL / Qdrant / Ollama
+repositories + uploads + note commits -> PostgreSQL queue -> indexer -> Qdrant/BM25
 ```
 
-The notebooks `04_Reranking_and_Evidence_Selection.ipynb` and `045_Multimodal_Test_Corpus_Evaluation.ipynb` remain architectural references only. The backend does not copy notebook cells and does not introduce Phase 5 planning or agent logic.
+FastAPI starts query-time services only. `StartupService.run_startup()` creates
+directories, validates paths, checks PostgreSQL/Qdrant/Ollama, attaches to an
+existing Qdrant collection, loads the latest BM25 generation, and loads
+query-time models. It never calls corpus-wide `load()`, `chunk()`, `embed()`,
+`index()`, collection recreation, or forced rebuild.
 
-Startup validates the configured corpus repository and fails readiness with a
-clear message if it does not exist or is not readable by the service. Generated
-application folders are created if missing:
+The first deployment is allowed to report `api_ready=true` and
+`retrieval_ready=false` while the standalone indexer builds the first
+generation. When a previous generation exists, chat remains available while
+the queue is active.
 
-- `data/indexes`
-- `data/bm25`
-- `outputs`
-- `models`
+## Durable Change Flow
 
-`CIAL_AUTO_INDEX_ON_STARTUP=true` enables automatic startup indexing. `CIAL_FORCE_REBUILD_ON_STARTUP=true` passes `force_rebuild_index=True` into `Phase4Config`. Manual rebuilds use the same service path via `POST /api/index/rebuild`. Backend environment examples live at `services/knowledge-engine/backend/.env.example`.
+Enterprise sync, enterprise uploads, personal uploads, chat attachments,
+committed note revisions, deletes, metadata changes, and admin rebuilds all
+feed `indexing_jobs`. Upload/note transactions create the durable row before
+returning success. API-local wakeups are optional; the indexer continuously
+polls PostgreSQL.
 
-## Corpus Repository Configuration
+The indexer performs startup reconciliation, watches both roots, periodically
+reconciles, renews leases, runs bounded extraction, cross-document/note embedding,
+verified writes, and atomic BM25 publication. Qdrant server mode is mandatory
+for API-plus-indexer concurrency.
 
-The enterprise document repository is resolved in this order:
+## API Contracts
 
-1. `CIAL_CORPUS_ROOT` or `CORPUS_ROOT`.
-2. The primary `enterprise` repository in `data/config/application.json`.
-3. Compatibility alias `CIAL_DATA_DIR`.
-4. Development fallback `data/files`.
+- `GET /api/health`: API/retrieval/dependency/indexer readiness and safe queue
+  summary.
+- `GET /api/index/status`: durable queue, heartbeat, and generation state.
+- `POST /api/corpus/sync`: authorized `202` reconciliation request.
+- `POST /api/index/rebuild`: authorized, confirmed `202` rebuild request.
+- upload/note routes: return persistence independently from background index
+  readiness.
 
-`data/config/application.json` is future-ready for multiple repositories:
+All existing chat, streaming, citation, preview, auth, RBAC, workspace,
+summary, saved-knowledge, export, and prompt-profile contracts remain in their
+existing routes/services.
 
-```json
-{
-  "version": 1,
-  "repositories": [
-    {
-      "id": "enterprise",
-      "name": "Enterprise Knowledge Repository",
-      "type": "filesystem",
-      "path": "D:\\CIAL\\KnowledgeRepository",
-      "enabled": true,
-      "role": "primary"
-    }
-  ]
-}
-```
+## Frontend
 
-Admin / Settings exposes `Enterprise Knowledge Repository` with Folder,
-Browse, Validate, and Save controls. Saving updates configuration and the
-running backend services only; Corpus Sync or Rebuild Index remains an explicit
-action unless a later deployment enables automatic sync. A first-run installer
-should write the selected folder to the same JSON configuration or set
-`CIAL_CORPUS_ROOT`; it must not copy enterprise documents into the application
-folder. The reusable helper is:
+The frontend treats `retrieval_ready` as the chat gate. A non-empty queue shows
+a non-blocking banner and does not disable chat. File upload rows appear
+immediately and poll their document status until ready or failed. Note
+Saving/Saved state remains database persistence; note `indexing_status` is a
+separate AI-index state.
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\configure_corpus_repository.ps1 -RepositoryPath "D:\CIAL\KnowledgeRepository"
-```
-
-Startup readiness is updated at each wrapper stage: load, chunk, embed, index,
-and reranker load. `documents_indexed` is updated immediately after
-`pipeline.index()` completes, before reranker/model availability is finalized,
-so a later model failure no longer leaves the API reporting zero indexed
-documents without a useful stage message.
-
-## Runtime State
-
-`services/knowledge-engine/backend/app/core/runtime_state.py` tracks:
-
-- `status`: `starting`, `ready`, `indexing`, `degraded`, `failed`, or `no_documents`
-- `engine_available`
-- `engine_ready`
-- `documents_seen`
-- `documents_indexed`
-- `index_fresh`
-- `qdrant_ready`
-- `models_ready`
-- `last_startup_check_at`
-- `last_index_run_at`
-- `message`
-
-The backend process should stay up when Qdrant, Ollama, embeddings, reranker weights, or documents are missing. Those conditions are reflected in runtime state so the frontend can show a specific readiness message.
-
-PostgreSQL readiness is reported independently through `/api/health` as
-`database_ready`, `database_configured`, and `database_message`. Database
-unavailability does not block current chat or retrieval behavior.
-
-## Backend Routes
-
-- `GET /api/health` reports runtime readiness, service identity, Phase 4.5, document counts, Qdrant state, model state, PostgreSQL metadata database state, and message.
-- `GET /api/corpus/tree` returns the hierarchical Corpus Tree from PostgreSQL metadata.
-- `GET /api/corpus/folder?path=<relative>` returns folder contents from PostgreSQL metadata.
-- `GET /api/corpus/document/{id}` returns document metadata from PostgreSQL metadata.
-- `POST /api/corpus/sync` scans the configured corpus repository, synchronizes PostgreSQL metadata, and queues indexing jobs for new/content-changed documents.
-- `POST /api/chat` first checks `runtime_state.engine_ready`. If false, it returns HTTP 503 with structured detail such as `no_documents_found`, `indexing_in_progress`, `qdrant_unavailable`, `model_unavailable`, or `startup_failed`. If ready, it calls `KnowledgeEngineService.answer_question()` and adapts the Phase 4 response into answer, citations, source chunks, and metadata.
-- `GET /api/chat/sessions` and `GET /api/chat/sessions/{session_id}` hydrate authenticated, user-owned conversation history from PostgreSQL. `POST /api/chat` accepts a stable client session UUID and atomically persists the successful user/assistant turn, citations, sources, profile/context metadata, and database timestamps through `ChatRepository`.
-- `GET /api/documents` lists files discovered under the configured corpus repository.
-- `POST /api/documents/upload` saves uploaded files to the configured corpus repository.
-- `POST /api/index/rebuild` runs the same deterministic Phase 4.5 initialization/indexing path used by startup.
-- `GET /api/index/status` returns the shared runtime state.
-- `POST /api/evaluation/run` records an evaluation request. Full Phase 4 evaluation remains a manual runner workflow.
-- `GET /api/evaluation/runs` lists evaluation and batch-answer artifacts under `outputs`.
-- `GET /api/exports` lists export-like files under `outputs`.
-
-## Frontend API Client
-
-The frontend API boundary is centralized in:
-
-- `frontend/src/api/client.ts`
-- `frontend/src/api/types.ts`
-- `frontend/src/api/adapters.ts`
-
-`VITE_API_BASE_URL` defaults to `http://localhost:8000` in `frontend/.env.example`.
-
-## Phase 4.5 Wrapper
-
-`services/knowledge-engine/backend/app/services/knowledge_engine_service.py` is the backend module that imports the engine. It adds `services/knowledge-engine/src` to `sys.path`, builds `Phase4Config` from backend environment settings, keeps the startup-initialized `Phase4RAGPipeline` alive, calls `pipeline.run(question)`, and converts the existing response contract into API schemas.
-
-If Qdrant, Ollama, embeddings, reranker weights, Python packages, or an index are unavailable, the service returns a controlled API error instead of moving retrieval logic into route files. Existing Phase 4 citation and source metadata are preserved as much as the Phase 4 response exposes them.
-
-## Qdrant And Ollama Troubleshooting
-
-- `qdrant_ready=false`: confirm `CIAL_QDRANT_MODE`, `CIAL_QDRANT_URL`, and `CIAL_QDRANT_API_KEY`. For server mode, start Qdrant before expecting chat readiness. The backend does not silently fall back to embedded Qdrant.
-- `models_ready=false`: confirm Ollama is running and `CIAL_OLLAMA_MODEL_NAME` is installed. Embedding and reranker failures during startup indexing also prevent `engine_ready`.
-- `no_documents`: add supported files under the configured corpus repository and restart or call `POST /api/index/rebuild`.
-- `indexing`: wait for `GET /api/health` or `GET /api/index/status` to return `ready`.
-
-## Mock Data Still In Use
-
-- Dashboard, analytics, experts, departments, FAQs, learning, and most Knowledge Center drive data still use `frontend/src/data/*`. My Workspace now prefers authenticated workspace APIs and uses labelled local preview data only when that API is unavailable.
-- `DocumentsPage` uses `GET /api/documents` when available, polls `GET /api/index/status`, and falls back to `DOCUMENTS`.
-- `ChatPanel` calls `GET /api/health`, shows a backend readiness banner, disables send until `engine_ready=true`, and then calls `POST /api/chat`.
-- Assistant history has no mock fallback. An empty database renders an empty state; a history API failure retains the currently displayed cache and exposes Retry. Hydration waits for resolved authentication, is user-scoped, and ignores aborted or superseded responses.
-- The document upload modal UI is still mostly presentational. The chat attachment control uses `POST /api/documents/upload`.
-
-## Known Limitations
-
-- `frontend/pnpm-lock.yaml` still needs regeneration after the migrated dependency graph changed.
-- The plain `python` command may not be on PATH; use `.venv\Scripts\python.exe` in this workspace.
-- Frontend dependencies may need installation before `pnpm run typecheck` or `pnpm run build`.
-- Evaluation endpoints are API placeholders around local artifact discovery; full evaluation execution should continue through the existing Phase 4 runner until a dedicated service workflow is designed.
-- Index rebuild is synchronous in this development adapter. Move it to a durable job queue only during a later backend hardening phase.
-
-## Local Run Commands
-
-Preferred root-level commands:
+## Commands
 
 ```powershell
 scripts\start_qdrant.bat
 scripts\start_backend.bat
+scripts\start_indexer.bat
 scripts\start_frontend.bat
 ```
 
-PowerShell variants:
-
-```powershell
-.\scripts\start_backend.ps1
-.\scripts\start_frontend.ps1
-```
-
-The backend still lives inside `services/knowledge-engine/backend/app`. The
-root launchers only activate the root `.venv`, change into
-`services/knowledge-engine`, and run the service-local `backend.app.main`.
-
-`scripts\start_backend.bat 8010` or `.\scripts\start_backend.ps1 -Port 8010`
-starts the backend on a custom port.
-
-The Qdrant launcher uses `services/knowledge-engine/docker-compose.qdrant.yml`.
-That compose file maps host port `6335` to container port `6333`; configure
-`CIAL_QDRANT_URL=http://localhost:6335` when using it.
-
-Manual backend setup:
-
-```powershell
-python -m pip install -e services/knowledge-engine
-python -m pip install fastapi uvicorn python-multipart sqlalchemy alembic "psycopg[binary]"
-cd services/knowledge-engine
-..\..\.venv\Scripts\activate
-uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Metadata database migration:
-
-```powershell
-cd services/knowledge-engine
-..\..\.venv\Scripts\python.exe -m alembic upgrade head
-```
-
-Because the directory name `knowledge-engine` contains a hyphen, the backend is
-not launched as a dotted module from the repository root. Use the service
-directory command above.
-
-For this workspace shell, use:
-
-```powershell
-cd services/knowledge-engine
-..\..\.venv\Scripts\python.exe -m uvicorn backend.app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-Frontend setup:
-
-```powershell
-cd frontend
-pnpm install
-pnpm run typecheck
-pnpm run build
-pnpm run dev
-```
-
-Smoke checks:
-
-```powershell
-curl.exe http://localhost:8000/api/health
-curl.exe http://localhost:8000/api/documents
-curl.exe http://localhost:8000/api/index/status
-```
-
-Chat smoke check:
-
-```powershell
-curl.exe -X POST http://localhost:8000/api/chat `
-  -H "Content-Type: application/json" `
-  -d "{\"question\":\"What documents are indexed?\",\"selected_document_ids\":[],\"response_length\":\"short\",\"include_sources\":true}"
-```
-
-## Next Steps Before Dockerization
-
-1. Regenerate `frontend/pnpm-lock.yaml`.
-2. Install backend/frontend dependencies in approved local environments.
-3. Run backend compile/import checks and frontend typecheck/build.
-4. Start backend and frontend together and smoke test health, documents, upload, chat, and graceful chat failure.
-5. Decide whether indexing/evaluation should remain synchronous dev operations or become explicit background jobs.
+`Launch-CIAL-Knowledge-OS.bat` starts/checks all dependencies, runs Alembic,
+starts backend and indexer independently, starts the frontend, and opens login
+after API/frontend readiness plus a fresh indexer heartbeat.

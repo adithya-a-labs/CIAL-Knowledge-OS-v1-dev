@@ -461,7 +461,7 @@ Copy-Item .\services\knowledge-engine\backend\.env.example .\services\knowledge-
 Set in `services\knowledge-engine\backend\.env`:
 
 ```dotenv
-CIAL_AUTO_INDEX_ON_STARTUP=true
+CIAL_AUTO_INDEX_ON_STARTUP=false
 CIAL_FORCE_REBUILD_ON_STARTUP=false
 CIAL_STARTUP_INDEX_TIMEOUT_SECONDS=0
 CIAL_APP_DATA_DIR=data
@@ -469,10 +469,33 @@ CIAL_OUTPUTS_DIR=outputs
 CIAL_MODELS_DIR=models
 DATABASE_URL=postgresql+psycopg://postgres:<URL-ENCODED-PASSWORD>@localhost:5432/cial_knowledge_os_dev
 CIAL_AUTH_SECRET_KEY=<LONG-RANDOM-SECRET>
-CIAL_CORPUS_SYNC_ON_STARTUP=true
-CIAL_CORPUS_WATCH=false
+CIAL_CORPUS_SYNC_ON_STARTUP=false
+CIAL_CORPUS_WATCH=true
 CIAL_CORPUS_HASH=sha256
+CIAL_CORPUS_WATCH_DEBOUNCE_MS=750
+CIAL_CORPUS_FILE_STABILITY_INTERVAL_MS=500
+CIAL_CORPUS_FILE_STABILITY_CHECKS=3
+CIAL_CORPUS_RECONCILE_INTERVAL_SECONDS=300
 CIAL_METADATA_BATCH_SIZE=500
+CIAL_INDEXER_ENABLED=true
+CIAL_INDEXER_POLL_SECONDS=1
+CIAL_INDEXER_LEASE_SECONDS=120
+CIAL_INDEXER_HEARTBEAT_SECONDS=15
+CIAL_INDEXER_HEARTBEAT_STALE_SECONDS=45
+CIAL_INDEXER_MAX_ATTEMPTS=5
+CIAL_INDEXER_RETRY_BACKOFF_SECONDS=5
+CIAL_INDEXER_EXTRACTION_WORKERS=4
+CIAL_INDEXER_PREPARED_QUEUE_SIZE=8
+CIAL_INDEXER_EMBED_QUEUE_SIZE=4096
+CIAL_INDEXER_WRITE_QUEUE_SIZE=16
+CIAL_INDEXER_EMBED_BATCH_SIZE=64
+CIAL_INDEXER_EMBED_MAX_BATCH_TOKENS=32768
+CIAL_INDEXER_EMBED_MAX_WAIT_MS=75
+CIAL_INDEXER_QDRANT_BATCH_SIZE=128
+CIAL_INDEXER_DEVICE=auto
+CIAL_INDEXER_PRECISION=auto
+CIAL_INDEXER_GPU_POLICY=balanced
+CIAL_BM25_REFRESH_DEBOUNCE_SECONDS=2
 CIAL_QDRANT_MODE=server
 CIAL_QDRANT_URL=http://localhost:6335
 CIAL_QDRANT_API_KEY=
@@ -598,9 +621,18 @@ Verify backend:
 Invoke-RestMethod http://127.0.0.1:8000/api/health | Format-List
 ```
 
-Required: `service=cial-knowledge-os`, `application_version=0.1.0`, `phase=4.5`, and `database_ready`, `engine_ready`, `qdrant_ready`, `models_ready` all true, with the configured `repository_id`.
+Required: `service=cial-knowledge-os`, `application_version=0.1.0`,
+`phase=4.5`, `api_ready=true`, and `retrieval_ready=true`, with the configured
+`repository_id`. The indexer may still be draining work; inspect
+`indexer_seen`, `indexer_state`, `queue_depth`, and `index_fresh` separately.
 
-For retained manual evidence, create `outputs\manual\logs` and redirect the backend/frontend terminal output there, or use `Tee-Object`. Backend startup logs should show corpus configuration/sync, indexing, Qdrant/model initialization, and Uvicorn startup. Frontend output should identify Vite preview and port 5173. Treat tracebacks, failed indexing, database errors, or port fallback as deployment failures.
+For retained manual evidence, create `outputs\manual\logs` and redirect the
+backend/indexer/frontend terminal output there, or use `Tee-Object`. Backend
+startup logs should show only query-runtime readiness and Uvicorn startup.
+Indexer logs show watcher/reconciliation, queue claims, extraction, embedding,
+Qdrant writes, and BM25 publication. Frontend output should identify Vite
+preview and port 5173. Treat database errors, indexer heartbeat loss, failed
+indexing, or port fallback as deployment failures.
 
 The hardened daily launcher requires installer fingerprint state. For a purely manual deployment where that state does not exist, use the explicit commands above.
 

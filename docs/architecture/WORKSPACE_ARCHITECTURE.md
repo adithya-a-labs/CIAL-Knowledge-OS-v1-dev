@@ -97,3 +97,13 @@ The schema is ready for:
 - inheritance between workspace, folder, and document ACLs
 
 Those behaviors are intentionally deferred until the surrounding service logic is defined.
+
+## Upload-to-Index Runtime
+
+Personal and chat uploads derive organization, workspace, owner, department
+classification, private visibility, storage scope, and UUID storage names on
+the server. The document, immutable version, and `upsert_version` job commit in
+one transaction. The response exposes queued status immediately; the
+standalone indexer moves it through extraction, embedding, verification, and
+indexed state. Deletion queues `delete_asset`. See
+[Continuous Indexing Architecture](CONTINUOUS_INDEXING_ARCHITECTURE.md).

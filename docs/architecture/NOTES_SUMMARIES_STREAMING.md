@@ -23,3 +23,15 @@ Endpoints include `POST /api/summaries`, `POST /api/summaries/stream`, owner-sco
 The local Ollama adapters use their real streaming iterators. Chat emits token deltas from the unchanged Phase 4.5 prompt after retrieval/evidence selection has run once. Summary map stages emit operational progress and the final merge emits real tokens. Iterators are closed in `finally`; cancellation is checked during iteration; retries are allowed only before a visible token; and assistant/artifact completion is persisted only after a successful full stream.
 
 Migration `20260721_0012` adds `note_index_states`, `saved_knowledge_items`, and `summary_conversation_bindings` without modifying existing rows. The runtime remains on-premises and does not introduce a new storage or model service.
+
+## Continuous Note Indexing
+
+Every successfully committed note revision records its immutable
+`note_version_id` in the shared durable indexing queue. A failed optimistic
+save creates no job. Rapid committed autosaves mark older pending/retry jobs
+`superseded` and debounce the newest revision. The standalone worker indexes
+or removes notes, mixes note blocks with document chunks in the same bounded
+embedding batches, updates `note_index_states`, verifies deterministic points
+without Qdrant scrolling, and publishes the next BM25 generation. Saving/Saved
+remains a PostgreSQL UI state; AI index progress is independent. See
+[Continuous Indexing Architecture](CONTINUOUS_INDEXING_ARCHITECTURE.md).

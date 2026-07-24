@@ -86,3 +86,13 @@ The following are intentionally deferred:
 - conversation summary generation during chat sessions
 
 The schema is ready for those additions when the service contracts are defined.
+
+## Continuous Indexing Observability
+
+Indexing observability is separate from per-chat `retrieval_events`.
+`GET /api/index/status` reads durable worker heartbeats, reconciliation state,
+queue counts by state/operation, last completion, dense/BM25 generations,
+actual embedding device, internal queue depths, and safe throughput data.
+Structured logs cover watcher stability, leases, stage changes, cross-asset
+batch composition, Qdrant verification, stale cleanup, and BM25 swap. Bodies,
+embeddings, prompt text, credentials, and absolute personal paths are excluded.
