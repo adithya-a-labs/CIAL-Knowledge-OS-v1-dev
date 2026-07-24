@@ -12,6 +12,7 @@ import uuid
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
+from backend.app.core.config import settings
 from backend.app.models.identity import Department, Organization
 from backend.app.models.knowledge import Document, Folder, Workspace
 from backend.app.models.operations import IndexingJob, IngestionRun
@@ -21,7 +22,13 @@ logger = logging.getLogger(__name__)
 
 DELETED_STATUS = "deleted"
 
-_ACTIVE_JOB_STATUSES = ("pending", "running")
+_ACTIVE_JOB_STATUSES = (
+    "pending", "claimed", "extracting", "chunked", "embedding",
+    "writing", "verifying", "retry_wait",
+)
+DURABLE_JOB_STATUSES = (*_ACTIVE_JOB_STATUSES, "completed", "failed", "superseded", "cancelled")
+# Compatibility export for older notebook/test consumers. Runtime validation is
+# defined by ``DURABLE_JOB_STATUSES`` and the database constraint above.
 _VALID_JOB_STATUSES = ("pending", "running", "succeeded", "failed", "skipped")
 _DEFAULT_SHARED_DEPARTMENT_CODE = "shared-knowledge"
 _DEFAULT_SHARED_DEPARTMENT_NAME = "Shared Knowledge"
@@ -124,6 +131,9 @@ class CorpusMetadataStore:
                 existing.metadata_ = {**(existing.metadata_ or {}), "action": action,
                                       "relative_path": document.relative_path}
                 existing.message = message
+            if action == "deleted":
+                existing.operation = "delete_asset"
+                existing.priority = 120
             logger.info(
                 "index_job_deduplicated",
                 extra={
@@ -139,6 +149,18 @@ class CorpusMetadataStore:
         job = IndexingJob(
             document_id=document.id,
             document_version_id=document_version.id if document_version is not None else None,
+            asset_type="document",
+            operation=(
+                "delete_asset" if action == "deleted"
+                else "refresh_metadata" if action in {"moved", "renamed", "metadata"}
+                else "upsert_version"
+            ),
+            priority=(
+                120 if action == "deleted"
+                else 80 if action in {"moved", "renamed", "metadata"}
+                else 60
+            ),
+            max_attempts=settings.indexer_max_attempts,
             content_hash=document.content_hash,
             repository_id=self.repository_id,
             status="pending",
@@ -192,22 +214,22 @@ class CorpusMetadataStore:
     # ------------------------------------------------------------------
 
     def mark_job_running(self, job_id: uuid.UUID) -> bool:
-        return self._transition_job(job_id, from_status="pending", to_status="running")
+        return self._transition_job(job_id, from_status="pending", to_status="claimed")
 
     def mark_job_succeeded(self, job_id: uuid.UUID, *, message: str = "") -> bool:
         return self._transition_job(
-            job_id, from_status="running", to_status="succeeded", message=message,
+            job_id, from_status="claimed", to_status="completed", message=message,
         )
 
     def mark_job_failed(self, job_id: uuid.UUID, *, error: str) -> bool:
         return self._transition_job(
-            job_id, from_status="running", to_status="failed",
+            job_id, from_status="claimed", to_status="failed",
             message=f"Indexing failed: {error}", error_detail=error,
         )
 
     def mark_job_skipped(self, job_id: uuid.UUID, *, reason: str) -> bool:
         return self._transition_job(
-            job_id, from_status="pending", to_status="skipped", message=reason,
+            job_id, from_status="pending", to_status="superseded", message=reason,
         )
 
     def _transition_job(
@@ -235,7 +257,7 @@ class CorpusMetadataStore:
             )
             return False
         job.status = to_status
-        if to_status == "running":
+        if to_status == "claimed":
             job.attempts = int(job.attempts or 0) + 1
             job.started_at = datetime.now(timezone.utc)
         if message:
@@ -245,15 +267,15 @@ class CorpusMetadataStore:
         if job.document_version_id is not None:
             version = self.session.get(DocumentVersion, job.document_version_id)
             if version is not None:
-                if to_status == "running":
+                if to_status == "claimed":
                     version.status = "indexing"
-                elif to_status == "succeeded":
+                elif to_status == "completed":
                     version.status = "indexed"
                 elif to_status == "failed":
                     version.status = "failed"
-                elif to_status == "skipped":
+                elif to_status == "superseded":
                     version.status = "archived"
-        if to_status in ("succeeded", "failed", "skipped"):
+        if to_status in ("completed", "failed", "superseded", "cancelled"):
             job.completed_at = datetime.now(timezone.utc)
         return True
 

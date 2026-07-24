@@ -14,7 +14,7 @@ from cial_knowledge_os.file_formats import inspect_ingestion_candidate
 _IGNORED_DIRECTORIES = {
     ".git", ".venv", "node_modules", "__pycache__", "indexes", "qdrant",
     "bm25", "models", "cache", "caches", "thumbnails", "previews",
-    "rendered-assets", "export-staging",
+    "rendered-assets", "export-staging", "outputs", "logs", ".openai",
 }
 
 
@@ -28,6 +28,7 @@ def is_ignored_managed_path(path: Path, root: Path) -> bool:
     name = path.name.casefold()
     return (
         any(part.casefold() in _IGNORED_DIRECTORIES or part.startswith(".") for part in parts[:-1])
+        or name.startswith(".")
         or name.startswith("~$")
         or name.endswith((".tmp", ".part", ".crdownload", ".swp", ".uploading", ".lock"))
         or name in {"thumbs.db", "desktop.ini"}
@@ -41,7 +42,14 @@ class FilesystemCorpusScanner:
         self.root = root
         self.hash_algorithm = hash_algorithm
 
-    def scan(self) -> ScanResult:
+    def scan(
+        self,
+        *,
+        known_files: dict[str, tuple[int, datetime | None, str | None]] | None = None,
+        force_hash_paths: set[str] | None = None,
+    ) -> ScanResult:
+        """Scan metadata, reusing a hash only when size and mtime still match."""
+
         started = perf_counter()
         scanned_at = datetime.now(timezone.utc)
         root = self.root.resolve()
@@ -76,6 +84,17 @@ class FilesystemCorpusScanner:
             extension = path.suffix.casefold()
             mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
             stat = path.stat()
+            modified_at = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
+            known = (known_files or {}).get(relative_path)
+            unchanged = bool(
+                known
+                and known[0] == stat.st_size
+                and known[1] is not None
+                and int(known[1].timestamp() * 1_000_000)
+                == int(modified_at.timestamp() * 1_000_000)
+                and known[2]
+                and relative_path not in (force_hash_paths or set())
+            )
             files.append(
                 ScannedFile(
                     name=path.name,
@@ -84,8 +103,12 @@ class FilesystemCorpusScanner:
                     extension=extension,
                     mime_type=mime_type,
                     size_bytes=stat.st_size,
-                    modified_at=datetime.fromtimestamp(stat.st_mtime, timezone.utc),
-                    content_hash=hash_file(path, algorithm=self.hash_algorithm),
+                    modified_at=modified_at,
+                    content_hash=(
+                        str(known[2])
+                        if unchanged
+                        else hash_file(path, algorithm=self.hash_algorithm)
+                    ),
                 )
             )
 
