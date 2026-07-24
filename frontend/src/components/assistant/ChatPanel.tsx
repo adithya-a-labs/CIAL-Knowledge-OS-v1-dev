@@ -37,9 +37,7 @@ const DEFAULT_SOURCE_PANEL_SIZE = 40;
 
 function readinessLabel(healthStatus: HealthResponse | undefined) {
   if (!healthStatus) return 'Backend starting';
-  if (healthStatus.engine_ready && healthStatus.status === 'ready') return 'Ready';
-  if (healthStatus.status === 'indexing') return 'Indexing documents';
-  if (healthStatus.status === 'no_documents') return 'No documents found';
+  if (healthStatus.retrieval_ready || healthStatus.engine_ready) return 'Ready';
   if (!healthStatus.qdrant_ready) return 'Qdrant unavailable';
   if (!healthStatus.models_ready) return 'Model unavailable';
   if (healthStatus.status === 'failed') return 'Startup failed';
@@ -139,8 +137,11 @@ export default function ChatPanel() {
     retry: false,
     staleTime: 30_000,
   });
-  const chatReady = Boolean(healthQuery.data?.engine_ready);
+  const chatReady = Boolean(healthQuery.data?.retrieval_ready ?? healthQuery.data?.engine_ready);
   const healthLabel = readinessLabel(healthQuery.data);
+  const backgroundIndexing = Object.entries(healthQuery.data?.queue_counts ?? {})
+    .filter(([status]) => !['completed', 'failed', 'superseded', 'cancelled'].includes(status))
+    .reduce((total, [, count]) => total + count, 0);
 
   const corpusLookup = useMemo(() => {
     if (!corpusTreeQuery.data?.root) {
@@ -605,6 +606,12 @@ export default function ChatPanel() {
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {backgroundIndexing > 0 && chatReady ? (
+        <div className="mx-4 mb-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
+          Updating the knowledge index in the background ({backgroundIndexing} queued or processing). You can keep chatting with the current index.
+        </div>
+      ) : null}
 
       <div className="shrink-0 bg-white px-2 pb-2 pt-1 sm:px-4 sm:pb-3">
         <AIComposerFrame>

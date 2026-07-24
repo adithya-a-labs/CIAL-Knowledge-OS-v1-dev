@@ -415,7 +415,7 @@ export function retryDocumentIndexing(documentId: string) {
 export function rebuildIndex(force: boolean) {
   return request<RebuildIndexResponse>('/api/index/rebuild', {
     method: 'POST',
-    body: JSON.stringify({ force }),
+    body: JSON.stringify({ force, confirm: true }),
   });
 }
 

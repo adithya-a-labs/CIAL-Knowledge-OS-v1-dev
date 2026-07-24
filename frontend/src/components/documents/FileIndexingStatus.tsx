@@ -11,7 +11,11 @@ export function indexingStatusPresentation(status: FileIndexingState) {
   if (status === 'indexed') return { label: 'Ready', Icon: CheckCircle2, tone: 'text-emerald-700 bg-emerald-50' };
   if (status === 'failed') return { label: 'Failed', Icon: CircleAlert, tone: 'text-rose-700 bg-rose-50' };
   if (status === 'deleted' || status === 'superseded') return { label: 'Unavailable', Icon: Ban, tone: 'text-slate-500 bg-slate-100' };
-  if (status === 'indexing') return { label: 'Preparing', Icon: LoaderCircle, tone: 'text-amber-700 bg-amber-50', spinning: true };
+  if (status === 'extracting') return { label: 'Extracting', Icon: LoaderCircle, tone: 'text-amber-700 bg-amber-50', spinning: true };
+  if (status === 'chunked') return { label: 'Preparing', Icon: LoaderCircle, tone: 'text-amber-700 bg-amber-50', spinning: true };
+  if (status === 'embedding') return { label: 'Embedding', Icon: LoaderCircle, tone: 'text-amber-700 bg-amber-50', spinning: true };
+  if (status === 'writing' || status === 'verifying') return { label: 'Indexing', Icon: LoaderCircle, tone: 'text-amber-700 bg-amber-50', spinning: true };
+  if (status === 'indexing' || status === 'claimed') return { label: 'Preparing', Icon: LoaderCircle, tone: 'text-amber-700 bg-amber-50', spinning: true };
   return { label: 'Queued', Icon: Clock3, tone: 'text-slate-600 bg-slate-100' };
 }
 
@@ -34,7 +38,7 @@ export default function FileIndexingStatus({ status, stage, safeMessage, retryAl
   const [isRetrying, setIsRetrying] = useState(false);
   const [accepted, setAccepted] = useState(false);
   useEffect(() => { if (status !== 'failed') setAccepted(false); }, [status]);
-  const effectiveStatus = isRetrying || accepted ? 'pending' : status;
+  const effectiveStatus = isRetrying || accepted ? 'pending' : status === 'indexing' && stage ? stage : status;
   const value = indexingStatusPresentation(effectiveStatus);
   const terminal = ['indexed', 'failed', 'deleted', 'superseded'].includes(effectiveStatus);
   const canRetry = status === 'failed' && retryAllowed && Boolean(documentId) && !accepted;

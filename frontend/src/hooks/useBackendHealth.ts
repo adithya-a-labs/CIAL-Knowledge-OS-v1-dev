@@ -7,7 +7,11 @@ export const BACKEND_HEALTH_QUERY_KEY = ['backend-health'] as const;
 export function healthRefetchInterval(status: HealthResponse | undefined, hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden') {
   if (hidden) return 30_000;
   if (!status || status.status === 'starting' || status.status === 'indexing') return 1_500;
-  if (status.engine_ready && status.status === 'ready') return 20_000;
+  const activeJobs = Object.entries(status.queue_counts ?? {})
+    .filter(([value]) => !['completed', 'failed', 'superseded', 'cancelled'].includes(value))
+    .reduce((total, [, count]) => total + count, 0);
+  if (activeJobs > 0) return 2_000;
+  if ((status.retrieval_ready || status.engine_ready) && status.status === 'ready') return 20_000;
   return 15_000;
 }
 

@@ -38,12 +38,22 @@ export interface HealthResponse {
   status: RuntimeStatus;
   service: string;
   phase: string;
+  api_ready: boolean;
+  retrieval_ready: boolean;
   engine_available: boolean;
   engine_ready: boolean;
   stage?: string;
   knowledge_engine?: { status: string; ready: boolean; stage: string };
   qdrant_ready: boolean;
   models_ready: boolean;
+  database_ready: boolean;
+  indexer_seen: boolean;
+  indexer_state: 'starting' | 'reconciling' | 'active' | 'watching' | 'degraded' | 'stopped' | 'unknown' | string;
+  worker_heartbeat_at?: string | null;
+  queue_counts?: Record<string, number>;
+  queue_depth?: number;
+  latest_index_generation?: number;
+  bm25_generation?: number;
   documents_seen: number;
   documents_indexed: number;
   index_fresh: boolean;
@@ -276,6 +286,8 @@ export interface ApiDocument {
   indexing_stage?: string | null;
   indexing_safe_message?: string | null;
   indexing_error_code?: string | null;
+  indexing_job_id?: string | null;
+  document_version_id?: string | null;
   retry_allowed?: boolean;
   indexing_updated_at?: string;
 }
@@ -299,24 +311,20 @@ export interface DocumentListResponse {
 
 export interface RebuildIndexRequest {
   force: boolean;
+  confirm: boolean;
+  scope?: Record<string, string>;
 }
 
 export interface RebuildIndexResponse {
-  status: RuntimeStatus;
-  engine_available: boolean;
-  engine_ready: boolean;
-  documents_seen: number;
-  documents_indexed: number;
-  index_fresh: boolean;
-  qdrant_ready: boolean;
-  models_ready: boolean;
-  last_startup_check_at: string | null;
-  last_index_run_at: string | null;
+  status: 'accepted';
+  job_id: string;
   message: string;
 }
 
 export interface IndexStatusResponse {
   status: RuntimeStatus;
+  api_ready: boolean;
+  retrieval_ready: boolean;
   engine_available: boolean;
   engine_ready: boolean;
   documents_seen: number;
@@ -324,6 +332,33 @@ export interface IndexStatusResponse {
   index_fresh: boolean;
   qdrant_ready: boolean;
   models_ready: boolean;
+  database_ready: boolean;
+  indexer_seen: boolean;
+  indexer_state: string;
+  worker_id: string | null;
+  worker_heartbeat_at: string | null;
+  reconciliation_state: string | null;
+  last_reconciliation_at: string | null;
+  queue_counts: Record<string, number>;
+  queue_by_operation: Record<string, number>;
+  queue_depth: number;
+  active_jobs: Array<Record<string, unknown>>;
+  recent_errors: Array<Record<string, unknown>>;
+  latest_index_generation: number;
+  bm25_generation: number;
+  generation_published_at: string | null;
+  qdrant_collection: string | null;
+  qdrant_point_count: number;
+  embedding_device: string | null;
+  embedding_precision: string | null;
+  active_batch_limit: number;
+  cpu_extraction_workers: number;
+  internal_queue_depths: Record<string, number>;
+  throughput: Record<string, number>;
+  reconciliation_metrics: Record<string, unknown>;
+  bm25_metrics: Record<string, unknown>;
+  gpu_metrics: Record<string, number>;
+  last_successful_index_at: string | null;
   last_startup_check_at: string | null;
   last_index_run_at: string | null;
   message: string;
