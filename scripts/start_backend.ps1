@@ -22,5 +22,6 @@ Set-Location -LiteralPath $ServiceRoot
 
 Write-Host "Starting CIAL Knowledge OS backend on http://127.0.0.1:$Port"
 Write-Host "Backend source: services\knowledge-engine\backend\app"
+Write-Host "Corpus indexing is handled by scripts\start_indexer.ps1."
 uvicorn backend.app.main:app --reload --host 127.0.0.1 --port $Port
 exit $LASTEXITCODE

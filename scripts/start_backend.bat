@@ -23,6 +23,7 @@ if errorlevel 1 (
 cd /d "services\knowledge-engine"
 echo Starting CIAL Knowledge OS backend on http://127.0.0.1:%PORT%
 echo Backend source: services\knowledge-engine\backend\app
+echo Corpus indexing is handled by scripts\start_indexer.bat.
 uvicorn backend.app.main:app --reload --host 127.0.0.1 --port %PORT%
 set "EXIT_CODE=%ERRORLEVEL%"
 

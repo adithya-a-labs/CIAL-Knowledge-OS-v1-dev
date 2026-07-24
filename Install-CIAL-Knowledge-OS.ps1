@@ -490,19 +490,51 @@ function Ensure-BackendEnv {
         Write-Host "Generated PostgreSQL password and stored it under outputs\installer\runtime."
     }
     Set-EnvFileValue -Path $BackendEnvPath -Values @{
-        "CIAL_AUTO_INDEX_ON_STARTUP" = "true"
+        "CIAL_AUTO_INDEX_ON_STARTUP" = "false"
         "CIAL_FORCE_REBUILD_ON_STARTUP" = "false"
         "CIAL_STARTUP_INDEX_TIMEOUT_SECONDS" = "0"
         "CIAL_APP_DATA_DIR" = "data"
         "CIAL_OUTPUTS_DIR" = "outputs"
         "CIAL_MODELS_DIR" = "models"
         "DATABASE_URL" = $databaseUrl
-        "CIAL_CORPUS_SYNC_ON_STARTUP" = "true"
-        "CIAL_CORPUS_WATCH" = "false"
+        "CIAL_CORPUS_SYNC_ON_STARTUP" = "false"
+        "CIAL_CORPUS_WATCH" = "true"
+        "CIAL_CORPUS_WATCH_DEBOUNCE_MS" = "750"
+        "CIAL_CORPUS_FILE_STABILITY_INTERVAL_MS" = "500"
+        "CIAL_CORPUS_FILE_STABILITY_CHECKS" = "3"
+        "CIAL_CORPUS_RECONCILE_INTERVAL_SECONDS" = "300"
         "CIAL_QDRANT_MODE" = "server"
         "CIAL_QDRANT_URL" = $QdrantUrl
         "CIAL_QDRANT_BATCH_SIZE" = "32"
         "CIAL_QDRANT_UPSERT_WAIT" = "true"
+        "QDRANT_TIMEOUT_SECONDS" = "30"
+        "QDRANT_RETRY_ATTEMPTS" = "3"
+        "QDRANT_RETRY_BACKOFF_SECONDS" = "2"
+        "QDRANT_HEALTH_TIMEOUT_SECONDS" = "5"
+        "QDRANT_QUERY_TIMEOUT_SECONDS" = "30"
+        "QDRANT_UPSERT_TIMEOUT_SECONDS" = "60"
+        "QDRANT_DELETE_TIMEOUT_SECONDS" = "60"
+        "QDRANT_COLLECTION_TIMEOUT_SECONDS" = "120"
+        "CIAL_INDEXER_ENABLED" = "true"
+        "CIAL_INDEXER_WORKER_ID" = ""
+        "CIAL_INDEXER_POLL_SECONDS" = "1"
+        "CIAL_INDEXER_LEASE_SECONDS" = "120"
+        "CIAL_INDEXER_HEARTBEAT_SECONDS" = "15"
+        "CIAL_INDEXER_HEARTBEAT_STALE_SECONDS" = "45"
+        "CIAL_INDEXER_MAX_ATTEMPTS" = "5"
+        "CIAL_INDEXER_RETRY_BACKOFF_SECONDS" = "5"
+        "CIAL_INDEXER_EXTRACTION_WORKERS" = "4"
+        "CIAL_INDEXER_PREPARED_QUEUE_SIZE" = "8"
+        "CIAL_INDEXER_EMBED_QUEUE_SIZE" = "4096"
+        "CIAL_INDEXER_WRITE_QUEUE_SIZE" = "16"
+        "CIAL_INDEXER_EMBED_BATCH_SIZE" = "64"
+        "CIAL_INDEXER_EMBED_MAX_BATCH_TOKENS" = "32768"
+        "CIAL_INDEXER_EMBED_MAX_WAIT_MS" = "75"
+        "CIAL_INDEXER_QDRANT_BATCH_SIZE" = "128"
+        "CIAL_INDEXER_DEVICE" = "auto"
+        "CIAL_INDEXER_PRECISION" = "auto"
+        "CIAL_INDEXER_GPU_POLICY" = "balanced"
+        "CIAL_BM25_REFRESH_DEBOUNCE_SECONDS" = "2"
         "CIAL_OLLAMA_MODEL_NAME" = $OllamaModel
         "CIAL_EMBEDDING_MODEL_NAME" = $EmbeddingModel
         "CIAL_RERANKER_MODEL_NAME" = $RerankerModel
@@ -642,6 +674,10 @@ function Ensure-PythonEnvironment {
     Invoke-Logged -FilePath $PythonExe -Arguments @("-m", "pip", "install", "--upgrade", "--index-url", "https://download.pytorch.org/whl/cu132", "torch==2.13.0") -FailureMessage "CUDA-enabled PyTorch installation failed. CPU-only PyTorch is not allowed."
     Invoke-Logged -FilePath $PythonExe -Arguments @("-m", "pip", "install", "-r", (Join-Path $BackendRoot "requirements.txt")) -FailureMessage "Backend dependency installation failed."
     Invoke-Logged -FilePath $PythonExe -Arguments @("-m", "pip", "install", "-e", $BackendRoot) -FailureMessage "Editable backend package installation failed."
+    & $PythonExe -c "import importlib.metadata, watchdog; print('watchdog=' + importlib.metadata.version('watchdog'))"
+    if ($LASTEXITCODE -ne 0) {
+        Stop-Install "The canonical requirements install did not provide watchdog."
+    }
 }
 
 function Verify-Cuda {
@@ -812,7 +848,8 @@ function Run-Alembic {
         $heads = (& $PythonExe -m alembic heads) -join "`n"
         Write-Host $current
         Write-Host $heads
-        if ($current -notmatch "\(head\)" -and $current -notmatch "20260710_0008") {
+        $headRevision = (($heads -split "\s+")[0]).Trim()
+        if ([string]::IsNullOrWhiteSpace($headRevision) -or $current -notmatch [regex]::Escape($headRevision)) {
             Stop-Install "Alembic current revision is not at repository head."
         }
     }

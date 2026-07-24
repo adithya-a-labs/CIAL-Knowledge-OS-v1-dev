@@ -226,6 +226,21 @@ function Ensure-Ollama {
     }
 }
 
+function Invoke-DatabaseMigrations {
+    Write-Step "Applying metadata database migrations"
+    $previousPythonPath = $env:PYTHONPATH
+    $env:PYTHONPATH = "$BackendRoot;$BackendRoot\src"
+    Push-Location $BackendRoot
+    try {
+        & $PythonExe -m alembic upgrade head
+        if ($LASTEXITCODE -ne 0) { Stop-Launch "Alembic upgrade failed." }
+    }
+    finally {
+        Pop-Location
+        $env:PYTHONPATH = $previousPythonPath
+    }
+}
+
 function Start-Backend {
     Write-Step "Checking backend"
     if (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 5) {
@@ -245,9 +260,26 @@ function Start-Backend {
     if (-not (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 180)) {
         Stop-Launch "Backend did not become reachable. See $out and $err."
     }
-    $ready = Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 300 -Predicate { param($body) $body.engine_ready -eq $true -or $body.status -eq "no_documents" }
+    $ready = Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 300 -Predicate { param($body) $body.api_ready -eq $true }
     if (-not $ready) {
-        Stop-Launch "Backend reached HTTP health but did not become ready. Check backend startup logs."
+        Stop-Launch "Backend reached HTTP health but API readiness failed. Check backend startup logs."
+    }
+}
+
+function Start-Indexer {
+    Write-Step "Checking standalone indexer"
+    if (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 5 -Predicate { param($body) $body.indexer_seen -eq $true }) {
+        Write-Host "A fresh standalone indexer heartbeat already exists."
+        return
+    }
+    $out = Join-Path $LogsRoot "indexer-$Timestamp.out.log"
+    $err = Join-Path $LogsRoot "indexer-$Timestamp.err.log"
+    $previousPythonPath = $env:PYTHONPATH
+    $env:PYTHONPATH = "$BackendRoot;$BackendRoot\src"
+    Start-Process -FilePath $PythonExe -ArgumentList @("backend\indexer_main.py") -WorkingDirectory $BackendRoot -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err | Out-Null
+    $env:PYTHONPATH = $previousPythonPath
+    if (-not (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 300 -Predicate { param($body) $body.indexer_seen -eq $true })) {
+        Stop-Launch "The standalone indexer did not publish a heartbeat. See $out and $err."
     }
 }
 
@@ -282,7 +314,7 @@ function Start-Frontend {
 function Confirm-ApplicationStable {
     Write-Step "Confirming application readiness"
     Start-Sleep -Seconds 3
-    if (-not (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 10 -Predicate { param($body) $body.engine_ready -eq $true -or $body.status -eq "no_documents" })) {
+    if (-not (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 10 -Predicate { param($body) $body.api_ready -eq $true -and $body.indexer_seen -eq $true })) {
         Stop-Launch "Backend readiness was not stable after startup."
     }
     if (-not (Wait-Url -Url "http://127.0.0.1:$FrontendPort/login" -Seconds 10)) {
@@ -296,7 +328,9 @@ try {
     Ensure-Postgres
     Ensure-Qdrant
     Ensure-Ollama
+    Invoke-DatabaseMigrations
     Start-Backend
+    Start-Indexer
     Start-Frontend
     Confirm-ApplicationStable
     $url = "http://127.0.0.1:$FrontendPort/login"
