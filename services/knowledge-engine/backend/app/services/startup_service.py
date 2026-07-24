@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
-from pathlib import Path
 from typing import Any
 
 from backend.app.core.application_config import validate_repository_path
@@ -405,23 +404,13 @@ class StartupService:
     @staticmethod
     def check_qdrant(config: Any) -> tuple[bool, str]:
         try:
-            from qdrant_client import QdrantClient
+            from cial_knowledge_os.vectorstore import create_qdrant_client
         except Exception as exc:  # noqa: BLE001
             return False, f"Qdrant client dependency is unavailable: {exc}"
 
-        client: QdrantClient | None = None
+        client: Any | None = None
         try:
-            if config.qdrant_mode == "server":
-                client = QdrantClient(
-                    url=config.qdrant_url,
-                    api_key=config.qdrant_api_key,
-                )
-            elif config.qdrant_mode == "embedded":
-                Path(config.qdrant_dir).mkdir(parents=True, exist_ok=True)
-                client = QdrantClient(path=str(config.qdrant_dir))
-            else:
-                return False, f"Unsupported Qdrant mode: {config.qdrant_mode}"
-            client.get_collections()
+            client = create_qdrant_client(config)
         except Exception as exc:  # noqa: BLE001
             return False, f"Qdrant is unavailable for mode '{config.qdrant_mode}': {exc}"
         finally:

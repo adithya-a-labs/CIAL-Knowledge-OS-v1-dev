@@ -100,6 +100,7 @@ def run_preflight(
                 client,
                 config.qdrant_collection_name,
                 embedding_dimension=embedding_dimension,
+                config=config,
             )
         except Exception as exc:
             qdrant = {

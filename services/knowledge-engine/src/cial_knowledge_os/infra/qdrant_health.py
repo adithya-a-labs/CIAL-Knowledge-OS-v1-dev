@@ -126,6 +126,7 @@ def check_qdrant_health(
     collection_name: str,
     *,
     embedding_dimension: int | None = None,
+    config: Any | None = None,
 ) -> dict[str, Any]:
     """Check reachability, collection presence, counts, status, and dimensions."""
 
@@ -143,11 +144,30 @@ def check_qdrant_health(
         "errors": [],
     }
     try:
-        collections = client.get_collections()
+        if config is not None:
+            from ..vectorstore import execute_qdrant_operation
+
+            collections = execute_qdrant_operation(
+                config,
+                "health",
+                lambda timeout: client.get_collections(),
+                collection=collection_name,
+            )
+        else:
+            collections = client.get_collections()
         report["reachable"] = True
         exists_method = getattr(client, "collection_exists", None)
         if callable(exists_method):
-            exists = bool(exists_method(collection_name))
+            exists = bool(
+                execute_qdrant_operation(
+                    config,
+                    "collection_exists",
+                    lambda timeout: exists_method(collection_name),
+                    collection=collection_name,
+                )
+                if config is not None
+                else exists_method(collection_name)
+            )
         else:
             exists = collection_name in {
                 str(_value(item, "name"))
@@ -157,8 +177,18 @@ def check_qdrant_health(
         if not exists:
             return {**report, "passed": True}
 
+        collection = (
+            execute_qdrant_operation(
+                config,
+                "get_collection",
+                lambda timeout: client.get_collection(collection_name),
+                collection=collection_name,
+            )
+            if config is not None
+            else client.get_collection(collection_name)
+        )
         parsed = parse_collection_health(
-            client.get_collection(collection_name),
+            collection,
             embedding_dimension=embedding_dimension,
         )
         report.update(parsed)
