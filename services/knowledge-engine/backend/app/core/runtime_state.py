@@ -20,14 +20,21 @@ def utc_now_iso() -> str:
 @dataclass
 class RuntimeState:
     status: RuntimeStatus = "starting"
+    api_ready: bool = False
+    retrieval_ready: bool = False
     engine_available: bool = False
     engine_ready: bool = False
     stage: str = "starting"
     documents_seen: int = 0
     documents_indexed: int = 0
     index_fresh: bool = False
+    indexer_seen: bool = False
+    indexer_state: str = "unknown"
     qdrant_ready: bool = False
     models_ready: bool = False
+    database_ready: bool = False
+    latest_index_generation: int = 0
+    bm25_generation: int = 0
     last_startup_check_at: str | None = None
     last_index_run_at: str | None = None
     message: str = "Backend startup checks have not completed."
@@ -65,6 +72,8 @@ class RuntimeState:
             status="ready",
             stage="ready",
             engine_ready=True,
+            api_ready=True,
+            retrieval_ready=True,
             qdrant_ready=True,
             models_ready=True,
             index_fresh=True,
@@ -83,10 +92,8 @@ class RuntimeState:
     def chat_unavailable_detail(self) -> dict[str, object]:
         state = self.snapshot()
         status = str(state["status"])
-        if status == "no_documents":
-            reason = "no_documents_found"
-        elif status == "indexing":
-            reason = "indexing_in_progress"
+        if not state["retrieval_ready"]:
+            reason = "retrieval_index_unavailable"
         elif not state["engine_available"]:
             reason = "startup_failed"
         elif status == "failed" and not state["qdrant_ready"] and state["documents_seen"]:
@@ -106,6 +113,8 @@ class RuntimeState:
             "phase": "4.5",
             "message": state["message"],
             "engine_ready": state["engine_ready"],
+            "api_ready": state["api_ready"],
+            "retrieval_ready": state["retrieval_ready"],
             "qdrant_ready": state["qdrant_ready"],
             "models_ready": state["models_ready"],
             "documents_seen": state["documents_seen"],

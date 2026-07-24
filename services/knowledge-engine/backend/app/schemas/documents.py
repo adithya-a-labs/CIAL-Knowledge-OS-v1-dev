@@ -51,6 +51,7 @@ class UploadResponse(BaseModel):
     indexed: bool = False
     indexing_status: str = "pending"
     indexing_job_id: str | None = None
+    document_version_id: str | None = None
     content_hash: str | None = None
     duplicate_detected: bool = False
     message: str = "Upload accepted. Background indexing queued."

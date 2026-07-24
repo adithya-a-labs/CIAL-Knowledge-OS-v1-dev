@@ -35,19 +35,58 @@ class IndexingJob(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "indexing_jobs"
     __table_args__ = (
         Index("ix_indexing_jobs_status", "status"),
+        Index(
+            "ix_indexing_jobs_claim_order",
+            "status",
+            "available_at",
+            "priority",
+            "created_at",
+        ),
+        Index("ix_indexing_jobs_lease_recovery", "lease_expires_at", "status"),
         Index("ix_indexing_jobs_document_id", "document_id"),
         Index("ix_indexing_jobs_document_version_id", "document_version_id"),
+        Index("ix_indexing_jobs_note_id", "note_id"),
+        Index("ix_indexing_jobs_note_version_id", "note_version_id"),
         Index("ix_indexing_jobs_content_hash", "content_hash"),
         Index("ix_indexing_jobs_repository_id", "repository_id"),
         Index(
-            "uq_indexing_jobs_active_document_version",
+            "uq_indexing_jobs_active_document_operation",
             "document_version_id",
+            "operation",
             unique=True,
-            postgresql_where=text("document_version_id IS NOT NULL AND status IN ('pending', 'running')"),
+            postgresql_where=text(
+                "document_version_id IS NOT NULL AND status IN "
+                "('pending','claimed','extracting','chunked','embedding','writing','verifying','retry_wait')"
+            ),
+        ),
+        Index(
+            "uq_indexing_jobs_active_note_operation",
+            "note_version_id",
+            "operation",
+            unique=True,
+            postgresql_where=text(
+                "note_version_id IS NOT NULL AND status IN "
+                "('pending','claimed','extracting','chunked','embedding','writing','verifying','retry_wait')"
+            ),
         ),
         CheckConstraint(
-            "status in ('pending', 'running', 'succeeded', 'failed', 'skipped')",
+            "status in ('pending','claimed','extracting','chunked','embedding',"
+            "'writing','verifying','completed','retry_wait','failed',"
+            "'superseded','cancelled')",
             name="ck_indexing_jobs_status",
+        ),
+        CheckConstraint(
+            "operation in ('upsert_version','delete_asset','refresh_metadata',"
+            "'reprocess_version','rebuild_scope')",
+            name="ck_indexing_jobs_operation",
+        ),
+        CheckConstraint(
+            "(operation = 'rebuild_scope') OR "
+            "(asset_type = 'document' AND document_id IS NOT NULL "
+            "AND note_id IS NULL AND note_version_id IS NULL) OR "
+            "(asset_type = 'note' AND note_id IS NOT NULL "
+            "AND document_id IS NULL AND document_version_id IS NULL)",
+            name="ck_indexing_jobs_target_family",
         ),
     )
 
@@ -59,19 +98,78 @@ class IndexingJob(UUIDPrimaryKeyMixin, Base):
         UUID(as_uuid=True),
         ForeignKey("document_versions.id", ondelete="SET NULL"),
     )
+    asset_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="document")
+    note_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("notes.id", ondelete="SET NULL"),
+    )
+    note_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("note_versions.id", ondelete="SET NULL"),
+    )
+    operation: Mapped[str] = mapped_column(Text, nullable=False, server_default="upsert_version")
     content_hash: Mapped[str | None] = mapped_column(Text)
     repository_id: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     force_rebuild: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="5")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    claimed_by: Mapped[str | None] = mapped_column(Text)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(Text)
     error_detail: Mapped[str | None] = mapped_column(Text)
     message: Mapped[str | None] = mapped_column(Text)
     metadata_: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB)
+
+
+class IndexerWorker(Base):
+    """Durable heartbeat and safe operational telemetry for an indexer process."""
+
+    __tablename__ = "indexer_workers"
+
+    worker_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    service_state: Mapped[str] = mapped_column(Text, nullable=False, server_default="starting")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    current_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("indexing_jobs.id", ondelete="SET NULL"),
+    )
+    reconciliation_state: Mapped[str | None] = mapped_column(Text)
+    last_reconciliation_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    embedding_device: Mapped[str | None] = mapped_column(Text)
+    embedding_precision: Mapped[str | None] = mapped_column(Text)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    last_error_code: Mapped[str | None] = mapped_column(Text)
+
+
+class IndexGeneration(Base):
+    """Single-row generation pointer published after verified index commits."""
+
+    __tablename__ = "index_generations"
+
+    name: Mapped[str] = mapped_column(Text, primary_key=True)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    bm25_generation: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    bm25_snapshot_path: Mapped[str | None] = mapped_column(Text)
+    qdrant_collection: Mapped[str | None] = mapped_column(Text)
+    point_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    published_by: Mapped[str | None] = mapped_column(Text)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
 
 class AuditEvent(UUIDPrimaryKeyMixin, Base):
