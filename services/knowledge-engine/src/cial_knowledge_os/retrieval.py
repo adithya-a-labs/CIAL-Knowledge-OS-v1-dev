@@ -13,6 +13,7 @@ from sentence_transformers import SentenceTransformer
 from .config import KnowledgeOSConfig
 from .embeddings import embed_texts
 from .prompts import DEFAULT_PROMPT_MANAGER
+from .vectorstore import execute_qdrant_operation
 
 
 def search_similar_chunks(
@@ -58,12 +59,17 @@ def search_similar_chunks(
                 for value in normalized_paths
             ]
         )
-    response = client.query_points(
-        collection_name=config.qdrant_collection_name,
-        query=query_vector.tolist(),
-        limit=retrieval_limit,
-        with_payload=True,
-        query_filter=query_filter,
+    response = execute_qdrant_operation(
+        config,
+        "query_points",
+        lambda timeout: client.query_points(
+            collection_name=config.qdrant_collection_name,
+            query=query_vector.tolist(),
+            limit=retrieval_limit,
+            with_payload=True,
+            query_filter=query_filter,
+            timeout=timeout,
+        ),
     )
     results: list[dict[str, Any]] = []
     for point in response.points:

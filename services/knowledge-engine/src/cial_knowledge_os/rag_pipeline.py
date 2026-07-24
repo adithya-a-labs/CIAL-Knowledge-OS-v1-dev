@@ -39,6 +39,7 @@ from .vectorstore import (
     create_qdrant_client,
     delete_document_chunks,
     ensure_collection,
+    execute_qdrant_operation,
     index_chunks,
     load_indexed_chunks,
     recreate_collection,
@@ -334,15 +335,24 @@ class BasicRAGPipeline:
         with Timer(self.metrics, "indexing_time"):
             self.client = create_qdrant_client(self.config)
             try:
-                collection_existed = self.client.collection_exists(
-                    self.config.qdrant_collection_name
+                collection_existed = execute_qdrant_operation(
+                    self.config,
+                    "collection_exists",
+                    lambda timeout: self.client.collection_exists(
+                        self.config.qdrant_collection_name
+                    ),
                 )
                 plan = self.indexing_plan
                 previous_point_count = (
                     int(
-                        self.client.count(
-                            collection_name=self.config.qdrant_collection_name,
-                            exact=True,
+                        execute_qdrant_operation(
+                            self.config,
+                            "count",
+                            lambda timeout: self.client.count(
+                                collection_name=self.config.qdrant_collection_name,
+                                exact=True,
+                                timeout=timeout,
+                            ),
                         ).count
                     )
                     if collection_existed
@@ -401,8 +411,12 @@ class BasicRAGPipeline:
                     },
                 )
                 collection_health = parse_collection_health(
-                    self.client.get_collection(
-                        self.config.qdrant_collection_name
+                    execute_qdrant_operation(
+                        self.config,
+                        "get_collection",
+                        lambda timeout: self.client.get_collection(
+                            self.config.qdrant_collection_name
+                        ),
                     ),
                     embedding_dimension=embedding_dimension,
                 )
@@ -439,9 +453,14 @@ class BasicRAGPipeline:
                     and reused_chunks
                     and not plan.force_rebuild
                     and int(
-                        self.client.count(
-                            collection_name=self.config.qdrant_collection_name,
-                            exact=True,
+                        execute_qdrant_operation(
+                            self.config,
+                            "count",
+                            lambda timeout: self.client.count(
+                                collection_name=self.config.qdrant_collection_name,
+                                exact=True,
+                                timeout=timeout,
+                            ),
                         ).count
                     )
                     < reused_chunks
