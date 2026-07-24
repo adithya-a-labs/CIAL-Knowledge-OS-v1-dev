@@ -292,7 +292,9 @@ class PersonalWorkspaceService:
             document.current_version_id = version.id
             job = IndexingJob(
                 document_id=document.id, document_version_id=version.id, content_hash=document.content_hash,
-                repository_id=document.repository_id, status="pending", force_rebuild=False,
+                asset_type="document", operation="upsert_version",
+                repository_id=document.repository_id, status="pending", priority=100,
+                max_attempts=settings.indexer_max_attempts, force_rebuild=False,
                 metadata_={"source": source_type, "action": "added", "document_id": str(document.id),
                     "document_version_id": str(version.id), "relative_path": document.relative_path,
                     "content_hash": document.content_hash, "repository_id": document.repository_id,
@@ -360,14 +362,19 @@ class PersonalWorkspaceService:
         document.indexing_status = "deleted"; document.indexed = False
         active = self.session.scalar(select(IndexingJob).where(
             IndexingJob.document_version_id == document.current_version_id,
-            IndexingJob.status.in_(("pending", "running")),
+            IndexingJob.status.in_(("pending","claimed","extracting","chunked","embedding","writing","verifying","retry_wait")),
         )) if document.current_version_id else None
         if active is not None:
             active.metadata_ = {**(active.metadata_ or {}), "action": "deleted"}
+            active.operation = "delete_asset"
+            active.priority = 120
             job = active
         else:
             job = IndexingJob(document_id=document.id, document_version_id=document.current_version_id,
-                content_hash=document.content_hash, repository_id=document.repository_id, status="pending",
+                asset_type="document", operation="delete_asset",
+                content_hash=document.content_hash, repository_id=document.repository_id,
+                status="pending", priority=120,
+                max_attempts=settings.indexer_max_attempts,
                 force_rebuild=False, attempts=0, message="Personal document deleted.",
                 metadata_={"source":"personal_workspace", "action":"deleted", "document_id":str(document.id),
                            "document_version_id":str(document.current_version_id) if document.current_version_id else None,

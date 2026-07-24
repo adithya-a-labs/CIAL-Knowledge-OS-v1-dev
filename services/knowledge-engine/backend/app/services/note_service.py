@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.orm import Session
 
+from backend.app.core.config import settings
 from backend.app.models.knowledge import Document
 from backend.app.models.operations import AuditEvent, IndexingJob
 from backend.app.models.workspace_content import Note, NoteDocumentLink, NoteIndexState, NoteTag, NoteTagLink, NoteVersion
@@ -121,19 +122,39 @@ class NoteService:
     def _version(self,note,user_id): self.session.add(NoteVersion(note_id=note.id,revision=note.revision,title=note.title,content_json=note.content_json,content_markdown=note.content_markdown,plain_text=note.plain_text,created_by_user_id=user_id))
     def _audit(self,user_id,action,entity_id): self.session.add(AuditEvent(user_id=user_id,actor_user_id=user_id,action=action,entity_type="note",entity_id=entity_id,status="succeeded"))
     def _schedule_index(self,note:Note,action:str):
-        active=list(self.session.scalars(select(IndexingJob).where(IndexingJob.status=="pending",IndexingJob.document_id.is_(None),IndexingJob.document_version_id.is_(None))))
-        pending=next((job for job in active if str((job.metadata_ or {}).get("note_id"))==str(note.id)),None)
+        self.session.flush()
+        note_version=self.session.scalar(select(NoteVersion).where(NoteVersion.note_id==note.id,NoteVersion.revision==note.revision))
+        active=list(self.session.scalars(select(IndexingJob).where(
+            IndexingJob.note_id==note.id,
+            IndexingJob.status.in_(("pending","retry_wait")),
+        )))
+        pending=next((job for job in active if job.note_version_id==(note_version.id if note_version else None)),None)
+        for obsolete in active:
+            if obsolete is not pending:
+                obsolete.status="superseded"
+                obsolete.completed_at=datetime.now(timezone.utc)
+                obsolete.message="Superseded by a newer committed note revision."
         state=self.session.get(NoteIndexState,note.id)
         if state is None:state=NoteIndexState(note_id=note.id,status="pending");self.session.add(state)
         state.status="pending"
         metadata={"entity_type":"note","note_id":str(note.id),"note_revision":note.revision,"action":action,"owner_user_id":str(note.owner_user_id),"workspace_id":str(note.workspace_id)}
         available_at=datetime.now(timezone.utc)+timedelta(seconds=3)
         if pending is None:
-            pending=IndexingJob(status="pending",force_rebuild=False,repository_id=f"personal:{note.owner_user_id}")
+            pending=IndexingJob(
+                asset_type="note", note_id=note.id,
+                note_version_id=note_version.id if note_version else None,
+                operation="delete_asset" if action=="remove" else "upsert_version",
+                status="pending", priority=120 if action=="remove" else 100,
+                force_rebuild=False,
+                max_attempts=settings.indexer_max_attempts,
+                repository_id=f"personal:{note.owner_user_id}",
+            )
             self.session.add(pending)
         pending.content_hash=hashlib.sha256((note.content_markdown or "").encode()).hexdigest()
+        pending.operation="delete_asset" if action=="remove" else "upsert_version"
         pending.metadata_=metadata
         pending.available_at=available_at
+        pending.priority=120 if action=="remove" else 100
         pending.message="Coalescing note changes before incremental indexing."
         pending.attempts=0
         self.session.flush();self.last_index_job_id=pending.id

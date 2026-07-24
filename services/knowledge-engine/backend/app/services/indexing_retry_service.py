@@ -161,7 +161,7 @@ class IndexingRetryService:
             return None
         return self.session.scalar(select(IndexingJob).where(
             IndexingJob.document_version_id == version_id,
-            IndexingJob.status.in_(("pending", "running")),
+            IndexingJob.status.in_(("pending","claimed","extracting","chunked","embedding","writing","verifying","retry_wait")),
         ).with_for_update().limit(1))
 
     def _new_version(self, document: Document, previous: DocumentVersion, artifact: Path, content_hash: str, now: datetime) -> DocumentVersion:
@@ -181,7 +181,9 @@ class IndexingRetryService:
     def _new_job(self, document: Document, version: DocumentVersion, *, action: str, message: str) -> IndexingJob:
         job = IndexingJob(
             document_id=document.id, document_version_id=version.id, content_hash=version.content_hash,
-            repository_id=document.repository_id, status="pending", force_rebuild=False, attempts=0,
+            asset_type="document", operation="reprocess_version",
+            repository_id=document.repository_id, status="pending", priority=90,
+            max_attempts=settings.indexer_max_attempts, force_rebuild=False, attempts=0,
             message=message, metadata_={
                 "source": "manual_retry", "action": action, "manual_retry": True, "stage": "queued",
                 "document_id": str(document.id), "document_version_id": str(version.id),

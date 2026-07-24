@@ -1,95 +1,69 @@
-"""Indexing service state and coordination."""
+"""API-facing durable indexing coordination; no vector work runs here."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from typing import Any
+import uuid
 
 from backend.app.core.runtime_state import RuntimeState
-from .knowledge_engine_service import KnowledgeEngineService
-
-
-_STAGE_MESSAGES = {
-    "load": "Loading documents for index rebuild.",
-    "loaded": "Documents loaded for index rebuild.",
-    "chunk": "Chunking documents for index rebuild.",
-    "chunked": "Documents chunked for index rebuild.",
-    "embed": "Embedding chunks for index rebuild.",
-    "embedded": "Chunk embeddings created for index rebuild.",
-    "index": "Writing vector and BM25 indexes.",
-    "indexed": "Indexes updated; loading Phase 4 reranker.",
-    "reranker": "Loading Phase 4 reranker.",
-    "ready": "Index rebuild pipeline initialization completed.",
-}
+from backend.app.services.indexing_queue import DurableIndexQueue
+from backend.app.services.knowledge_engine_service import KnowledgeEngineService
 
 
 class IndexingService:
     def __init__(self, engine: KnowledgeEngineService, runtime_state: RuntimeState) -> None:
         self.engine = engine
         self.runtime_state = runtime_state
+        self.queue = DurableIndexQueue()
 
-    def status(self) -> dict[str, object]:
-        return self.runtime_state.snapshot()
-
-    def rebuild(self, *, force: bool) -> dict[str, object]:
-        self.runtime_state.update(
-            status="indexing",
-            stage="indexing",
-            engine_ready=False,
-            index_fresh=False,
-            message="Index rebuild is running.",
-        )
+    def status(self) -> dict[str, Any]:
         try:
-            counts = self.engine.prepare_pipeline(
-                force_rebuild_index=force,
-                on_stage=self._on_pipeline_stage,
-            )
-            models_ready, model_message = self.engine.check_ollama_model()
-        except Exception as exc:  # noqa: BLE001 - route returns runtime state.
-            message = str(exc)
+            queue_status = self.queue.status()
+        except Exception:
+            queue_status = {
+                "indexer_state": "unknown",
+                "indexer_seen": False,
+                "queue_counts": {},
+                "queue_by_operation": {},
+                "latest_index_generation": 0,
+                "bm25_generation": 0,
+            }
+        if (
+            not self.runtime_state.retrieval_ready
+            and int(queue_status.get("latest_index_generation") or 0) > 0
+            and self.engine.refresh_query_runtime_if_needed()
+        ):
             self.runtime_state.update(
-                status="failed",
-                engine_ready=False,
-                qdrant_ready=False if "qdrant" in message.casefold() else self.runtime_state.snapshot()["qdrant_ready"],
-                models_ready=False if "model" in message.casefold() else self.runtime_state.snapshot()["models_ready"],
-                index_fresh=False,
-                last_index_run_at=datetime.now(timezone.utc).isoformat(),
-                message=message,
+                status="ready",
+                stage="ready",
+                retrieval_ready=True,
+                engine_ready=True,
+                index_fresh=bool(queue_status.get("index_fresh")),
+                message="Query runtime activated from the latest committed index generation.",
             )
-            return self.runtime_state.snapshot()
+        payload = {**self.runtime_state.snapshot(), **queue_status}
+        # Never expose a local absolute snapshot path through an admin-neutral
+        # health endpoint.
+        payload.pop("bm25_snapshot_path", None)
+        payload["engine_ready"] = bool(payload.get("retrieval_ready"))
+        return payload
 
-        ready = bool(models_ready and self.engine.is_ready())
-        if ready:
-            self.runtime_state.set_ready(
-                message="Index rebuild completed.",
-                documents_seen=counts["documents_seen"],
-                documents_indexed=counts["documents_indexed"],
-            )
-        else:
-            self.runtime_state.update(
-                status="degraded",
-                stage="loading_reranker",
-                engine_ready=False,
-                qdrant_ready=True,
-                models_ready=False,
-                documents_seen=counts["documents_seen"],
-                documents_indexed=counts["documents_indexed"],
-                index_fresh=True,
-                last_index_run_at=datetime.now(timezone.utc).isoformat(),
-                message=model_message,
-            )
-        return self.runtime_state.snapshot()
-
-    def _on_pipeline_stage(self, stage: str, counts: dict[str, int]) -> None:
-        values: dict[str, object] = {
-            "status": "indexing",
-            "stage": stage,
-            "engine_ready": False,
-            "message": _STAGE_MESSAGES.get(stage, f"Index rebuild stage: {stage}."),
+    def rebuild(
+        self,
+        *,
+        force: bool,
+        scope: dict[str, Any] | None = None,
+        requested_by: uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        job = self.queue.enqueue_control(
+            request_kind="rebuild",
+            scope=scope,
+            requested_by=requested_by,
+            force=force,
+            priority=10,
+        )
+        return {
+            "status": "accepted",
+            "job_id": str(job.id),
+            "message": "Rebuild request queued for the standalone indexer.",
         }
-        if counts.get("documents_seen"):
-            values["documents_seen"] = counts["documents_seen"]
-        if stage in {"indexed", "reranker", "ready"}:
-            values["documents_indexed"] = counts["documents_indexed"]
-            values["index_fresh"] = bool(counts["documents_indexed"])
-            values["last_index_run_at"] = datetime.now(timezone.utc).isoformat()
-        self.runtime_state.update(**values)

@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 import shutil
 import uuid
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Callable
 
 from backend.app.core.config import settings
 from backend.app.db.session import SessionLocal
@@ -87,13 +87,10 @@ class DocumentService:
         stream: BinaryIO,
         *,
         corpus_sync: Any | None = None,
-        indexing_worker: Any | None = None,
+        metadata_enqueue: Callable[[Path], dict[str, str]] | None = None,
         access_context: RequestAccessContext | None = None,
     ) -> UploadResponse:
-        """Save an uploaded file, create metadata + indexing job, trigger background indexing.
-
-        Pipeline: Upload → Save → Hash → Dedup check → Corpus Sync → Indexing Job → Background Index
-        """
+        """Save an upload and durably enqueue it without API-process indexing."""
         if not self.root.is_dir():
             raise FileNotFoundError(f"Configured corpus directory does not exist: {self.root}")
         safe_name = self._safe_filename(filename)
@@ -152,22 +149,30 @@ class DocumentService:
                 message="Duplicate content detected. File saved but indexing skipped — content already indexed.",
             )
 
-        # Run corpus sync to create metadata + version + indexing job
+        # Register the exact upload transactionally. The full sync callback is
+        # retained only as a compatibility fallback for older explicit tools.
         indexing_job_id: str | None = None
-        if corpus_sync is not None:
+        document_id: str | None = None
+        document_version_id: str | None = None
+        if metadata_enqueue is not None or corpus_sync is not None:
             try:
-                summary = corpus_sync()
-                logger.info(
-                    "upload_corpus_sync_completed",
-                    extra={
-                        "event": "upload",
-                        "document_filename": safe_name,
-                        "files_added": summary.files_added if hasattr(summary, "files_added") else 0,
-                        "indexing_jobs_created": summary.indexing_jobs_created if hasattr(summary, "indexing_jobs_created") else 0,
-                    },
-                )
-                # Get the job id from the newly created job
-                indexing_job_id = self._find_latest_job_for_hash(content_hash)
+                if metadata_enqueue is not None:
+                    registered = metadata_enqueue(destination)
+                    document_id = registered.get("document_id")
+                    document_version_id = registered.get("document_version_id")
+                    indexing_job_id = registered.get("indexing_job_id")
+                else:
+                    summary = corpus_sync()
+                    logger.info(
+                        "upload_corpus_sync_completed",
+                        extra={
+                            "event": "upload",
+                            "document_filename": safe_name,
+                            "files_added": summary.files_added if hasattr(summary, "files_added") else 0,
+                            "indexing_jobs_created": summary.indexing_jobs_created if hasattr(summary, "indexing_jobs_created") else 0,
+                        },
+                    )
+                    indexing_job_id = self._find_latest_job_for_hash(content_hash)
             except Exception as exc:
                 logger.exception("upload_corpus_sync_failed")
                 return UploadResponse(
@@ -179,18 +184,10 @@ class DocumentService:
                     modified_at=modified_at,
                     indexed=False,
                     indexing_status="failed",
+                    document_version_id=document_version_id,
                     content_hash=content_hash,
                     message=f"File saved but metadata sync failed: {exc}",
                 )
-
-        # Trigger background indexing
-        if indexing_worker is not None:
-            try:
-                import uuid as _uuid
-                job_uuid = _uuid.UUID(indexing_job_id) if indexing_job_id else None
-                indexing_worker.enqueue(job_uuid)
-            except Exception:
-                logger.exception("upload_indexing_enqueue_failed")
 
         logger.info(
             "upload_accepted",
@@ -203,7 +200,7 @@ class DocumentService:
         )
 
         return UploadResponse(
-            id=hashlib.sha1(relative.encode("utf-8")).hexdigest()[:16],
+            id=document_id or hashlib.sha1(relative.encode("utf-8")).hexdigest()[:16],
             name=destination.name,
             path=relative,
             type=file_type,
@@ -212,6 +209,7 @@ class DocumentService:
             indexed=False,
             indexing_status="pending",
             indexing_job_id=indexing_job_id,
+            document_version_id=document_version_id,
             content_hash=content_hash,
             message="Upload accepted. Background indexing queued.",
         )
