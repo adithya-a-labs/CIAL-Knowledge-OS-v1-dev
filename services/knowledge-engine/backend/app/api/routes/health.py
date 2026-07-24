@@ -14,10 +14,7 @@ router = APIRouter()
 def health(request: Request) -> dict[str, object]:
     runtime = request.app.state.runtime_state.snapshot()
     database = check_database_health().as_dict()
-    worker = getattr(request.app.state, "indexing_worker", None)
-    watcher = getattr(request.app.state, "corpus_watcher", None)
-    workspace_watcher = getattr(request.app.state, "workspace_watcher", None)
-    indexing = worker.status() if worker is not None else {"index_worker_ready": False}
+    indexing = request.app.state.indexing_service.status()
     return {
         "status": runtime["status"],
         "service": settings.app_name,
@@ -43,8 +40,7 @@ def health(request: Request) -> dict[str, object]:
         "index_fresh": runtime["index_fresh"],
         "message": runtime["message"],
         "watcher_enabled": settings.corpus_watch,
-        "watcher_ready": bool(watcher and watcher.ready and workspace_watcher and workspace_watcher.ready),
-        "watcher_last_error": getattr(watcher, "last_error", None) or getattr(workspace_watcher, "last_error", None),
+        "watcher_ready": bool(indexing.get("indexer_seen")),
         **indexing,
         **database,
     }

@@ -18,6 +18,7 @@ from backend.app.schemas.settings import (
 )
 from backend.app.security.access import can_manage_settings, resolve_access_context
 from backend.app.services.document_service import DocumentService
+from backend.app.services.indexing_queue import DurableIndexQueue
 from cial_knowledge_os.corpus.service import CorpusService
 
 router = APIRouter()
@@ -81,15 +82,18 @@ def save_enterprise_repository(
     )
     request.app.state.corpus_service = corpus_service
     request.app.state.document_service = DocumentService(root=settings.corpus_root_path)
-    if hasattr(request.app.state, "indexing_worker"):
-        request.app.state.indexing_worker.corpus_sync = corpus_service.sync
+    DurableIndexQueue().enqueue_control(
+        request_kind="reconcile",
+        requested_by=access_context.principal.user_id,
+        priority=90,
+    )
     if hasattr(request.app.state, "runtime_state"):
         request.app.state.runtime_state.update(
             engine_ready=False,
             index_fresh=False,
             message=(
                 "Enterprise repository setting saved. "
-                "Run Corpus Sync or Rebuild Index to apply repository contents."
+                "Reconciliation was queued for the standalone indexer."
             ),
         )
 

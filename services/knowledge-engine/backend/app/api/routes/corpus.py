@@ -19,6 +19,7 @@ from backend.app.services.document_preview_service import (
 from backend.app.services.document_rendering_service import rendered_response
 from cial_knowledge_os.corpus.service import CorpusServiceUnavailable
 from cial_knowledge_os.corpus.metadata import document_to_dict
+from backend.app.services.indexing_queue import DurableIndexQueue
 
 router = APIRouter()
 
@@ -38,7 +39,7 @@ def _apply_retry_permissions(payload: dict[str, object], *, can_retry_enterprise
     return payload
 
 
-@router.post("/corpus/sync")
+@router.post("/corpus/sync", status_code=status.HTTP_202_ACCEPTED)
 def corpus_sync(request: Request) -> dict[str, object]:
     access_context = resolve_access_context(request)
     if not can_sync_corpus(access_context):
@@ -46,10 +47,16 @@ def corpus_sync(request: Request) -> dict[str, object]:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to synchronize corpus metadata.",
         )
-    try:
-        return request.app.state.corpus_service.sync().to_dict()
-    except CorpusServiceUnavailable as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    job = DurableIndexQueue().enqueue_control(
+        request_kind="reconcile",
+        requested_by=access_context.principal.user_id,
+        priority=90,
+    )
+    return {
+        "status": "accepted",
+        "job_id": str(job.id),
+        "message": "Corpus reconciliation queued for the standalone indexer.",
+    }
 
 
 @router.get("/corpus/tree")

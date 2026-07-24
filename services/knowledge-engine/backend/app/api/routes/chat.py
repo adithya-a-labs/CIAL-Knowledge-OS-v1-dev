@@ -78,8 +78,6 @@ def upload_chat_attachment(request: Request, file: UploadFile = File(...), sessi
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    worker = getattr(request.app.state, "indexing_worker", None)
-    if worker is not None: worker.enqueue(uuid.UUID(str(payload["indexing_job_id"])))
     return ChatAttachmentResponse(document_id=payload["id"], document_version_id=payload["document_version_id"],
         name=payload["name"], size_bytes=payload["size_bytes"], mime_type=payload.get("mime_type"),
         indexing_status=payload["status"], indexing_job_id=payload["indexing_job_id"],

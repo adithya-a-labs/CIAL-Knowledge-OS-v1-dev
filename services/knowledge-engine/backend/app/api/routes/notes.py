@@ -22,28 +22,24 @@ def call(request:Request, svc:NoteService, method:str,*args):
     except NoteConflict as exc:
         raise HTTPException(409,detail=conflict_detail(exc)) from exc
     except ValueError as exc: raise HTTPException(422,detail=str(exc)) from exc
-def enqueue(request:Request,svc:NoteService):
-    worker=getattr(request.app.state,"indexing_worker",None)
-    if worker is not None and svc.last_index_job_id is not None: worker.enqueue(svc.last_index_job_id)
-
 @router.get("/workspaces/me/notes",response_model=NoteList)
 def list_notes(request:Request,query:str="",filter:str="all",tag_id:uuid.UUID|None=None,cursor:str|None=None,limit:int=Query(25,ge=1,le=100),svc:NoteService=Depends(service)): return call(request,svc,"list",query,filter,tag_id,cursor,limit)
 @router.post("/workspaces/me/notes",response_model=NoteRecord,status_code=201)
 def create_note(payload:NoteCreate,request:Request,svc:NoteService=Depends(service)):
-    result=call(request,svc,"create",payload.title);enqueue(request,svc);return result
+    return call(request,svc,"create",payload.title)
 @router.get("/workspaces/me/notes/{note_id}",response_model=NoteRecord)
 def get_note(note_id:uuid.UUID,request:Request,svc:NoteService=Depends(service)): return call(request,svc,"get",note_id)
 @router.patch("/workspaces/me/notes/{note_id}",response_model=NoteRecord)
 def update_note(note_id:uuid.UUID,payload:NoteUpdate,request:Request,svc:NoteService=Depends(service)):
-    result=call(request,svc,"update",note_id,payload);enqueue(request,svc);return result
+    return call(request,svc,"update",note_id,payload)
 @router.delete("/workspaces/me/notes/{note_id}",status_code=204)
-def delete_note(note_id:uuid.UUID,request:Request,svc:NoteService=Depends(service)): call(request,svc,"delete",note_id);enqueue(request,svc)
+def delete_note(note_id:uuid.UUID,request:Request,svc:NoteService=Depends(service)): call(request,svc,"delete",note_id)
 @router.post("/workspaces/me/notes/{note_id}/restore",response_model=NoteRecord)
 def restore_note(note_id:uuid.UUID,request:Request,svc:NoteService=Depends(service)):
-    result=call(request,svc,"restore",note_id);enqueue(request,svc);return result
+    return call(request,svc,"restore",note_id)
 @router.post("/workspaces/me/notes/{note_id}/duplicate",response_model=NoteRecord,status_code=201)
 def duplicate_note(note_id:uuid.UUID,request:Request,svc:NoteService=Depends(service)):
-    result=call(request,svc,"duplicate",note_id);enqueue(request,svc);return result
+    return call(request,svc,"duplicate",note_id)
 @router.get("/workspaces/me/notes/{note_id}/versions")
 def note_versions(note_id:uuid.UUID,request:Request,svc:NoteService=Depends(service)): return {"items":call(request,svc,"versions",note_id)}
 @router.get("/workspaces/me/note-tags")
