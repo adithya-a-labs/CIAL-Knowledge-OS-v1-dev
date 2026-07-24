@@ -50,7 +50,10 @@ class QdrantClientModeTests(unittest.TestCase):
             config = KnowledgeOSConfig(project_root=Path(directory))
             result = create_qdrant_client(config)
 
-        client_class.assert_called_once_with(path=str(config.qdrant_dir))
+        client_class.assert_called_once_with(
+            path=str(config.qdrant_dir),
+            timeout=30,
+        )
         self.assertIs(result, client_class.return_value)
         client_class.return_value.get_collections.assert_not_called()
 
@@ -65,9 +68,20 @@ class QdrantClientModeTests(unittest.TestCase):
         )
         result = create_qdrant_client(config)
 
-        client_class.assert_called_once_with(
-            url="http://qdrant.internal:6333",
-            api_key="local-secret",
+        self.assertEqual(
+            client_class.call_args_list,
+            [
+                call(
+                    url="http://qdrant.internal:6333",
+                    api_key="local-secret",
+                    timeout=5,
+                ),
+                call(
+                    url="http://qdrant.internal:6333",
+                    api_key="local-secret",
+                    timeout=30,
+                ),
+            ],
         )
         client_class.return_value.get_collections.assert_called_once_with()
         self.assertIs(result, client_class.return_value)
@@ -154,7 +168,13 @@ class QdrantIndexBatchTests(unittest.TestCase):
             [point.payload["metadata"] for point in points],
             [chunk.metadata for chunk in chunks],
         )
-        self.assertEqual(len(captured.records), 3)
+        self.assertEqual(
+            sum(
+                getattr(record, "event", None) == "qdrant_upsert"
+                for record in captured.records
+            ),
+            3,
+        )
 
 
 class MigrationTests(unittest.TestCase):
