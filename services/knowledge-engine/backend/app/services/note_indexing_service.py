@@ -1,6 +1,6 @@
 """Incremental, revision-safe indexing for private Notes."""
 from __future__ import annotations
-import hashlib, re, uuid
+import hashlib, logging, re, uuid
 from datetime import datetime, timezone
 from typing import Any
 from langchain_core.documents import Document as LangchainDocument
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from backend.app.models.identity import User
 from backend.app.models.workspace_content import Note, NoteIndexState
 from cial_knowledge_os.embeddings import embed_texts
+from cial_knowledge_os.vectorstore import execute_qdrant_operation
 
 
 def note_relative_path(note_id: uuid.UUID | str) -> str:
@@ -59,9 +60,31 @@ class NoteIndexingService:
             chunk_id=f"note:{note.id}:{note.revision}:{index}"; point_id=str(uuid.uuid5(uuid.NAMESPACE_URL,chunk_id))
             metadata={"entity_type":"note","note_id":str(note.id),"note_revision":note.revision,"workspace_id":str(note.workspace_id),"organization_id":str(note.organization_id),"repository_id":f"personal:{note.owner_user_id}","storage_scope":"personal","owner_user_id":str(note.owner_user_id),"department_id":str(department_id) if department_id else None,"folder_id":None,"visibility":"private","lifecycle_status":"active","title":note.title,"file_name":note.title,"relative_path":note_relative_path(note.id),"section":section,"block_ids":[block_id],"block_id":block_id,"chunk_index":index,"chunk_id":chunk_id,"content_hash":digest,"created_at":note.created_at.isoformat(),"updated_at":note.updated_at.isoformat()}
             chunks.append(LangchainDocument(page_content=body,metadata=metadata));points.append(PointStruct(id=point_id,vector=vector.tolist(),payload={"text":body,"metadata":metadata}))
-        if points: pipeline.client.upsert(collection_name=pipeline.config.qdrant_collection_name,points=points,wait=True)
+        if points:
+            execute_qdrant_operation(
+                pipeline.config,
+                "upsert",
+                lambda timeout: pipeline.client.upsert(
+                    collection_name=pipeline.config.qdrant_collection_name,
+                    points=points,
+                    wait=True,
+                    timeout=timeout,
+                ),
+                affected_count=len(points),
+            )
         current={str(point.id) for point in points}; previous=self._point_ids(pipeline,note.id); stale=[value for value in previous if value not in current]
-        if stale: pipeline.client.delete(collection_name=pipeline.config.qdrant_collection_name,points_selector=PointIdsList(points=stale),wait=True)
+        if stale:
+            execute_qdrant_operation(
+                pipeline.config,
+                "delete",
+                lambda timeout: pipeline.client.delete(
+                    collection_name=pipeline.config.qdrant_collection_name,
+                    points_selector=PointIdsList(points=stale),
+                    wait=True,
+                    timeout=timeout,
+                ),
+                affected_count=len(stale),
+            )
         self._refresh_lexical(pipeline,note.id,chunks)
         state=self.session.get(NoteIndexState,note.id)
         if note.revision==revision:
@@ -70,12 +93,31 @@ class NoteIndexingService:
     def _point_ids(self,pipeline,note_id):
         ids=[];offset=None;query=Filter(must=[FieldCondition(key="metadata.note_id",match=MatchValue(value=str(note_id)))])
         while True:
-            points,offset=pipeline.client.scroll(collection_name=pipeline.config.qdrant_collection_name,scroll_filter=query,limit=128,offset=offset,with_payload=False,with_vectors=False);ids.extend(str(point.id) for point in points)
+            logging.getLogger(__name__).info(
+                "qdrant_scroll_usage",
+                extra={"event":"qdrant_scroll_usage","collection":pipeline.config.qdrant_collection_name,
+                       "limit":128,"purpose":"note_revision_cleanup"},
+            )
+            points,offset=execute_qdrant_operation(
+                pipeline.config,"scroll",
+                lambda timeout:pipeline.client.scroll(
+                    collection_name=pipeline.config.qdrant_collection_name,
+                    scroll_filter=query,limit=128,offset=offset,with_payload=False,
+                    with_vectors=False,timeout=timeout,
+                ),
+            );ids.extend(str(point.id) for point in points)
             if offset is None:break
         return ids
     def _delete_all(self,pipeline,note_id):
         ids=self._point_ids(pipeline,note_id)
-        if ids:pipeline.client.delete(collection_name=pipeline.config.qdrant_collection_name,points_selector=PointIdsList(points=ids),wait=True)
+        if ids:
+            execute_qdrant_operation(
+                pipeline.config,"delete",
+                lambda timeout:pipeline.client.delete(
+                    collection_name=pipeline.config.qdrant_collection_name,
+                    points_selector=PointIdsList(points=ids),wait=True,timeout=timeout,
+                ),affected_count=len(ids),
+            )
         return len(ids)
     @staticmethod
     def _refresh_lexical(pipeline,note_id,chunks):

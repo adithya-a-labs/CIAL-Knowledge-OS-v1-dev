@@ -104,6 +104,7 @@ def _server_collection_requires_rebuild(config: Any) -> bool:
     try:
         from qdrant_client import QdrantClient
         from cial_knowledge_os.incremental_index import load_manifest
+        from cial_knowledge_os.vectorstore import execute_qdrant_operation
     except Exception:  # noqa: BLE001 - the normal pipeline path will report this.
         return False
 
@@ -115,15 +116,32 @@ def _server_collection_requires_rebuild(config: Any) -> bool:
     if not previous:
         return False
 
-    client: QdrantClient | None = None
+    client: Any | None = None
     try:
         client = QdrantClient(
             url=config.qdrant_url,
             api_key=config.qdrant_api_key,
+            timeout=max(
+                1,
+                int(round(getattr(config, "qdrant_timeout_seconds", 30.0))),
+            ),
         )
-        if not client.collection_exists(config.qdrant_collection_name):
+        exists = execute_qdrant_operation(
+            config,
+            "collection_exists",
+            lambda timeout: client.collection_exists(
+                config.qdrant_collection_name
+            ),
+        )
+        if not exists:
             return True
-        collection = client.get_collection(config.qdrant_collection_name)
+        collection = execute_qdrant_operation(
+            config,
+            "get_collection",
+            lambda timeout: client.get_collection(
+                config.qdrant_collection_name
+            ),
+        )
         return int(getattr(collection, "points_count", 0) or 0) == 0
     except Exception:  # noqa: BLE001 - preserve existing pipeline/preflight errors.
         return False
@@ -322,7 +340,9 @@ class KnowledgeEngineService:
             self._emit_stage(on_stage, "index", pipeline)
             removed = replace_document_chunks(
                 pipeline.client, chunks, embeddings, pipeline.config,
-                document_id=str(document_id), execution_manager=pipeline.execution_manager,
+                document_id=str(document_id),
+                document_version_id=str(document_version_id),
+                execution_manager=pipeline.execution_manager,
             )
             update_manifest_entry(
                 manifest_path=pipeline.config.document_manifest_path,
@@ -573,6 +593,14 @@ class KnowledgeEngineService:
             qdrant_api_key=settings.qdrant_api_key,
             qdrant_batch_size=settings.qdrant_batch_size,
             qdrant_upsert_wait=settings.qdrant_upsert_wait,
+            qdrant_timeout_seconds=settings.qdrant_timeout_seconds,
+            qdrant_retry_attempts=settings.qdrant_retry_attempts,
+            qdrant_retry_backoff_seconds=settings.qdrant_retry_backoff_seconds,
+            qdrant_health_timeout_seconds=settings.qdrant_health_timeout_seconds,
+            qdrant_query_timeout_seconds=settings.qdrant_query_timeout_seconds,
+            qdrant_upsert_timeout_seconds=settings.qdrant_upsert_timeout_seconds,
+            qdrant_delete_timeout_seconds=settings.qdrant_delete_timeout_seconds,
+            qdrant_collection_timeout_seconds=settings.qdrant_collection_timeout_seconds,
             ollama_model_name=settings.ollama_model_name,
             embedding_model_name=settings.embedding_model_name,
             reranker_model_name=settings.reranker_model_name,
