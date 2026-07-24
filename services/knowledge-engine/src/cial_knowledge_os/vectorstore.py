@@ -6,9 +6,11 @@ import logging
 import shutil
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import httpx
 import numpy as np
 from langchain_core.documents import Document
 from qdrant_client import QdrantClient
@@ -18,7 +20,6 @@ from qdrant_client.models import (
     Filter,
     FilterSelector,
     MatchValue,
-    PointIdsList,
     PointStruct,
     VectorParams,
 )
@@ -38,6 +39,141 @@ _SERVER_ERROR_TEMPLATE = """Qdrant server mode is enabled but {url} is not reach
 docker compose -f docker-compose.qdrant.yml up -d
 or restart an existing container with:
 docker start cial-qdrant"""
+
+
+def _operation_timeout(config: KnowledgeOSConfig, operation: str) -> int:
+    if operation in {"health", "get_collections"}:
+        value = getattr(config, "qdrant_health_timeout_seconds", 5.0)
+    elif operation in {"query_points", "scroll", "retrieve", "count"}:
+        value = getattr(config, "qdrant_query_timeout_seconds", 30.0)
+    elif operation == "upsert":
+        value = getattr(config, "qdrant_upsert_timeout_seconds", 60.0)
+    elif operation == "delete":
+        value = getattr(config, "qdrant_delete_timeout_seconds", 60.0)
+    else:
+        value = getattr(config, "qdrant_collection_timeout_seconds", 120.0)
+    return max(1, int(round(value)))
+
+
+def _status_code(exc: BaseException) -> int | None:
+    for candidate in (exc, getattr(exc, "response", None)):
+        value = getattr(candidate, "status_code", None)
+        if isinstance(value, int):
+            return value
+    return None
+
+
+def is_transient_qdrant_error(exc: BaseException) -> bool:
+    """Classify network/timeouts/5xx failures without retrying bad requests."""
+
+    visited: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        status = _status_code(current)
+        if status is not None:
+            return status >= 500 or status in {408, 429}
+        if isinstance(
+            current,
+            (
+                httpx.ReadTimeout,
+                httpx.ConnectTimeout,
+                httpx.ConnectError,
+                httpx.NetworkError,
+                ConnectionError,
+                TimeoutError,
+            ),
+        ):
+            return True
+        current = (
+            getattr(current, "__cause__", None)
+            or getattr(current, "__context__", None)
+        )
+    return False
+
+
+def execute_qdrant_operation(
+    config: KnowledgeOSConfig,
+    operation: str,
+    call: Callable[[int], Any],
+    *,
+    collection: str | None = None,
+    affected_count: int | None = None,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> Any:
+    """Run one Qdrant operation with bounded transient-only retries."""
+
+    timeout_seconds = _operation_timeout(config, operation)
+    collection_name = collection or config.qdrant_collection_name
+    started = time.perf_counter()
+    logger.info(
+        "qdrant_operation_started",
+        extra={
+            "event": "qdrant_operation_started",
+            "operation": operation,
+            "collection": collection_name,
+            "timeout_seconds": timeout_seconds,
+        },
+    )
+    retry_attempts = int(getattr(config, "qdrant_retry_attempts", 3))
+    retry_backoff = float(
+        getattr(config, "qdrant_retry_backoff_seconds", 2.0)
+    )
+    for attempt in range(1, retry_attempts + 1):
+        try:
+            result = call(timeout_seconds)
+        except Exception as exc:
+            transient = is_transient_qdrant_error(exc)
+            if transient and attempt < retry_attempts:
+                delay = retry_backoff * (2 ** (attempt - 1))
+                logger.warning(
+                    "qdrant_operation_retry",
+                    extra={
+                        "event": "qdrant_operation_retry",
+                        "operation": operation,
+                        "collection": collection_name,
+                        "attempt": attempt + 1,
+                        "exception_type": type(exc).__name__,
+                        "timeout_seconds": timeout_seconds,
+                    },
+                )
+                sleep_fn(delay)
+                continue
+            logger.error(
+                "qdrant_operation_failed",
+                extra={
+                    "event": "qdrant_operation_failed",
+                    "operation": operation,
+                    "collection": collection_name,
+                    "duration_ms": int((time.perf_counter() - started) * 1000),
+                    "exception_type": type(exc).__name__,
+                    "affected_count": affected_count,
+                },
+            )
+            raise
+        logger.info(
+            "qdrant_operation_completed",
+            extra={
+                "event": "qdrant_operation_completed",
+                "operation": operation,
+                "collection": collection_name,
+                "duration_ms": int((time.perf_counter() - started) * 1000),
+                "affected_count": affected_count,
+            },
+        )
+        return result
+    raise RuntimeError("Qdrant retry loop exhausted unexpectedly.")
+
+
+def _update_completed(result: Any) -> bool:
+    status = getattr(result, "status", None)
+    if status is None:
+        return True
+    raw_value = getattr(status, "value", status)
+    if not isinstance(raw_value, str):
+        return True
+    value = raw_value.casefold()
+    return value in {"acknowledged", "completed"}
 
 
 def _raise_useful_lock_error(exc: Exception) -> None:
@@ -63,19 +199,40 @@ def create_qdrant_client(config: KnowledgeOSConfig) -> QdrantClient:
     if config.qdrant_mode == "embedded":
         config.qdrant_dir.mkdir(parents=True, exist_ok=True)
         try:
-            return QdrantClient(path=str(config.qdrant_dir))
+            return QdrantClient(
+                path=str(config.qdrant_dir),
+                timeout=max(1, int(round(config.qdrant_timeout_seconds))),
+            )
         except Exception as exc:
             _raise_useful_lock_error(exc)
             raise
     if config.qdrant_mode == "server":
         client: QdrantClient | None = None
+        probe: QdrantClient | None = None
         try:
+            probe = QdrantClient(
+                url=config.qdrant_url,
+                api_key=config.qdrant_api_key,
+                timeout=max(
+                    1,
+                    int(round(config.qdrant_health_timeout_seconds)),
+                ),
+            )
+            execute_qdrant_operation(
+                config,
+                "health",
+                lambda timeout: probe.get_collections(),
+            )
+            probe.close()
+            probe = None
             client = QdrantClient(
                 url=config.qdrant_url,
                 api_key=config.qdrant_api_key,
+                timeout=max(1, int(round(config.qdrant_timeout_seconds))),
             )
-            client.get_collections()
         except Exception as exc:
+            if probe is not None:
+                probe.close()
             if client is not None:
                 client.close()
             raise RuntimeError(
@@ -91,8 +248,22 @@ def reset_qdrant_storage(config: KnowledgeOSConfig) -> None:
     if config.qdrant_mode == "server":
         client = create_qdrant_client(config)
         try:
-            if client.collection_exists(config.qdrant_collection_name):
-                client.delete_collection(config.qdrant_collection_name)
+            exists = execute_qdrant_operation(
+                config,
+                "collection_exists",
+                lambda timeout: client.collection_exists(
+                    config.qdrant_collection_name
+                ),
+            )
+            if exists:
+                execute_qdrant_operation(
+                    config,
+                    "delete_collection",
+                    lambda timeout: client.delete_collection(
+                        config.qdrant_collection_name,
+                        timeout=timeout,
+                    ),
+                )
         finally:
             client.close()
         return
@@ -118,20 +289,51 @@ def recreate_collection(
     """
 
     try:
-        if client.collection_exists(config.qdrant_collection_name):
-            client.delete_collection(config.qdrant_collection_name)
-        client.create_collection(
-            collection_name=config.qdrant_collection_name,
-            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+        exists = execute_qdrant_operation(
+            config,
+            "collection_exists",
+            lambda timeout: client.collection_exists(
+                config.qdrant_collection_name
+            ),
+        )
+        if exists:
+            execute_qdrant_operation(
+                config,
+                "delete_collection",
+                lambda timeout: client.delete_collection(
+                    config.qdrant_collection_name,
+                    timeout=timeout,
+                ),
+            )
+        execute_qdrant_operation(
+            config,
+            "create_collection",
+            lambda timeout: client.create_collection(
+                collection_name=config.qdrant_collection_name,
+                vectors_config=VectorParams(
+                    size=vector_size,
+                    distance=Distance.COSINE,
+                ),
+                timeout=timeout,
+            ),
         )
     except Exception as exc:
         _raise_useful_lock_error(exc)
 
 
-def _collection_vector_size(client: QdrantClient, collection_name: str) -> int:
+def _collection_vector_size(
+    client: QdrantClient,
+    collection_name: str,
+    config: KnowledgeOSConfig,
+) -> int:
     """Read the size of the collection's unnamed dense-vector configuration."""
 
-    collection = client.get_collection(collection_name)
+    collection = execute_qdrant_operation(
+        config,
+        "get_collection",
+        lambda timeout: client.get_collection(collection_name),
+        collection=collection_name,
+    )
     vectors = collection.config.params.vectors
     if isinstance(vectors, dict):
         raise ValueError(
@@ -155,17 +357,29 @@ def ensure_collection(
         raise ValueError("Embedding vector size must be greater than zero.")
     collection_name = config.qdrant_collection_name
     try:
-        if not client.collection_exists(collection_name):
-            client.create_collection(
-                collection_name=collection_name,
-                vectors_config=VectorParams(
-                    size=vector_size,
-                    distance=Distance.COSINE,
+        exists = execute_qdrant_operation(
+            config,
+            "collection_exists",
+            lambda timeout: client.collection_exists(collection_name),
+            collection=collection_name,
+        )
+        if not exists:
+            execute_qdrant_operation(
+                config,
+                "create_collection",
+                lambda timeout: client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=VectorParams(
+                        size=vector_size,
+                        distance=Distance.COSINE,
+                    ),
+                    timeout=timeout,
                 ),
+                collection=collection_name,
             )
             return
 
-        existing_size = _collection_vector_size(client, collection_name)
+        existing_size = _collection_vector_size(client, collection_name, config)
         if existing_size != vector_size:
             raise ValueError(
                 f"Qdrant collection '{collection_name}' expects vectors of size "
@@ -229,6 +443,7 @@ def index_chunks(
     expected_size = _collection_vector_size(
         client,
         config.qdrant_collection_name,
+        config,
     )
     actual_size = int(embeddings.shape[1])
     if actual_size != expected_size:
@@ -273,11 +488,19 @@ def index_chunks(
             )
         ]
         try:
-            client.upsert(
-                collection_name=config.qdrant_collection_name,
-                points=points,
-                wait=config.qdrant_upsert_wait,
+            result = execute_qdrant_operation(
+                config,
+                "upsert",
+                lambda timeout: client.upsert(
+                    collection_name=config.qdrant_collection_name,
+                    points=points,
+                    wait=config.qdrant_upsert_wait,
+                    timeout=timeout,
+                ),
+                affected_count=len(points),
             )
+            if not _update_completed(result):
+                raise RuntimeError("Qdrant upsert did not complete successfully.")
         except Exception as exc:
             _raise_useful_lock_error(exc)
         elapsed = time.perf_counter() - started_at
@@ -344,9 +567,27 @@ def load_document_chunks(
     records: list[tuple[str, Document]] = []
     offset: Any | None = None
     while True:
-        points, offset = client.scroll(
-            collection_name=config.qdrant_collection_name, scroll_filter=Filter(must=must),
-            limit=256, offset=offset, with_payload=True, with_vectors=False,
+        logger.info(
+            "qdrant_scroll_usage",
+            extra={
+                "event": "qdrant_scroll_usage",
+                "collection": config.qdrant_collection_name,
+                "limit": 256,
+                "purpose": "target_document_version_verification",
+            },
+        )
+        points, offset = execute_qdrant_operation(
+            config,
+            "scroll",
+            lambda timeout: client.scroll(
+                collection_name=config.qdrant_collection_name,
+                scroll_filter=Filter(must=must),
+                limit=256,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+                timeout=timeout,
+            ),
         )
         for point in points:
             payload = point.payload or {}
@@ -365,20 +606,108 @@ def replace_document_chunks(
     config: KnowledgeOSConfig,
     *,
     document_id: str,
+    document_version_id: str,
     execution_manager: Any | None = None,
 ) -> int:
-    """Upsert one current version, then remove only stale points for that document."""
-    previous = load_document_chunks(client, config, document_id=document_id)
-    current_ids = {_stable_point_id(chunk) for chunk in chunks}
-    index_chunks(client, chunks, embeddings, config, execution_manager=execution_manager)
-    stale_ids = [point_id for point_id, _ in previous if point_id not in current_ids]
-    if stale_ids:
-        client.delete(
+    """Replace one document version with native filtered deletion and verification."""
+
+    started = time.perf_counter()
+    query_filter = Filter(
+        must=[
+            FieldCondition(
+                key="metadata.document_id",
+                match=MatchValue(value=document_id),
+            ),
+            FieldCondition(
+                key="metadata.document_version_id",
+                match=MatchValue(value=document_version_id),
+            ),
+        ]
+    )
+    count_result = execute_qdrant_operation(
+        config,
+        "count",
+        lambda timeout: client.count(
             collection_name=config.qdrant_collection_name,
-            points_selector=PointIdsList(points=stale_ids),
+            count_filter=query_filter,
+            exact=True,
+            timeout=timeout,
+        ),
+    )
+    deleted_count = int(count_result.count)
+    delete_result = execute_qdrant_operation(
+        config,
+        "delete",
+        lambda timeout: client.delete(
+            collection_name=config.qdrant_collection_name,
+            points_selector=FilterSelector(filter=query_filter),
             wait=True,
+            timeout=timeout,
+        ),
+        affected_count=deleted_count,
+    )
+    if not _update_completed(delete_result):
+        raise RuntimeError("Qdrant filtered delete did not complete successfully.")
+
+    expected_ids = [_stable_point_id(chunk) for chunk in chunks]
+    if len(set(expected_ids)) != len(expected_ids):
+        raise ValueError("Replacement chunks produced duplicate Qdrant point ids.")
+    index_chunks(client, chunks, embeddings, config, execution_manager=execution_manager)
+
+    verified_count = int(
+        execute_qdrant_operation(
+            config,
+            "count",
+            lambda timeout: client.count(
+                collection_name=config.qdrant_collection_name,
+                count_filter=query_filter,
+                exact=True,
+                timeout=timeout,
+            ),
+        ).count
+    )
+    if verified_count != len(chunks):
+        raise RuntimeError(
+            "Qdrant replacement verification failed: "
+            f"expected {len(chunks)} points, found {verified_count}."
         )
-    return len(stale_ids)
+    records = (
+        execute_qdrant_operation(
+            config,
+            "retrieve",
+            lambda timeout: client.retrieve(
+                collection_name=config.qdrant_collection_name,
+                ids=expected_ids,
+                with_payload=True,
+                with_vectors=False,
+                timeout=timeout,
+            ),
+            affected_count=len(expected_ids),
+        )
+        if expected_ids
+        else []
+    )
+    if len(records) != len(expected_ids):
+        raise RuntimeError("Qdrant replacement verification could not retrieve all points.")
+    for record in records:
+        metadata = dict((record.payload or {}).get("metadata") or {})
+        if (
+            str(metadata.get("document_id")) != document_id
+            or str(metadata.get("document_version_id")) != document_version_id
+        ):
+            raise RuntimeError("Qdrant replacement verification found mismatched metadata.")
+    logger.info(
+        "document_chunk_replacement_verified",
+        extra={
+            "event": "document_chunk_replacement_verified",
+            "document_id": document_id,
+            "document_version_id": document_version_id,
+            "chunks_deleted": deleted_count,
+            "chunks_inserted": len(chunks),
+            "duration_ms": int((time.perf_counter() - started) * 1000),
+        },
+    )
+    return deleted_count
 
 
 def _document_filter(
@@ -424,7 +753,14 @@ def delete_document_chunks(
 ) -> int:
     """Delete and return the number of points belonging to one document."""
 
-    if not client.collection_exists(config.qdrant_collection_name):
+    exists = execute_qdrant_operation(
+        config,
+        "collection_exists",
+        lambda timeout: client.collection_exists(
+            config.qdrant_collection_name
+        ),
+    )
+    if not exists:
         return 0
     query_filter = _document_filter(
         document_id=document_id,
@@ -433,17 +769,30 @@ def delete_document_chunks(
     )
     try:
         removed = int(
-            client.count(
-                collection_name=config.qdrant_collection_name,
-                count_filter=query_filter,
-                exact=True,
+            execute_qdrant_operation(
+                config,
+                "count",
+                lambda timeout: client.count(
+                    collection_name=config.qdrant_collection_name,
+                    count_filter=query_filter,
+                    exact=True,
+                    timeout=timeout,
+                ),
             ).count
         )
-        client.delete(
-            collection_name=config.qdrant_collection_name,
-            points_selector=FilterSelector(filter=query_filter),
-            wait=True,
+        result = execute_qdrant_operation(
+            config,
+            "delete",
+            lambda timeout: client.delete(
+                collection_name=config.qdrant_collection_name,
+                points_selector=FilterSelector(filter=query_filter),
+                wait=True,
+                timeout=timeout,
+            ),
+            affected_count=removed,
         )
+        if not _update_completed(result):
+            raise RuntimeError("Qdrant filtered delete did not complete successfully.")
         return removed
     except Exception as exc:
         _raise_useful_lock_error(exc)
@@ -456,7 +805,14 @@ def load_indexed_chunks(
 ) -> list[Document]:
     """Read the complete stored chunk corpus for BM25 and notebook inspection."""
 
-    if not client.collection_exists(config.qdrant_collection_name):
+    exists = execute_qdrant_operation(
+        config,
+        "collection_exists",
+        lambda timeout: client.collection_exists(
+            config.qdrant_collection_name
+        ),
+    )
+    if not exists:
         return []
     chunks: list[Document] = []
     offset: Any | None = None
@@ -473,13 +829,27 @@ def load_indexed_chunks(
                         )
                     ]
                 )
-            points, offset = client.scroll(
-                collection_name=config.qdrant_collection_name,
-                limit=256,
-                offset=offset,
-                with_payload=True,
-                with_vectors=False,
-                scroll_filter=query_filter,
+            logger.info(
+                "qdrant_scroll_usage",
+                extra={
+                    "event": "qdrant_scroll_usage",
+                    "collection": config.qdrant_collection_name,
+                    "limit": 256,
+                    "purpose": "bm25_index_reconstruction",
+                },
+            )
+            points, offset = execute_qdrant_operation(
+                config,
+                "scroll",
+                lambda timeout: client.scroll(
+                    collection_name=config.qdrant_collection_name,
+                    limit=256,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                    scroll_filter=query_filter,
+                    timeout=timeout,
+                ),
             )
             for point in points:
                 payload = point.payload or {}
