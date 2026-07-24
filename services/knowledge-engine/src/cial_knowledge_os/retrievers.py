@@ -130,7 +130,7 @@ class BM25Retriever:
         self,
         allowed_relative_paths: frozenset[str] | None,
     ) -> None:
-        if not allowed_relative_paths:
+        if allowed_relative_paths is None:
             self.allowed_relative_paths = None
             return
         self.allowed_relative_paths = frozenset(
@@ -140,7 +140,7 @@ class BM25Retriever:
         )
 
     def _is_allowed(self, chunk: Mapping[str, Any]) -> bool:
-        if not self.allowed_relative_paths:
+        if self.allowed_relative_paths is None:
             return True
         metadata = chunk.get("metadata")
         metadata = metadata if isinstance(metadata, Mapping) else {}
@@ -280,7 +280,7 @@ class BM25Retriever:
             return []
         chunks = self._chunks
         active_index = self._index
-        if self.allowed_relative_paths:
+        if self.allowed_relative_paths is not None:
             cache_key = hashlib.sha256((self._fingerprint or "").encode() + b"\0" + "\0".join(sorted(self.allowed_relative_paths)).encode()).hexdigest()
             cached = self._authorized_indexes.get(cache_key)
             if cached is None:
@@ -308,7 +308,7 @@ class BM25Retriever:
         for index in ranked_indexes:
             score = float(scores[index])
             if score <= 0:
-                if not self.allowed_relative_paths:
+                if self.allowed_relative_paths is None:
                     continue
                 overlap=len(set(tokens).intersection(self.tokenizer(chunks[index]["text"])))
                 if overlap<=0: continue

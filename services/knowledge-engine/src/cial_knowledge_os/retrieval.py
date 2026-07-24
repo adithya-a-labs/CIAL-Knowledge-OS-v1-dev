@@ -34,6 +34,17 @@ def search_similar_chunks(
     retrieval_limit = config.top_k if top_k is None else top_k
     if retrieval_limit <= 0:
         raise ValueError("top_k must be greater than zero.")
+    normalized_paths: list[str] | None = None
+    if allowed_relative_paths is not None:
+        normalized_paths = sorted(
+            {
+                str(value).replace("\\", "/").strip("/")
+                for value in allowed_relative_paths
+                if str(value).strip()
+            }
+        )
+        if not normalized_paths:
+            return []
     query_vector = embed_texts(embedding_model, [query])[0]
     filter_must = []
     repository_id = None if allowed_relative_paths is not None else getattr(config, "repository_id", None)
@@ -45,10 +56,7 @@ def search_similar_chunks(
             )
         )
     query_filter = Filter(must=filter_must) if filter_must else None
-    if allowed_relative_paths:
-        normalized_paths = sorted({str(value).replace("\\", "/").strip("/") for value in allowed_relative_paths if str(value).strip()})
-        if not normalized_paths:
-            return []
+    if normalized_paths is not None:
         query_filter = Filter(
             must=filter_must,
             should=[

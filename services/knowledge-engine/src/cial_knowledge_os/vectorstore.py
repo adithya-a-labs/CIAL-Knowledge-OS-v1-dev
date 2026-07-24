@@ -799,6 +799,108 @@ def delete_document_chunks(
         raise
 
 
+def delete_stale_document_versions(
+    client: QdrantClient,
+    config: KnowledgeOSConfig,
+    *,
+    document_id: str,
+    keep_document_version_id: str,
+) -> int:
+    """Delete older versions only after the caller verified the new version."""
+
+    query_filter = Filter(
+        must=[
+            FieldCondition(
+                key="metadata.document_id",
+                match=MatchValue(value=document_id),
+            )
+        ],
+        must_not=[
+            FieldCondition(
+                key="metadata.document_version_id",
+                match=MatchValue(value=keep_document_version_id),
+            )
+        ],
+    )
+    removed = int(
+        execute_qdrant_operation(
+            config,
+            "count",
+            lambda timeout: client.count(
+                collection_name=config.qdrant_collection_name,
+                count_filter=query_filter,
+                exact=True,
+                timeout=timeout,
+            ),
+        ).count
+    )
+    if removed:
+        result = execute_qdrant_operation(
+            config,
+            "delete",
+            lambda timeout: client.delete(
+                collection_name=config.qdrant_collection_name,
+                points_selector=FilterSelector(filter=query_filter),
+                wait=True,
+                timeout=timeout,
+            ),
+            affected_count=removed,
+        )
+        if not _update_completed(result):
+            raise RuntimeError("Qdrant stale-version cleanup did not complete.")
+    return removed
+
+
+def delete_document_version(
+    client: QdrantClient,
+    config: KnowledgeOSConfig,
+    *,
+    document_id: str,
+    document_version_id: str,
+) -> int:
+    """Delete one exact version with a native payload filter and no scroll."""
+
+    query_filter = Filter(
+        must=[
+            FieldCondition(
+                key="metadata.document_id",
+                match=MatchValue(value=document_id),
+            ),
+            FieldCondition(
+                key="metadata.document_version_id",
+                match=MatchValue(value=document_version_id),
+            ),
+        ]
+    )
+    removed = int(
+        execute_qdrant_operation(
+            config,
+            "count",
+            lambda timeout: client.count(
+                collection_name=config.qdrant_collection_name,
+                count_filter=query_filter,
+                exact=True,
+                timeout=timeout,
+            ),
+        ).count
+    )
+    if removed:
+        result = execute_qdrant_operation(
+            config,
+            "delete",
+            lambda timeout: client.delete(
+                collection_name=config.qdrant_collection_name,
+                points_selector=FilterSelector(filter=query_filter),
+                wait=True,
+                timeout=timeout,
+            ),
+            affected_count=removed,
+        )
+        if not _update_completed(result):
+            raise RuntimeError("Qdrant exact-version cleanup did not complete.")
+    return removed
+
+
 def load_indexed_chunks(
     client: QdrantClient,
     config: KnowledgeOSConfig,
