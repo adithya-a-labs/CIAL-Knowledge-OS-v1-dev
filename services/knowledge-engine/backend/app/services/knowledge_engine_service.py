@@ -16,8 +16,9 @@ from backend.app.core.config import settings
 from backend.app.core.paths import KNOWLEDGE_ENGINE_SRC, REPO_ROOT
 from backend.app.db.session import SessionLocal
 from backend.app.models.knowledge import Document, DocumentChunk, DocumentVersion, Folder
+from backend.app.models.operations import IndexGeneration
 from backend.app.models.workspace_content import Note, NoteIndexState
-from backend.app.services.note_indexing_service import _blocks as note_blocks, note_relative_path
+from backend.app.services.note_indexing_service import note_relative_path
 from backend.app.security.access import (
     RequestAccessContext,
     anonymous_access_context,
@@ -169,6 +170,9 @@ class KnowledgeEngineService:
         self._target_update_lock = Lock()
         self._embedding_lock = Lock()
         self._query_lock = Lock()
+        self._loaded_generation = 0
+        self._loaded_bm25_generation = 0
+        self._cached_embedding_model: Any | None = None
         self._load_engine_symbols()
 
     @property
@@ -219,6 +223,214 @@ class KnowledgeEngineService:
                 on_stage=on_stage,
                 force_reindex_paths=force_reindex_paths,
             )
+
+    def prepare_query_runtime(self) -> dict[str, Any]:
+        """Initialize retrieval without scanning, extracting, embedding, or writing."""
+
+        return self._prepare_live_runtime(create_collection=False, load_reranker=True)
+
+    def prepare_indexer_runtime(self) -> dict[str, Any]:
+        """Load the embedding model once and attach the shared server collection."""
+
+        if settings.qdrant_mode.casefold() != "server":
+            raise KnowledgeEngineUnavailable(
+                "The standalone indexer requires CIAL_QDRANT_MODE=server; "
+                "embedded Qdrant cannot be shared safely with the API."
+            )
+        runtime = self._prepare_live_runtime(create_collection=True, load_reranker=False)
+        pipeline = self._pipeline
+        if pipeline is None:
+            return runtime
+        device = str(getattr(pipeline.embedding_model, "device", settings.indexer_device))
+        precision = settings.indexer_precision
+        if precision == "auto":
+            precision = "float16" if device.startswith("cuda") else "float32"
+        if precision == "float16":
+            half = getattr(pipeline.embedding_model, "half", None)
+            if callable(half):
+                half()
+        elif precision == "bfloat16":
+            bfloat16 = getattr(pipeline.embedding_model, "bfloat16", None)
+            if callable(bfloat16):
+                bfloat16()
+            else:
+                raise KnowledgeEngineUnavailable(
+                    "The configured embedding model does not support bfloat16."
+                )
+        runtime["embedding_precision"] = precision
+        return runtime
+
+    def _prepare_live_runtime(self, *, create_collection: bool, load_reranker: bool) -> dict[str, Any]:
+        if not self.engine_available:
+            raise KnowledgeEngineUnavailable(self._engine_error_message())
+        from cial_knowledge_os.bm25_snapshot import load_bm25_snapshot
+        from cial_knowledge_os.embeddings import get_embedding_dimension, load_embedding_model
+        from cial_knowledge_os.vectorstore import create_qdrant_client, ensure_collection
+
+        config = self.build_config(force_rebuild_index=False)
+        config.embedding_device = settings.indexer_device if create_collection else config.embedding_device
+        if create_collection:
+            config.qdrant_batch_size = settings.indexer_qdrant_batch_size
+        pipeline = self._phase4_pipeline_cls(config)
+        client = None
+        try:
+            if self._cached_embedding_model is None:
+                self._cached_embedding_model = load_embedding_model(config)
+            pipeline.embedding_model = self._cached_embedding_model
+            client = create_qdrant_client(config)
+            collection_exists = bool(client.collection_exists(config.qdrant_collection_name))
+            if create_collection:
+                ensure_collection(
+                    client,
+                    config,
+                    get_embedding_dimension(pipeline.embedding_model),
+                )
+                collection_exists = True
+            if not collection_exists:
+                client.close()
+                return {
+                    "retrieval_ready": False,
+                    "qdrant_ready": True,
+                    "collection_exists": False,
+                    "message": (
+                        "The API is ready, but no retrieval index exists yet. "
+                        "Start the standalone indexer to build the first generation."
+                    ),
+                }
+            pipeline.client = client
+            client = None
+            pipeline._ensure_retrievers()
+            generation = None
+            if SessionLocal is not None:
+                with SessionLocal() as session:
+                    generation = session.get(IndexGeneration, "active")
+            snapshot_path = (
+                Path(generation.bm25_snapshot_path)
+                if generation is not None and generation.bm25_snapshot_path
+                else settings.bm25_path / "continuous" / "current.json"
+            )
+            snapshot = load_bm25_snapshot(snapshot_path)
+            chunks = []
+            if snapshot is not None:
+                from langchain_core.documents import Document as LangchainDocument
+
+                chunks = [
+                    LangchainDocument(
+                        page_content=str(item.get("text") or ""),
+                        metadata=dict(item.get("metadata") or {}),
+                    )
+                    for item in snapshot.chunks
+                ]
+            pipeline.chunks = chunks
+            if pipeline.bm25_retriever is not None:
+                pipeline.bm25_retriever.index(chunks)
+            if load_reranker:
+                self._load_reranker(pipeline)
+            self.set_pipeline(pipeline)
+            self._loaded_generation = int(generation.generation or 0) if generation is not None else 0
+            self._loaded_bm25_generation = (
+                int(generation.bm25_generation or 0) if generation is not None else 0
+            )
+            actual_device = str(getattr(pipeline.embedding_model, "device", config.embedding_device))
+            return {
+                "retrieval_ready": True,
+                "qdrant_ready": True,
+                "collection_exists": True,
+                "generation": self._loaded_generation,
+                "bm25_generation": self._loaded_bm25_generation,
+                "bm25_chunks": len(chunks),
+                "embedding_device": actual_device,
+                "message": "Query runtime loaded from the latest committed index generation.",
+            }
+        except Exception:
+            if client is not None:
+                client.close()
+            close = getattr(pipeline, "close", None)
+            if callable(close):
+                close()
+            raise
+
+    def refresh_query_runtime_if_needed(self) -> bool:
+        """Atomically replace only the BM25 snapshot when a generation advances."""
+
+        if SessionLocal is None:
+            return False
+        from cial_knowledge_os.bm25_snapshot import load_bm25_snapshot
+        from cial_knowledge_os.retrievers import BM25Retriever
+
+        try:
+            with SessionLocal() as session:
+                generation = session.get(IndexGeneration, "active")
+        except Exception:
+            logger.warning("index_generation_check_failed", exc_info=True)
+            return False
+        with self._lock:
+            pipeline_present = self._pipeline is not None
+        if (
+            not pipeline_present
+            and generation is not None
+            and int(generation.generation or 0) > 0
+        ):
+            with self._index_lock:
+                with self._lock:
+                    if self._pipeline is not None:
+                        return True
+                try:
+                    runtime = self.prepare_query_runtime()
+                except Exception:
+                    logger.warning("query_runtime_generation_activation_failed", exc_info=True)
+                    return False
+                return bool(runtime.get("retrieval_ready"))
+        if generation is None or int(generation.bm25_generation or 0) <= self._loaded_bm25_generation:
+            return False
+        if not generation.bm25_snapshot_path:
+            return False
+        snapshot = load_bm25_snapshot(Path(generation.bm25_snapshot_path))
+        if snapshot is None:
+            logger.warning("bm25_generation_snapshot_unavailable")
+            return False
+        from langchain_core.documents import Document as LangchainDocument
+
+        chunks = [
+            LangchainDocument(
+                page_content=str(item.get("text") or ""),
+                metadata=dict(item.get("metadata") or {}),
+            )
+            for item in snapshot.chunks
+        ]
+        with self._query_lock:
+            with self._lock:
+                pipeline = self._pipeline
+            if pipeline is None:
+                return False
+            lexical = BM25Retriever(
+                k1=pipeline.config.bm25_k1,
+                b=pipeline.config.bm25_b,
+                cache_path=Path(pipeline.config.bm25_cache_dir) / pipeline.config.bm25_cache_filename,
+            )
+            lexical.index(chunks)
+            lexical.set_allowed_relative_paths(
+                getattr(pipeline.bm25_retriever, "allowed_relative_paths", None)
+            )
+            pipeline.chunks = chunks
+            pipeline.bm25_retriever = lexical
+            pipeline._retrievers = {}
+            pipeline._injected_retrievers = {
+                **getattr(pipeline, "_injected_retrievers", {}),
+                "bm25": lexical,
+            }
+            pipeline._ensure_retrievers()
+            self._loaded_generation = int(generation.generation or 0)
+            self._loaded_bm25_generation = int(generation.bm25_generation or 0)
+        logger.info(
+            "bm25_generation_reloaded",
+            extra={
+                "event": "bm25_generation_reloaded",
+                "generation": self._loaded_bm25_generation,
+                "chunk_count": len(chunks),
+            },
+        )
+        return True
 
     def _prepare_pipeline_locked(
         self, *, force_rebuild_index: bool, response_length: str,
@@ -375,6 +587,225 @@ class KnowledgeEngineService:
                 "chunks_indexed": len(chunks), "stale_points_removed": removed})
             return {"documents_seen": 1, "documents_indexed": 1, "chunks_indexed": len(chunks)}
 
+    def extract_document_version(
+        self,
+        document_id: uuid.UUID,
+        document_version_id: uuid.UUID,
+    ) -> list[Any]:
+        """CPU-only extraction/chunking for one immutable managed version."""
+
+        pipeline = self._ready_pipeline("standard")
+        if SessionLocal is None:
+            raise KnowledgeEngineUnavailable("Targeted extraction requires PostgreSQL.")
+        with SessionLocal() as session:
+            document = session.get(Document, document_id)
+            version = session.get(DocumentVersion, document_version_id)
+            if (
+                document is None
+                or version is None
+                or version.document_id != document.id
+                or document.current_version_id != version.id
+            ):
+                raise ValueError("The current document version is unavailable for extraction.")
+            trusted_metadata = self._trusted_chunk_metadata(document, version)
+            root = (
+                settings.workspace_root_path.resolve()
+                if document.storage_scope == "personal"
+                else settings.corpus_root_path.resolve()
+            )
+            storage_key = str(version.storage_key or document.relative_path or "")
+        candidate = root / storage_key
+        if candidate.is_symlink():
+            raise ValueError("The managed artifact cannot be accessed safely.")
+        try:
+            artifact = candidate.resolve(strict=True)
+        except (OSError, RuntimeError):
+            raise ValueError("The managed artifact is unavailable.") from None
+        if root not in artifact.parents or not artifact.is_file():
+            raise ValueError("The managed artifact cannot be accessed safely.")
+
+        from cial_knowledge_os.chunking import chunk_documents
+        from cial_knowledge_os.loaders import load_pdf_paths
+
+        documents = load_pdf_paths([artifact], corpus_root=root, config=pipeline.config)
+        if not documents:
+            raise ValueError("The managed artifact did not produce indexable content.")
+        for item in documents:
+            item.metadata.update(trusted_metadata)
+        chunks = chunk_documents(documents, pipeline.config)
+        if not chunks:
+            raise ValueError("The managed artifact did not produce indexable chunks.")
+        return chunks
+
+    def embed_chunk_batch(self, chunks: list[Any], *, batch_size: int) -> Any:
+        """GPU-only batch operation; the model was loaded once at process start."""
+
+        pipeline = self._ready_pipeline("standard")
+        from cial_knowledge_os.embeddings import embed_texts
+
+        with self._embedding_lock:
+            return embed_texts(
+                pipeline.embedding_model,
+                [chunk.page_content for chunk in chunks],
+                batch_size=batch_size,
+            )
+
+    def write_document_version(
+        self,
+        document_id: uuid.UUID,
+        document_version_id: uuid.UUID,
+        chunks: list[Any],
+        embeddings: Any,
+    ) -> dict[str, int]:
+        """Write, verify, then remove stale versions and commit chunk metadata."""
+
+        pipeline = self._ready_pipeline("standard")
+        from cial_knowledge_os.vectorstore import (
+            _stable_point_id,
+            delete_document_version,
+            delete_stale_document_versions,
+            replace_document_chunks,
+        )
+
+        if SessionLocal is None:
+            raise KnowledgeEngineUnavailable("Targeted indexing requires PostgreSQL.")
+        with SessionLocal() as session:
+            document = session.get(Document, document_id)
+            version = session.get(DocumentVersion, document_version_id)
+            if (
+                document is None
+                or version is None
+                or document.current_version_id != version.id
+                or document.deleted_at is not None
+                or document.lifecycle_status == "deleted"
+            ):
+                raise ValueError("The indexing version is no longer current.")
+        replaced = replace_document_chunks(
+            pipeline.client,
+            chunks,
+            embeddings,
+            pipeline.config,
+            document_id=str(document_id),
+            document_version_id=str(document_version_id),
+            execution_manager=pipeline.execution_manager,
+        )
+        with SessionLocal() as session, session.begin():
+            document = session.scalar(
+                select(Document).where(Document.id == document_id).with_for_update()
+            )
+            version = session.get(DocumentVersion, document_version_id)
+            if (
+                document is None
+                or version is None
+                or document.current_version_id != version.id
+                or document.deleted_at is not None
+                or document.lifecycle_status == "deleted"
+            ):
+                delete_document_version(
+                    pipeline.client,
+                    pipeline.config,
+                    document_id=str(document_id),
+                    document_version_id=str(document_version_id),
+                )
+                raise ValueError("The indexed version is no longer current.")
+            stale = delete_stale_document_versions(
+                pipeline.client,
+                pipeline.config,
+                document_id=str(document_id),
+                keep_document_version_id=str(document_version_id),
+            )
+            session.query(DocumentChunk).filter(
+                DocumentChunk.document_id == document_id
+            ).delete(synchronize_session=False)
+            for index, chunk in enumerate(chunks):
+                item = dict(chunk.metadata)
+                session.add(
+                    DocumentChunk(
+                        document_id=document_id,
+                        document_version_id=document_version_id,
+                        chunk_id=str(item.get("chunk_id") or f"{document_id}:{index}"),
+                        chunk_index=index,
+                        qdrant_point_id=_stable_point_id(chunk),
+                        page=item.get("page_number"),
+                        section=item.get("section"),
+                        text=chunk.page_content,
+                        text_preview=chunk.page_content[:500],
+                        token_count=item.get("token_count"),
+                        metadata_=item,
+                    )
+                )
+            document.indexed = True
+            document.indexing_status = "indexed"
+            document.lifecycle_status = "indexed"
+            from datetime import datetime, timezone
+
+            document.indexed_at = datetime.now(timezone.utc)
+            version.status = "indexed"
+        return {
+            "chunks_indexed": len(chunks),
+            "same_version_points_replaced": replaced,
+            "stale_points_removed": stale,
+        }
+
+    def delete_document_asset(self, document_id: uuid.UUID) -> int:
+        pipeline = self._ready_pipeline("standard")
+        from cial_knowledge_os.vectorstore import delete_document_chunks
+
+        removed = delete_document_chunks(
+            pipeline.client,
+            pipeline.config,
+            document_id=str(document_id),
+        )
+        if SessionLocal is not None:
+            with SessionLocal() as session, session.begin():
+                session.query(DocumentChunk).filter(
+                    DocumentChunk.document_id == document_id
+                ).delete(synchronize_session=False)
+        return removed
+
+    def refresh_document_metadata(self, document_id: uuid.UUID) -> int:
+        """Refresh authoritative access/path payloads without embeddings or scroll."""
+
+        pipeline = self._ready_pipeline("standard")
+        if SessionLocal is None:
+            raise KnowledgeEngineUnavailable("Metadata refresh requires PostgreSQL.")
+        from cial_knowledge_os.vectorstore import execute_qdrant_operation
+
+        updated = 0
+        with SessionLocal() as session, session.begin():
+            document = session.get(Document, document_id)
+            if document is None or document.current_version_id is None:
+                raise ValueError("The document metadata target is unavailable.")
+            version = session.get(DocumentVersion, document.current_version_id)
+            if version is None:
+                raise ValueError("The document version metadata is unavailable.")
+            trusted = self._trusted_chunk_metadata(document, version)
+            rows = list(
+                session.scalars(
+                    select(DocumentChunk).where(DocumentChunk.document_id == document_id)
+                )
+            )
+            for row in rows:
+                metadata = {**(row.metadata_ or {}), **trusted}
+                point_id = row.qdrant_point_id
+                if not point_id:
+                    continue
+                execute_qdrant_operation(
+                    pipeline.config,
+                    "set_payload",
+                    lambda timeout, pid=point_id, payload=metadata: pipeline.client.set_payload(
+                        collection_name=pipeline.config.qdrant_collection_name,
+                        payload={"metadata": payload},
+                        points=[pid],
+                        wait=True,
+                        timeout=timeout,
+                    ),
+                    affected_count=1,
+                )
+                row.metadata_ = metadata
+                updated += 1
+        return updated
+
     @staticmethod
     def _trusted_chunk_metadata(document: Document, version: DocumentVersion) -> dict[str, Any]:
         from backend.app.services.chunk_metadata_contract import build_chunk_metadata
@@ -392,6 +823,7 @@ class KnowledgeEngineService:
             close = getattr(retired, "close", None)
             if callable(close): close()
         self._retired_pipelines.clear()
+        self._cached_embedding_model = None
 
     def answer_question(
         self,
@@ -410,6 +842,7 @@ class KnowledgeEngineService:
         if not self.engine_available:
             raise KnowledgeEngineUnavailable(self._engine_error_message())
 
+        self.refresh_query_runtime_if_needed()
         access_context = access_context or anonymous_access_context()
         profile = self._resolve_profile(request.response_length, request.profile)
         pipeline = self._ready_pipeline(
@@ -588,6 +1021,7 @@ class KnowledgeEngineService:
             bm25_cache_dir=settings.bm25_path / "cial_phase4",
             output_root=settings.outputs_path / "batch_answers",
             observability_output_dir=settings.outputs_path / "runs",
+            qdrant_collection_name=settings.qdrant_collection_name,
             qdrant_mode=settings.qdrant_mode,
             qdrant_url=settings.qdrant_url,
             qdrant_api_key=settings.qdrant_api_key,
@@ -603,6 +1037,7 @@ class KnowledgeEngineService:
             qdrant_collection_timeout_seconds=settings.qdrant_collection_timeout_seconds,
             ollama_model_name=settings.ollama_model_name,
             embedding_model_name=settings.embedding_model_name,
+            embedding_batch_size=settings.indexer_embed_batch_size,
             reranker_model_name=settings.reranker_model_name,
             reranker_device=settings.reranker_device,
             reranker_batch_size=settings.reranker_batch_size,
@@ -1620,25 +2055,26 @@ class KnowledgeEngineService:
         if SessionLocal is None:
             return None
         with SessionLocal() as session:
-            paths=set(list_accessible_relative_paths(session, access_context))
-            if access_context.scope in {"hybrid","my-workspace"} and access_context.principal.user_id is not None:
-                rows=session.execute(select(Note,NoteIndexState).join(NoteIndexState,NoteIndexState.note_id==Note.id).where(Note.owner_user_id==access_context.principal.user_id,Note.deleted_at.is_(None),Note.is_archived.is_(False),NoteIndexState.status=="indexed",NoteIndexState.indexed_revision==Note.revision)).all()
-                paths.update(note_relative_path(note.id) for note,_ in rows)
-                with self._index_lock:
-                    pipeline=self._pipeline;note_map=getattr(pipeline,"_note_chunks",{}) if pipeline is not None else {};changed=False
-                    if pipeline is not None:
-                        from langchain_core.documents import Document as LangchainDocument
-                        for note,_ in rows:
-                            existing=note_map.get(str(note.id),[])
-                            if existing and int(existing[0].metadata.get("note_revision") or 0)==note.revision: continue
-                            chunks=[]
-                            for index,(block_id,section,text) in enumerate(note_blocks(note)):
-                                metadata={"entity_type":"note","note_id":str(note.id),"note_revision":note.revision,"workspace_id":str(note.workspace_id),"organization_id":str(note.organization_id),"repository_id":f"personal:{note.owner_user_id}","storage_scope":"personal","owner_user_id":str(note.owner_user_id),"visibility":"private","lifecycle_status":"active","title":note.title,"file_name":note.title,"relative_path":note_relative_path(note.id),"section":section,"block_ids":[block_id],"block_id":block_id,"chunk_index":index,"chunk_id":f"note:{note.id}:{note.revision}:{index}"}
-                                chunks.append(LangchainDocument(page_content=text,metadata=metadata))
-                            note_map[str(note.id)]=chunks;changed=True
-                        if changed:
-                            pipeline._note_chunks=note_map
-                            if pipeline.bm25_retriever is not None:pipeline.bm25_retriever.index([*(pipeline.chunks or []),*[chunk for values in note_map.values() for chunk in values]])
+            paths = set(list_accessible_relative_paths(session, access_context))
+            if (
+                access_context.scope in {"hybrid", "my-workspace"}
+                and access_context.principal.user_id is not None
+            ):
+                rows = session.execute(
+                    select(Note, NoteIndexState)
+                    .join(NoteIndexState, NoteIndexState.note_id == Note.id)
+                    .where(
+                        Note.owner_user_id == access_context.principal.user_id,
+                        Note.deleted_at.is_(None),
+                        Note.is_archived.is_(False),
+                        NoteIndexState.status == "indexed",
+                        NoteIndexState.indexed_revision == Note.revision,
+                    )
+                ).all()
+                # Text comes only from the committed generation snapshot. This
+                # query contributes authorization paths, never a second mutable
+                # lexical corpus.
+                paths.update(note_relative_path(note.id) for note, _ in rows)
             return frozenset(paths)
 
     @staticmethod
