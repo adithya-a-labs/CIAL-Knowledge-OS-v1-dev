@@ -301,8 +301,13 @@ class IndexingWorker:
 
         except Exception as exc:
             elapsed_ms = int((perf_counter() - started) * 1000)
-            error_message = str(exc)
             error_code = self._error_code(exc)
+            failure_classification = (
+                "temporary_qdrant_failure"
+                if self._is_transient(exc)
+                else "permanent_index_failure"
+            )
+            retry = False
 
             # --- Mark failed ---
             try:
@@ -342,6 +347,16 @@ class IndexingWorker:
                 logger.exception("indexing_job_fail_update_error")
 
             self.last_error = error_code
+            logger.warning(
+                failure_classification,
+                extra={
+                    "event": failure_classification,
+                    "job_id": str(job_id),
+                    "error_code": error_code,
+                    "exception_type": type(exc).__name__,
+                    "retry_scheduled": retry,
+                },
+            )
             if manual_retry:
                 logger.warning("index_retry_failed", extra={"event": "index_retry_failed", "job_id": str(job_id),
                     "document_id": str(document_id), "version_id": str(document_version_id),
@@ -353,35 +368,43 @@ class IndexingWorker:
                     "job_id": str(job_id),
                     "document_path": document_path,
                     "elapsed_ms": elapsed_ms,
-                    "error": error_message,
+                    "error_code": error_code,
+                    "exception_type": type(exc).__name__,
                 },
                 exc_info=True,
             )
 
     @staticmethod
     def _error_code(exc: Exception) -> str:
+        from cial_knowledge_os.vectorstore import is_transient_qdrant_error
+
         if getattr(exc, "code", None) == "indexing_metadata_invalid": return "indexing_metadata_invalid"
         if isinstance(exc, IndexingMetadataInvalid): return exc.code
         if isinstance(exc, IndexingTargetMissing): return exc.code
         if type(exc).__name__ == "OutOfMemoryError" or "out of memory" in str(exc).casefold(): return "resource_exhausted"
         if isinstance(exc, (ValueError, ImportError)): return "indexing_file_invalid"
         module = type(exc).__module__.casefold(); message = str(exc).casefold()
-        if "qdrant" in module or any(value in message for value in ("connection refused", "connection reset", "timed out")):
-            return "indexing_backend_unavailable"
+        if is_transient_qdrant_error(exc):
+            return "temporary_qdrant_failure"
+        if "qdrant" in module:
+            return "permanent_index_failure"
+        if any(value in message for value in ("connection refused", "connection reset", "timed out")):
+            return "temporary_qdrant_failure"
         return "indexing_failed"
 
     @classmethod
     def _is_transient(cls, exc: Exception) -> bool:
         # OOM is not immediately retried: another model allocation in the same
         # exhausted process creates a retry storm. Manual retry remains available.
-        return cls._error_code(exc) == "indexing_backend_unavailable"
+        return cls._error_code(exc) == "temporary_qdrant_failure"
 
     @staticmethod
     def _safe_error_message(code: str) -> str:
         if code == "indexing_metadata_invalid": return "Preparation failed because the indexed security metadata was incomplete. You can retry after the service is corrected."
         if code == "resource_exhausted": return "Preparation paused because indexing resources were exhausted. Retry after resources are available."
         if code == "indexing_file_invalid": return "The file could not be extracted safely. You can retry if the file has been corrected."
-        if code == "indexing_backend_unavailable": return "The indexing service is temporarily unavailable. A bounded retry is scheduled."
+        if code == "temporary_qdrant_failure": return "The indexing service is temporarily unavailable. A bounded retry is scheduled."
+        if code == "permanent_index_failure": return "The vector index rejected the operation. Correct the request before retrying."
         return "Preparation failed. You can retry this file."
 
     def _recover_interrupted_jobs(self) -> None:
