@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from math import isfinite
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -19,6 +20,16 @@ def resolve_qdrant_batch_size(
     if configured_batch_size is not None:
         return configured_batch_size
     return 32 if qdrant_mode == "server" else 256
+
+
+def _env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    return default if value is None or not value.strip() else float(value)
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    return default if value is None or not value.strip() else int(value)
 
 
 def _default_project_root() -> Path:
@@ -49,6 +60,32 @@ class KnowledgeOSConfig:
     qdrant_api_key: str | None = None
     qdrant_batch_size: int | None = None
     qdrant_upsert_wait: bool = True
+    qdrant_timeout_seconds: float = field(
+        default_factory=lambda: _env_float("QDRANT_TIMEOUT_SECONDS", 30.0)
+    )
+    qdrant_retry_attempts: int = field(
+        default_factory=lambda: _env_int("QDRANT_RETRY_ATTEMPTS", 3)
+    )
+    qdrant_retry_backoff_seconds: float = field(
+        default_factory=lambda: _env_float("QDRANT_RETRY_BACKOFF_SECONDS", 2.0)
+    )
+    qdrant_health_timeout_seconds: float = field(
+        default_factory=lambda: _env_float("QDRANT_HEALTH_TIMEOUT_SECONDS", 5.0)
+    )
+    qdrant_query_timeout_seconds: float = field(
+        default_factory=lambda: _env_float("QDRANT_QUERY_TIMEOUT_SECONDS", 30.0)
+    )
+    qdrant_upsert_timeout_seconds: float = field(
+        default_factory=lambda: _env_float("QDRANT_UPSERT_TIMEOUT_SECONDS", 60.0)
+    )
+    qdrant_delete_timeout_seconds: float = field(
+        default_factory=lambda: _env_float("QDRANT_DELETE_TIMEOUT_SECONDS", 60.0)
+    )
+    qdrant_collection_timeout_seconds: float = field(
+        default_factory=lambda: _env_float(
+            "QDRANT_COLLECTION_TIMEOUT_SECONDS", 120.0
+        )
+    )
     qdrant_dir: Path | None = None
     document_manifest_path: Path | None = None
     qdrant_collection_name: str = "cial_basic_rag"
@@ -146,6 +183,24 @@ class KnowledgeOSConfig:
             raise ValueError("embedding_batch_size must be greater than zero.")
         if not isinstance(self.qdrant_upsert_wait, bool):
             raise TypeError("qdrant_upsert_wait must be a boolean.")
+        for name in (
+            "qdrant_timeout_seconds",
+            "qdrant_retry_backoff_seconds",
+            "qdrant_health_timeout_seconds",
+            "qdrant_query_timeout_seconds",
+            "qdrant_upsert_timeout_seconds",
+            "qdrant_delete_timeout_seconds",
+            "qdrant_collection_timeout_seconds",
+        ):
+            value = getattr(self, name)
+            if not isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be greater than zero.")
+        if (
+            isinstance(self.qdrant_retry_attempts, bool)
+            or not isinstance(self.qdrant_retry_attempts, int)
+            or self.qdrant_retry_attempts <= 0
+        ):
+            raise ValueError("qdrant_retry_attempts must be a positive integer.")
         if not self.tokenizer_encoding_name.strip():
             raise ValueError("tokenizer_encoding_name must not be blank.")
         self.tokenizer_encoding_name = self.tokenizer_encoding_name.strip()

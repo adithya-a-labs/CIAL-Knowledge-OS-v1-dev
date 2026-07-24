@@ -134,6 +134,14 @@ class Settings:
     qdrant_api_key: str | None = _env_str("CIAL_QDRANT_API_KEY", "QDRANT_API_KEY", default="") or None
     qdrant_batch_size: int = _env_int("CIAL_QDRANT_BATCH_SIZE", _env_int("QDRANT_BATCH_SIZE", 32))
     qdrant_upsert_wait: bool = _env_bool("CIAL_QDRANT_UPSERT_WAIT", _env_bool("QDRANT_UPSERT_WAIT", True))
+    qdrant_timeout_seconds: float = _env_float("QDRANT_TIMEOUT_SECONDS", 30.0)
+    qdrant_retry_attempts: int = _env_int("QDRANT_RETRY_ATTEMPTS", 3)
+    qdrant_retry_backoff_seconds: float = _env_float("QDRANT_RETRY_BACKOFF_SECONDS", 2.0)
+    qdrant_health_timeout_seconds: float = _env_float("QDRANT_HEALTH_TIMEOUT_SECONDS", 5.0)
+    qdrant_query_timeout_seconds: float = _env_float("QDRANT_QUERY_TIMEOUT_SECONDS", 30.0)
+    qdrant_upsert_timeout_seconds: float = _env_float("QDRANT_UPSERT_TIMEOUT_SECONDS", 60.0)
+    qdrant_delete_timeout_seconds: float = _env_float("QDRANT_DELETE_TIMEOUT_SECONDS", 60.0)
+    qdrant_collection_timeout_seconds: float = _env_float("QDRANT_COLLECTION_TIMEOUT_SECONDS", 120.0)
     ollama_model_name: str = _env_str("CIAL_OLLAMA_MODEL_NAME", "OLLAMA_MODEL_NAME", default="gemma3:12b")
     embedding_model_name: str = _env_str("CIAL_EMBEDDING_MODEL_NAME", "EMBEDDING_MODEL_NAME", default="BAAI/bge-m3")
     reranker_model_name: str = _env_str(
