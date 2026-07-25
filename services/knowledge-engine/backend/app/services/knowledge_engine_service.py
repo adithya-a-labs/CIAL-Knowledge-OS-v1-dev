@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import logging
 from pathlib import Path
@@ -94,6 +95,7 @@ _LEGACY_PROFILE_ALIASES = {
 _MIN_REQUEST_MAX_ANSWER_WORDS = 100
 _MAX_REQUEST_MAX_ANSWER_WORDS = 5000
 _SELECTED_CONTEXT_RETRIEVAL_FLOOR = 100
+_MAX_AUTH_SCOPED_RETRIEVAL_CANDIDATES = 250
 
 
 def _server_collection_requires_rebuild(config: Any) -> bool:
@@ -179,6 +181,10 @@ class KnowledgeEngineService:
         self._chat_debug: dict[str, Any] = {
             "status": "idle",
             "current_index_generation": 0,
+            "current_stage": None,
+            "current_stage_started_monotonic": None,
+            "failed_stage": None,
+            "timeout_reason": None,
             "validation_latency": None,
             "retrieval_latency": None,
             "qdrant_latency": None,
@@ -599,8 +605,18 @@ class KnowledgeEngineService:
 
     def chat_debug_snapshot(self) -> dict[str, Any]:
         with self._chat_metrics_lock:
+            stage_started = self._chat_debug.get(
+                "current_stage_started_monotonic"
+            )
+            snapshot = dict(self._chat_debug)
+            snapshot.pop("current_stage_started_monotonic", None)
             return {
-                **self._chat_debug,
+                **snapshot,
+                "current_stage_duration_ms": (
+                    int((time.monotonic() - float(stage_started)) * 1000)
+                    if stage_started is not None
+                    else None
+                ),
                 "current_index_generation": self._loaded_generation,
                 "current_bm25_generation": self._loaded_bm25_generation,
                 "generation_refresh_running": self._generation_refresh_inflight,
@@ -1094,6 +1110,7 @@ class KnowledgeEngineService:
         request_id: str | None = None,
     ) -> ChatResponse:
         chat_request_id = request_id or str(uuid.uuid4())
+        conversation_id = str(request.session_id) if request.session_id else None
         request_started = time.perf_counter()
         stage_started: dict[str, float] = {}
         stage_metrics: dict[str, Any] = {}
@@ -1107,7 +1124,40 @@ class KnowledgeEngineService:
                 if status != "started"
                 else 0
             )
-            metrics = {**metrics, "duration_ms": metrics.get("duration_ms", duration_ms)}
+            error_state = metrics.get("error_state")
+            if error_state is None and status == "failed":
+                error_state = metrics.get("error_type") or "failed"
+            candidate_count = metrics.get("candidate_count")
+            if candidate_count is None:
+                candidate_count = next(
+                    (
+                        metrics[key]
+                        for key in (
+                            "candidates",
+                            "selected_evidence",
+                            "result_count",
+                        )
+                        if key in metrics
+                    ),
+                    0,
+                )
+            timeout_state = (
+                "timed_out"
+                if "timeout" in str(error_state or "").casefold()
+                else "not_timed_out"
+            )
+            metrics = {
+                **metrics,
+                "request_id": chat_request_id,
+                "conversation_id": conversation_id,
+                "stage": stage_id,
+                "status": status,
+                "duration_ms": metrics.get("duration_ms", duration_ms),
+                "candidate_count": candidate_count,
+                "error_state": error_state,
+                "timeout_state": timeout_state,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
             if status in {"completed", "failed"}:
                 previous = stage_metrics.get(stage_id, {})
                 stage_metrics[stage_id] = {
@@ -1115,14 +1165,49 @@ class KnowledgeEngineService:
                     "duration_ms": int(previous.get("duration_ms", 0))
                     + int(metrics.get("duration_ms", 0)),
                 }
+            event_stage = {
+                "retrieval.searching": "retrieval",
+                "evidence.selecting": "evidence_selection",
+                "bm25_retrieval": "bm25",
+            }.get(stage_id, stage_id.replace(".", "_"))
             logger.info(
-                stage_id.replace(".", "_") + "_" + status,
+                event_stage + "_" + status,
                 extra={
-                    "event": stage_id.replace(".", "_") + "_" + status,
-                    "request_id": chat_request_id,
+                    "event": event_stage + "_" + status,
                     **metrics,
                 },
             )
+            with self._chat_metrics_lock:
+                if status == "started":
+                    self._chat_debug.update(
+                        current_stage=stage_id,
+                        current_stage_started_monotonic=time.monotonic(),
+                    )
+                if status in {"completed", "failed"}:
+                    latency_key = {
+                        "request.validating": "validation_latency",
+                        "retrieval.searching": "retrieval_latency",
+                        "dense_retrieval": "qdrant_latency",
+                        "bm25_retrieval": "bm25_latency",
+                        "hybrid_fusion": "hybrid_fusion_latency",
+                        "reranking": "reranker_latency",
+                        "generation": "generation_latency",
+                    }.get(stage_id)
+                    if latency_key is not None:
+                        self._chat_debug[latency_key] = metrics["duration_ms"]
+                if error_state:
+                    if (
+                        stage_id != "chat"
+                        or not self._chat_debug.get("failed_stage")
+                    ):
+                        self._chat_debug.update(
+                            failed_stage=stage_id,
+                            timeout_reason=(
+                                str(error_state)
+                                if timeout_state == "timed_out"
+                                else None
+                            ),
+                        )
             if progress_callback is not None:
                 progress_callback(stage_id, status, metrics)
 
@@ -1135,7 +1220,23 @@ class KnowledgeEngineService:
             extra={"event": "request_received", "request_id": chat_request_id},
         )
         with self._chat_metrics_lock:
-            self._chat_debug.update(status="running", request_id=chat_request_id, last_error=None)
+            self._chat_debug.update(
+                status="running",
+                request_id=chat_request_id,
+                current_stage=None,
+                current_stage_started_monotonic=None,
+                failed_stage=None,
+                timeout_reason=None,
+                validation_latency=None,
+                retrieval_latency=None,
+                qdrant_latency=None,
+                bm25_latency=None,
+                hybrid_fusion_latency=None,
+                reranker_latency=None,
+                generation_latency=None,
+                total_latency=None,
+                last_error=None,
+            )
         progress("request.validating", "started")
         try:
             if not self.engine_available:
@@ -1172,6 +1273,7 @@ class KnowledgeEngineService:
                 self._chat_debug.update(
                     status="failed",
                     last_error=type(exc).__name__,
+                    current_stage_started_monotonic=None,
                     completed_at=time.time(),
                 )
             raise
@@ -1271,7 +1373,9 @@ class KnowledgeEngineService:
                     ),
                 )
             else:
-                response = pipeline.run(request.question)
+                response = self._answer_loaded_pipeline(
+                    pipeline, request.question
+                )
             retrieved = response.get("retrieved") if isinstance(response, Mapping) else None
             selected = response.get("selected_evidence") if isinstance(response, Mapping) else None
             progress("retrieval.searching", "completed", candidates=len(retrieved) if isinstance(retrieved, list) else 0)
@@ -1286,6 +1390,7 @@ class KnowledgeEngineService:
                 self._chat_debug.update(
                     status="failed",
                     last_error=type(exc).__name__,
+                    current_stage_started_monotonic=None,
                     completed_at=time.time(),
                 )
             if isinstance(exc, TimeoutError):
@@ -1322,10 +1427,12 @@ class KnowledgeEngineService:
             "status": "completed",
             "request_id": chat_request_id,
             "current_index_generation": self._loaded_generation,
+            "current_stage": "complete",
+            "current_stage_started_monotonic": None,
             "validation_latency": stage_metrics.get("request.validating", {}).get("duration_ms"),
             "retrieval_latency": stage_metrics.get("retrieval.searching", {}).get("duration_ms"),
             "qdrant_latency": stage_metrics.get("dense_retrieval", {}).get("duration_ms"),
-            "bm25_latency": stage_metrics.get("bm25", {}).get("duration_ms"),
+            "bm25_latency": stage_metrics.get("bm25_retrieval", {}).get("duration_ms"),
             "hybrid_fusion_latency": stage_metrics.get("hybrid_fusion", {}).get("duration_ms"),
             "reranker_latency": stage_metrics.get("reranking", {}).get("duration_ms"),
             "generation_latency": stage_metrics.get("generation", {}).get("duration_ms"),
@@ -1447,6 +1554,9 @@ class KnowledgeEngineService:
             reranker_batch_size=settings.reranker_batch_size,
             reranker_local_files_only=settings.reranker_local_files_only,
             reranker_timeout_seconds=settings.reranker_timeout_seconds,
+            evidence_selection_timeout_seconds=(
+                settings.evidence_selection_timeout_seconds
+            ),
             force_rebuild_index=(
                 settings.force_rebuild_on_startup
                 if force_rebuild_index is None
@@ -1689,7 +1799,7 @@ class KnowledgeEngineService:
         selected_scope: SelectedContextScope,
     ) -> Mapping[str, Any]:
         if not selected_scope.applied:
-            return pipeline.run(question)
+            return self._answer_loaded_pipeline(pipeline, question)
         return self._run_with_relative_path_filter(
             pipeline,
             question,
@@ -1757,9 +1867,12 @@ class KnowledgeEngineService:
             "bm25_top_k": getattr(config, "bm25_top_k", None),
             "reranker_candidate_top_k": getattr(config, "reranker_candidate_top_k", None),
         }
-        candidate_floor = max(
-            _SELECTED_CONTEXT_RETRIEVAL_FLOOR,
-            max(len(allowed_relative_paths), 1) * 12,
+        candidate_floor = min(
+            _MAX_AUTH_SCOPED_RETRIEVAL_CANDIDATES,
+            max(
+                _SELECTED_CONTEXT_RETRIEVAL_FLOOR,
+                max(len(allowed_relative_paths), 1) * 12,
+            ),
         )
         search_stats: dict[str, Any] = {
             "query_count": 0,
@@ -1798,7 +1911,9 @@ class KnowledgeEngineService:
                 set_retrieval_relative_paths(allowed_relative_paths)
             else:
                 pipeline._search = selected_search
-            response = dict(pipeline.run(question))
+            response = dict(
+                self._answer_loaded_pipeline(pipeline, question)
+            )
             raw_total = sum(int(count) for count in search_stats["raw_counts"])
             filtered_total = sum(int(count) for count in search_stats["filtered_counts"])
             selected_evidence = response.get("selected_evidence")
@@ -1911,6 +2026,26 @@ class KnowledgeEngineService:
             on_config_changed = getattr(pipeline, "on_config_changed", None)
             if callable(on_config_changed):
                 on_config_changed()
+
+    @staticmethod
+    def _answer_loaded_pipeline(
+        pipeline: Any,
+        question: str,
+    ) -> Mapping[str, Any]:
+        """Execute only the query path over the active published generation.
+
+        ``BasicRAGPipeline.run`` is the notebook/batch bootstrap and may load,
+        chunk, embed, or index when those experiment fields are empty. The
+        production runtime deliberately keeps only its Qdrant client, models,
+        and published BM25 snapshot, so chat must enter at ``answer``.
+        """
+
+        answer = getattr(pipeline, "answer", None)
+        if not callable(answer):
+            raise KnowledgeEngineUnavailable(
+                "The published retrieval runtime has no query entrypoint."
+            )
+        return answer(question)
 
     def _engine_error_message(self) -> str:
         if self._import_error is None:

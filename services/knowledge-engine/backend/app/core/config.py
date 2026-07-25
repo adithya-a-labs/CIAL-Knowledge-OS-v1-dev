@@ -161,7 +161,10 @@ class Settings:
     max_answer_words: int = _env_int("CIAL_MAX_ANSWER_WORDS", 1200)
     generation_retries: int = _env_int("CIAL_GENERATION_RETRIES", 2)
     retry_cooldown_seconds: float = _env_float("CIAL_RETRY_COOLDOWN_SECONDS", 20.0)
-    reranker_timeout_seconds: float = _env_float("CIAL_RERANKER_TIMEOUT_SECONDS", 10.0)
+    reranker_timeout_seconds: float = _env_float("CIAL_RERANKER_TIMEOUT_SECONDS", 15.0)
+    evidence_selection_timeout_seconds: float = _env_float(
+        "CIAL_EVIDENCE_SELECTION_TIMEOUT_SECONDS", 5.0
+    )
     generation_timeout_seconds: float = _env_float("CIAL_GENERATION_TIMEOUT_SECONDS", 120.0)
     chat_lock_timeout_seconds: float = _env_float("CIAL_CHAT_LOCK_TIMEOUT_SECONDS", 5.0)
     chat_request_timeout_seconds: float = _env_float("CIAL_CHAT_REQUEST_TIMEOUT_SECONDS", 150.0)

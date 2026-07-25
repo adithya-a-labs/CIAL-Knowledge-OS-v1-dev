@@ -121,11 +121,33 @@ def stream_chat(payload: ChatRequest, request: Request):
         raise HTTPException(503,detail=runtime_state.chat_unavailable_detail())
     access=require_authenticated_access_context(request); user_id=access.principal.user_id
     request_id=str(uuid.uuid4()); events:queue.Queue=queue.Queue(); cancelled=threading.Event(); started=time.monotonic()
+    failure_state: dict[str, object | None] = {
+        "stage": None,
+        "reason": None,
+        "timeout_state": None,
+    }
     monitor = getattr(request.app.state, "admin_system_monitor_service", None)
     if monitor is not None:
         monitor.chat_started(request_id)
     def progress(stage_id,status_value,metrics):
         if cancelled.is_set(): raise _StreamCancelled()
+        if (
+            metrics.get("error_state")
+            and (stage_id != "chat" or failure_state["stage"] is None)
+        ):
+            failure_state.update(
+                stage=stage_id,
+                reason=metrics.get("error_state"),
+                timeout_state=metrics.get("timeout_state"),
+            )
+        monitor_chat_stage = getattr(monitor, "chat_stage", None)
+        if callable(monitor_chat_stage):
+            monitor_chat_stage(
+                request_id,
+                stage_id,
+                status_value,
+                metrics,
+            )
         events.put({"request_id":request_id,"type":"stage","stage_id":stage_id,"status":status_value,"elapsed_ms":int((time.monotonic()-started)*1000),"metrics":metrics})
     def token(delta):
         if cancelled.is_set(): raise _StreamCancelled()
@@ -154,13 +176,13 @@ def stream_chat(payload: ChatRequest, request: Request):
                 db.rollback(); events.put({"request_id":request_id,"type":"cancelled","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"metrics":{}})
             except (WorkspaceNotFound, KnowledgeEngineUnavailable) as exc:
                 error_type = type(exc).__name__
-                db.rollback(); events.put({"request_id":request_id,"type":"error","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"payload":{"message":str(exc)}})
+                db.rollback(); events.put({"request_id":request_id,"type":"error","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"payload":{"message":str(exc),"failed_stage":failure_state["stage"],"reason":failure_state["reason"],"timeout_state":failure_state["timeout_state"],"retry_allowed":True}})
             except Exception as exc:
                 error_type = type(exc).__name__
                 if cancelled.is_set():
                     db.rollback(); events.put({"request_id":request_id,"type":"cancelled","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"metrics":{}}); return
                 logger.exception("chat_stream_failed", extra={"request_id": request_id})
-                db.rollback(); events.put({"request_id":request_id,"type":"error","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"payload":{"message":"The assistant could not complete this request."}})
+                db.rollback(); events.put({"request_id":request_id,"type":"error","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"payload":{"message":"The assistant could not complete this request.","failed_stage":failure_state["stage"],"reason":failure_state["reason"],"timeout_state":failure_state["timeout_state"],"retry_allowed":True}})
             finally:
                 if monitor is not None:
                     monitor.chat_completed(
@@ -179,7 +201,7 @@ def stream_chat(payload: ChatRequest, request: Request):
                 except queue.Empty:
                     if time.monotonic()-started >= settings.chat_request_timeout_seconds:
                         cancelled.set()
-                        yield json.dumps({"request_id":request_id,"type":"error","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"payload":{"message":"The assistant request timed out. Please retry."}},separators=(",",":"))+"\n"
+                        yield json.dumps({"request_id":request_id,"type":"error","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"payload":{"message":"The assistant request timed out. Please retry.","failed_stage":failure_state["stage"],"reason":"request_timeout","timeout_state":"timed_out","retry_allowed":True}},separators=(",",":"))+"\n"
                         break
                     continue
                 if item is None: break
