@@ -72,6 +72,9 @@ class AdminSystemMonitorService:
         self._last_generation = 0
         self._last_worker_state = "unknown"
         self._active_chat_requests = 0
+        self._active_chat_stages: dict[str, dict[str, Any]] = {}
+        self._last_failed_stage: str | None = None
+        self._last_timeout_reason: str | None = None
 
     def record_event(
         self,
@@ -96,11 +99,63 @@ class AdminSystemMonitorService:
     def chat_started(self, request_id: str) -> None:
         with self._lock:
             self._active_chat_requests += 1
+            self._active_chat_stages[request_id] = {
+                "stage": "connected",
+                "status": "started",
+                "started_monotonic": monotonic(),
+                "failed_stage": None,
+                "timeout_reason": None,
+            }
         self.record_event(
             "chat_started",
             message="An authenticated AI request entered the query pipeline.",
             metadata={"request_id": request_id},
         )
+
+    def chat_stage(
+        self,
+        request_id: str,
+        stage: str,
+        status: str,
+        metrics: dict[str, Any],
+    ) -> None:
+        error_state = metrics.get("error_state")
+        timeout_reason = (
+            str(error_state)
+            if metrics.get("timeout_state") == "timed_out"
+            else None
+        )
+        with self._lock:
+            current = self._active_chat_stages.setdefault(
+                request_id,
+                {"started_monotonic": monotonic()},
+            )
+            current.update(stage=stage, status=status)
+            if status == "started":
+                current["started_monotonic"] = monotonic()
+            if error_state:
+                # A terminal chat-level failure follows the component event.
+                # Preserve the component that actually failed so operators see
+                # "dense_retrieval", "bm25_retrieval", etc., not merely "chat".
+                if stage != "chat" or not current.get("failed_stage"):
+                    current["failed_stage"] = stage
+                    current["timeout_reason"] = timeout_reason
+                    self._last_failed_stage = stage
+                    self._last_timeout_reason = timeout_reason
+        if error_state:
+            self.record_event(
+                "retrieval_stage_failed",
+                severity="warning",
+                message=f"Query stage {stage} degraded.",
+                metadata={
+                    "request_id": request_id,
+                    "stage": stage,
+                    "error_state": str(error_state),
+                    "timeout_state": metrics.get("timeout_state"),
+                    "duration_ms": metrics.get("duration_ms"),
+                    "candidate_count": metrics.get("candidate_count"),
+                },
+            )
 
     def chat_completed(
         self,
@@ -112,6 +167,14 @@ class AdminSystemMonitorService:
     ) -> None:
         with self._lock:
             self._active_chat_requests = max(0, self._active_chat_requests - 1)
+            completed_stage = self._active_chat_stages.pop(request_id, {})
+            if completed_stage.get("failed_stage"):
+                self._last_failed_stage = str(
+                    completed_stage["failed_stage"]
+                )
+                self._last_timeout_reason = completed_stage.get(
+                    "timeout_reason"
+                )
         self.record_event(
             "chat_completed" if succeeded else "retrieval_failed",
             severity="info" if succeeded else "error",
@@ -236,6 +299,12 @@ class AdminSystemMonitorService:
         with self._lock:
             events = list(reversed(self._events))
             active_chat_requests = self._active_chat_requests
+            active_query = next(
+                reversed(self._active_chat_stages.values()),
+                None,
+            )
+            last_failed_stage = self._last_failed_stage
+            last_timeout_reason = self._last_timeout_reason
 
         return {
             "status": status["status"],
@@ -325,6 +394,34 @@ class AdminSystemMonitorService:
             "query": {
                 "active_chat_requests": active_chat_requests,
                 "status": query.get("status", "idle"),
+                "current_stage": (
+                    active_query.get("stage")
+                    if active_query
+                    else query.get("current_stage")
+                ),
+                "current_stage_duration_ms": (
+                    int(
+                        (
+                            monotonic()
+                            - float(active_query["started_monotonic"])
+                        )
+                        * 1000
+                    )
+                    if active_query
+                    and active_query.get("started_monotonic") is not None
+                    else query.get("current_stage_duration_ms")
+                ),
+                "failed_stage": (
+                    active_query.get("failed_stage")
+                    if active_query
+                    else query.get("failed_stage") or last_failed_stage
+                ),
+                "timeout_reason": (
+                    active_query.get("timeout_reason")
+                    if active_query
+                    else query.get("timeout_reason")
+                    or last_timeout_reason
+                ),
                 "validation_latency_ms": query.get("validation_latency"),
                 "retrieval_latency_ms": query.get("retrieval_latency"),
                 "reranker_latency_ms": query.get("reranker_latency"),
