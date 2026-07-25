@@ -20,6 +20,7 @@ from qdrant_client.models import (
     Filter,
     FilterSelector,
     MatchValue,
+    PayloadSchemaType,
     PointStruct,
     VectorParams,
 )
@@ -39,6 +40,18 @@ _SERVER_ERROR_TEMPLATE = """Qdrant server mode is enabled but {url} is not reach
 docker compose -f docker-compose.qdrant.yml up -d
 or restart an existing container with:
 docker start cial-qdrant"""
+
+_QUERY_PAYLOAD_INDEXES = (
+    ("metadata.relative_path", PayloadSchemaType.KEYWORD),
+    ("metadata.document_id", PayloadSchemaType.KEYWORD),
+    ("metadata.document_version_id", PayloadSchemaType.KEYWORD),
+    ("metadata.note_id", PayloadSchemaType.KEYWORD),
+    ("metadata.note_revision", PayloadSchemaType.INTEGER),
+    ("metadata.repository_id", PayloadSchemaType.KEYWORD),
+    ("metadata.owner_user_id", PayloadSchemaType.KEYWORD),
+    ("metadata.visibility", PayloadSchemaType.KEYWORD),
+    ("metadata.lifecycle_status", PayloadSchemaType.KEYWORD),
+)
 
 
 def _operation_timeout(config: KnowledgeOSConfig, operation: str) -> int:
@@ -115,7 +128,12 @@ def execute_qdrant_operation(
             "timeout_seconds": timeout_seconds,
         },
     )
-    retry_attempts = int(getattr(config, "qdrant_retry_attempts", 3))
+    query_operation = operation in {"query_points", "scroll", "retrieve", "count"}
+    retry_attempts = int(
+        getattr(config, "qdrant_query_retry_attempts", 2)
+        if query_operation
+        else getattr(config, "qdrant_retry_attempts", 3)
+    )
     retry_backoff = float(
         getattr(config, "qdrant_retry_backoff_seconds", 2.0)
     )
@@ -343,6 +361,39 @@ def _collection_vector_size(
     return int(vectors.size)
 
 
+def ensure_query_payload_indexes(
+    client: QdrantClient,
+    config: KnowledgeOSConfig,
+) -> None:
+    """Create keyword indexes used by authorization and replacement filters."""
+
+    if config.qdrant_mode != "server":
+        return
+    collection_name = config.qdrant_collection_name
+    collection = execute_qdrant_operation(
+        config,
+        "get_collection",
+        lambda timeout: client.get_collection(collection_name),
+        collection=collection_name,
+    )
+    existing = set((getattr(collection, "payload_schema", None) or {}).keys())
+    for field_name, field_schema in _QUERY_PAYLOAD_INDEXES:
+        if field_name in existing:
+            continue
+        execute_qdrant_operation(
+            config,
+            "create_payload_index",
+            lambda timeout, field=field_name, schema=field_schema: client.create_payload_index(
+                collection_name=collection_name,
+                field_name=field,
+                field_schema=schema,
+                wait=True,
+                timeout=timeout,
+            ),
+            collection=collection_name,
+        )
+
+
 def ensure_collection(
     client: QdrantClient, config: KnowledgeOSConfig, vector_size: int
 ) -> None:
@@ -377,6 +428,7 @@ def ensure_collection(
                 ),
                 collection=collection_name,
             )
+            ensure_query_payload_indexes(client, config)
             return
 
         existing_size = _collection_vector_size(client, collection_name, config)
@@ -387,6 +439,7 @@ def ensure_collection(
                 f"{vector_size}. Use a different collection name or explicitly "
                 "reset the vector store before changing embedding models."
             )
+        ensure_query_payload_indexes(client, config)
     except Exception as exc:
         _raise_useful_lock_error(exc)
 
