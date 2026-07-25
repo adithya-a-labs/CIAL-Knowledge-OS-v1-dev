@@ -146,6 +146,9 @@ class CorpusMetadataStore:
             )
             return existing
 
+        is_ocr = str(document.extension or "").casefold() in {
+            ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"
+        }
         job = IndexingJob(
             document_id=document.id,
             document_version_id=document_version.id if document_version is not None else None,
@@ -158,6 +161,7 @@ class CorpusMetadataStore:
             priority=(
                 120 if action == "deleted"
                 else 80 if action in {"moved", "renamed", "metadata"}
+                else 55 if is_ocr
                 else 60
             ),
             max_attempts=settings.indexer_max_attempts,
@@ -176,6 +180,7 @@ class CorpusMetadataStore:
                 "relative_path": document.relative_path,
                 "content_hash": document.content_hash,
                 "storage_scope": document.storage_scope,
+                "workload_queue": "ocr" if is_ocr else "normal",
                 "owner_user_id": str(document.owner_user_id) if document.owner_user_id else None,
                 "department_id": str(document.department_id),
                 "workspace_id": str(document.workspace_id),

@@ -291,6 +291,13 @@ class DocumentChunk(UUIDPrimaryKeyMixin, Base):
         Index("ix_document_chunks_document_id", "document_id"),
         Index("ix_document_chunks_document_version_id", "document_version_id"),
         Index("ix_document_chunks_chunk_id", "chunk_id"),
+        Index(
+            "ix_document_chunks_reuse_contract",
+            "document_id",
+            "chunk_hash",
+            "embedding_model_version",
+            "chunking_version",
+        ),
     )
 
     document_id: Mapped[uuid.UUID] = mapped_column(
@@ -303,6 +310,9 @@ class DocumentChunk(UUIDPrimaryKeyMixin, Base):
         ForeignKey("document_versions.id", ondelete="CASCADE"),
     )
     chunk_id: Mapped[str] = mapped_column(Text, nullable=False)
+    chunk_hash: Mapped[str | None] = mapped_column(Text)
+    embedding_model_version: Mapped[str | None] = mapped_column(Text)
+    chunking_version: Mapped[str | None] = mapped_column(Text)
     chunk_index: Mapped[int | None] = mapped_column(Integer)
     qdrant_point_id: Mapped[str | None] = mapped_column(Text)
     page: Mapped[int | None] = mapped_column(Integer)
