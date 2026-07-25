@@ -40,6 +40,7 @@ from cial_knowledge_os.corpus.service import CorpusService
 from cial_knowledge_os.corpus.watcher import CorpusWatcher
 
 logger = logging.getLogger(__name__)
+OCR_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +49,7 @@ class ChunkEnvelope:
     asset_id: uuid.UUID
     chunk: Any
     token_count: int
+    chunk_index: int = 0
 
 
 class CrossDocumentBatcher:
@@ -104,6 +106,51 @@ class CrossDocumentBatcher:
 
 
 @dataclass(slots=True)
+class AdaptiveBatchController:
+    """Grow healthy GPU batches and reduce them immediately after CUDA OOM."""
+
+    minimum: int
+    current: int
+    maximum: int
+    latency_tolerance: float = 1.15
+    vram_target_ratio: float = 0.85
+    last_seconds_per_chunk: float | None = None
+    oom_count: int = 0
+
+    def __post_init__(self) -> None:
+        if not 0 < self.minimum <= self.current <= self.maximum:
+            raise ValueError("Adaptive batch limits must satisfy 0 < min <= current <= max.")
+        if self.latency_tolerance < 1:
+            raise ValueError("Adaptive batch latency tolerance must be at least 1.")
+        if not 0 < self.vram_target_ratio <= 1:
+            raise ValueError("Adaptive batch VRAM target must be in (0, 1].")
+
+    def record_success(
+        self,
+        *,
+        batch_size: int,
+        duration_seconds: float,
+        vram_ratio: float | None,
+    ) -> int:
+        seconds_per_chunk = duration_seconds / max(1, batch_size)
+        latency_healthy = (
+            self.last_seconds_per_chunk is None
+            or seconds_per_chunk <= self.last_seconds_per_chunk * self.latency_tolerance
+        )
+        memory_healthy = vram_ratio is None or vram_ratio < self.vram_target_ratio
+        filled_active_batch = batch_size >= self.current
+        self.last_seconds_per_chunk = seconds_per_chunk
+        if filled_active_batch and latency_healthy and memory_healthy:
+            self.current = min(self.maximum, max(self.current + 1, self.current * 2))
+        return self.current
+
+    def record_oom(self, *, attempted_batch_size: int) -> int:
+        self.oom_count += 1
+        self.current = max(self.minimum, min(self.current, max(1, attempted_batch_size // 2)))
+        return self.current
+
+
+@dataclass(slots=True)
 class PreparedAsset:
     job_id: uuid.UUID
     asset_type: str
@@ -112,7 +159,7 @@ class PreparedAsset:
     document_id: uuid.UUID | None = None
     version_id: uuid.UUID | None = None
     note: PreparedNoteRevision | None = None
-    vectors: list[np.ndarray] = field(default_factory=list)
+    vectors: list[np.ndarray | None] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,13 +204,38 @@ class ContinuousIndexer:
         self._active_lock = Lock()
         self._heartbeat_thread: Thread | None = None
         self._watchers: list[CorpusWatcher] = []
+        self._writer_pool = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="cial-qdrant-writer",
+        )
+        self._write_futures: set[Future[None]] = set()
         self._last_reconcile = 0.0
         self._last_recovery = 0.0
         self._bm25_dirty_since: float | None = None
+        self._started_monotonic = time.monotonic()
+        self._batch_controller = AdaptiveBatchController(
+            minimum=settings.indexer_embed_min_batch_size,
+            current=settings.indexer_embed_batch_size,
+            maximum=settings.indexer_embed_max_batch_size,
+            latency_tolerance=settings.indexer_embed_growth_latency_tolerance,
+            vram_target_ratio=settings.indexer_embed_vram_target_ratio,
+        )
         self._metrics: dict[str, Any] = {
             "queue_depths": {"prepared": 0, "embedding": 0, "writing": 0},
-            "throughput": {"jobs_completed": 0, "chunks_embedded": 0, "gpu_batches": 0},
+            "throughput": {
+                "jobs_completed": 0,
+                "documents_completed": 0,
+                "chunks_embedded": 0,
+                "chunks_reused": 0,
+                "gpu_batches": 0,
+            },
             "gpu_policy": settings.indexer_gpu_policy,
+            "adaptive_batch": {
+                "current": self._batch_controller.current,
+                "minimum": self._batch_controller.minimum,
+                "maximum": self._batch_controller.maximum,
+                "oom_count": 0,
+            },
         }
         self.actual_device = "unknown"
         self.actual_precision = settings.indexer_precision
@@ -221,10 +293,11 @@ class ContinuousIndexer:
                     # Never enter the watching/idle wait with a pending lexical
                     # generation. Continuous bursts are debounced; queue-empty
                     # publication is immediate.
-                    self._flush_bm25_if_due(force=True)
+                    if not self._write_futures:
+                        self._flush_bm25_if_due(force=True)
                     self.queue.heartbeat(
                         self.worker_id,
-                        service_state="watching",
+                        service_state="active" if self._write_futures else "watching",
                         embedding_device=self.actual_device,
                         embedding_precision=self.actual_precision,
                         metrics=self._metrics,
@@ -235,6 +308,8 @@ class ContinuousIndexer:
             for watcher in self._watchers:
                 watcher.stop()
             self.stop_event.set()
+            self._writer_pool.shutdown(wait=True, cancel_futures=False)
+            self._harvest_writes()
             self._heartbeat_stop.set()
             if self._heartbeat_thread is not None:
                 self._heartbeat_thread.join(timeout=5)
@@ -374,10 +449,14 @@ class ContinuousIndexer:
     def drain_once(self) -> int:
         if not self._accepting:
             return 0
+        self._harvest_writes()
+        write_capacity = settings.indexer_write_queue_size - len(self._write_futures)
+        if write_capacity <= 0:
+            return 0
         targets: list[ClaimedTarget] = []
         claim_limit = min(
             settings.indexer_prepared_queue_size,
-            settings.indexer_write_queue_size,
+            write_capacity,
         )
         if settings.indexer_gpu_policy == "balanced":
             claim_limit = min(
@@ -393,6 +472,15 @@ class ContinuousIndexer:
             target = self._load_target(job_id)
             if target is not None:
                 targets.append(target)
+                logger.info(
+                    "index_started",
+                    extra={
+                        "event": "index_started",
+                        "job_id": str(job_id),
+                        "asset_type": target.asset_type,
+                        "operation": target.operation,
+                    },
+                )
             else:
                 self._remove_active(job_id)
         if len(targets) == 1 and self._accepting:
@@ -409,6 +497,15 @@ class ContinuousIndexer:
                 target = self._load_target(job_id)
                 if target is not None:
                     targets.append(target)
+                    logger.info(
+                        "index_started",
+                        extra={
+                            "event": "index_started",
+                            "job_id": str(job_id),
+                            "asset_type": target.asset_type,
+                            "operation": target.operation,
+                        },
+                    )
                 else:
                     self._remove_active(job_id)
         if not targets:
@@ -430,7 +527,10 @@ class ContinuousIndexer:
         with ThreadPoolExecutor(
             max_workers=settings.indexer_extraction_workers,
             thread_name_prefix="cial-extract",
-        ) as pool:
+        ) as pool, ThreadPoolExecutor(
+            max_workers=settings.indexer_ocr_workers,
+            thread_name_prefix="cial-ocr",
+        ) as ocr_pool:
             for target in targets:
                 if (
                     target.asset_type == "document"
@@ -439,8 +539,9 @@ class ContinuousIndexer:
                     and target.document_version_id
                 ):
                     self.queue.transition(target.job_id, self.worker_id, "extracting")
+                    executor = ocr_pool if self._is_ocr_target(target) else pool
                     extraction_futures[
-                        pool.submit(
+                        executor.submit(
                             self.engine.extract_document_version,
                             target.document_id,
                             target.document_version_id,
@@ -529,18 +630,45 @@ class ContinuousIndexer:
 
         if ready:
             self._embed_and_write(ready)
-        self._metrics["queue_depths"] = {"prepared": 0, "embedding": 0, "writing": 0}
+        self._metrics["queue_depths"] = {
+            "prepared": 0,
+            "embedding": 0,
+            "writing": len(self._write_futures),
+        }
         return len(targets)
+
+    @staticmethod
+    def _is_ocr_target(target: ClaimedTarget) -> bool:
+        relative_path = str(target.metadata.get("relative_path") or "")
+        return Path(relative_path).suffix.casefold() in OCR_EXTENSIONS
 
     def _embed_and_write(self, assets: list[PreparedAsset]) -> None:
         by_job = {item.job_id: item for item in assets}
         for item in assets:
             self.queue.transition(item.job_id, self.worker_id, "embedding")
+            item.vectors = [None] * len(item.chunks)
+            if item.asset_type == "document" and item.document_id is not None:
+                reused = self.engine.reusable_document_chunk_embeddings(
+                    item.document_id,
+                    item.chunks,
+                )
+                for chunk_index, vector in reused.items():
+                    item.vectors[chunk_index] = vector
+                self._metrics["throughput"]["chunks_reused"] += len(reused)
+                if reused:
+                    logger.info(
+                        "chunk_embeddings_reused",
+                        extra={
+                            "event": "chunk_embeddings_reused",
+                            "job_id": str(item.job_id),
+                            "reused": len(reused),
+                            "total": len(item.chunks),
+                        },
+                    )
         batcher = CrossDocumentBatcher(
             max_chunks=min(
-                settings.indexer_embed_batch_size,
+                self._batch_controller.current,
                 settings.indexer_embed_queue_size,
-                64 if settings.indexer_gpu_policy == "balanced" else settings.indexer_embed_batch_size,
             ),
             max_tokens=settings.indexer_embed_max_batch_tokens,
             max_wait_ms=settings.indexer_embed_max_wait_ms,
@@ -558,15 +686,17 @@ class ContinuousIndexer:
                     continue
                 chunk = item.chunks[position]
                 positions[item.job_id] = position + 1
-                envelope = ChunkEnvelope(
-                    job_id=item.job_id,
-                    asset_id=item.asset_id,
-                    chunk=chunk,
-                    token_count=CrossDocumentBatcher.estimate_tokens(chunk.page_content),
-                )
-                ready = batcher.add(envelope)
-                if ready:
-                    batches.append(ready)
+                if item.vectors[position] is None:
+                    envelope = ChunkEnvelope(
+                        job_id=item.job_id,
+                        asset_id=item.asset_id,
+                        chunk=chunk,
+                        token_count=CrossDocumentBatcher.estimate_tokens(chunk.page_content),
+                        chunk_index=position,
+                    )
+                    ready = batcher.add(envelope)
+                    if ready:
+                        batches.append(ready)
                 if positions[item.job_id] < len(item.chunks):
                     next_remaining.append(item)
             remaining = next_remaining
@@ -583,18 +713,36 @@ class ContinuousIndexer:
                 vectors = self._embed_with_oom_reduction(batch)
                 inference_seconds = max(time.monotonic() - batch_started, 0.000001)
                 for envelope, vector in zip(batch, vectors, strict=True):
-                    by_job[envelope.job_id].vectors.append(np.asarray(vector))
+                    by_job[envelope.job_id].vectors[envelope.chunk_index] = np.asarray(vector)
                 self._metrics["throughput"]["gpu_batches"] += 1
                 self._metrics["throughput"]["chunks_embedded"] += len(batch)
                 self._metrics["queue_depths"]["embedding"] -= len(batch)
+                gpu = self._metrics.get("gpu") or {}
+                memory_total = float(gpu.get("memory_total_mb") or 0)
+                memory_ratio = (
+                    float(gpu.get("memory_used_mb") or 0) / memory_total
+                    if memory_total > 0
+                    else None
+                )
+                active_limit = self._batch_controller.record_success(
+                    batch_size=len(batch),
+                    duration_seconds=inference_seconds,
+                    vram_ratio=memory_ratio,
+                )
+                self._metrics["adaptive_batch"].update(
+                    current=active_limit,
+                    oom_count=self._batch_controller.oom_count,
+                    last_chunks_per_second=round(len(batch) / inference_seconds, 2),
+                )
                 logger.info(
-                    "embedding_batch_completed",
+                    "gpu_batch_completed",
                     extra={
-                        "event": "embedding_batch",
+                        "event": "gpu_batch_completed",
                         "chunks": len(batch),
                         "assets": len({item.asset_id for item in batch}),
                         "tokens": sum(item.token_count for item in batch),
                         "device": self.actual_device,
+                        "next_batch_limit": active_limit,
                         "inference_ms": round(inference_seconds * 1000, 2),
                         "chunks_per_second": round(len(batch) / inference_seconds, 2),
                     },
@@ -605,93 +753,139 @@ class ContinuousIndexer:
             return
 
         for item in assets:
+            self.queue.transition(item.job_id, self.worker_id, "writing")
+            self._write_futures.add(
+                self._writer_pool.submit(self._write_prepared_asset, item)
+            )
+        self._metrics["queue_depths"]["writing"] = len(self._write_futures)
+
+    def _harvest_writes(self) -> None:
+        completed = {future for future in self._write_futures if future.done()}
+        for future in completed:
+            self._write_futures.remove(future)
             try:
-                self._metrics["queue_depths"]["writing"] = len(assets)
-                self.queue.transition(item.job_id, self.worker_id, "writing")
-                write_started = time.monotonic()
-                if item.asset_type == "document":
-                    with SessionLocal() as session:
-                        current_job = session.get(IndexingJob, item.job_id)
-                        current_operation = (
-                            current_job.operation if current_job is not None else "upsert_version"
-                        )
-                    if current_operation == "delete_asset":
-                        self.engine.delete_document_asset(
-                            item.document_id,  # type: ignore[arg-type]
-                        )
-                        counts = {"chunks_indexed": 0}
-                    elif current_operation == "refresh_metadata":
-                        self.engine.refresh_document_metadata(
-                            item.document_id,  # type: ignore[arg-type]
-                        )
-                        counts = {"chunks_indexed": len(item.chunks)}
-                    else:
-                        matrix = np.stack(item.vectors).astype(np.float32)
-                        counts = self.engine.write_document_version(
-                            item.document_id,  # type: ignore[arg-type]
-                            item.version_id,  # type: ignore[arg-type]
-                            item.chunks,
-                            matrix,
-                        )
-                elif item.note is not None:
-                    note_vectors = (
-                        np.stack(item.vectors).astype(np.float32)
-                        if item.vectors
-                        else np.empty((0, 0), dtype=np.float32)
+                future.result()
+            except Exception:
+                logger.exception(
+                    "qdrant_writer_unhandled_failure",
+                    extra={"event": "qdrant_writer_unhandled_failure"},
+                )
+        self._metrics["queue_depths"]["writing"] = len(self._write_futures)
+
+    def _write_prepared_asset(self, item: PreparedAsset) -> None:
+        try:
+            write_started = time.monotonic()
+            if item.asset_type == "document":
+                with SessionLocal() as session:
+                    current_job = session.get(IndexingJob, item.job_id)
+                    current_operation = (
+                        current_job.operation if current_job is not None else "upsert_version"
                     )
-                    with SessionLocal() as session:
-                        counts = NoteIndexingService(
-                            session,
-                            self.engine,
-                        ).write_prepared(item.note, note_vectors)
+                if current_operation == "delete_asset":
+                    self.engine.delete_document_asset(item.document_id)  # type: ignore[arg-type]
+                    counts = {"chunks_indexed": 0}
+                elif current_operation == "refresh_metadata":
+                    self.engine.refresh_document_metadata(item.document_id)  # type: ignore[arg-type]
+                    counts = {"chunks_indexed": len(item.chunks)}
                 else:
-                    raise ValueError("Prepared indexing asset has no writable target.")
-                self.queue.transition(item.job_id, self.worker_id, "verifying")
-                self.queue.complete(
-                    item.job_id,
-                    self.worker_id,
-                    message=f"Indexed and verified {counts['chunks_indexed']} chunks.",
+                    if any(vector is None for vector in item.vectors):
+                        raise RuntimeError("The embedding stage produced an incomplete vector set.")
+                    matrix = np.stack(
+                        [vector for vector in item.vectors if vector is not None]
+                    ).astype(np.float32)
+                    counts = self.engine.write_document_version(
+                        item.document_id,  # type: ignore[arg-type]
+                        item.version_id,  # type: ignore[arg-type]
+                        item.chunks,
+                        matrix,
+                    )
+            elif item.note is not None:
+                note_vectors = (
+                    np.stack(
+                        [vector for vector in item.vectors if vector is not None]
+                    ).astype(np.float32)
+                    if item.vectors
+                    else np.empty((0, 0), dtype=np.float32)
                 )
-                logger.info(
-                    "qdrant_asset_write_verified",
-                    extra={
-                        "event": "qdrant_write",
-                        "job_id": str(item.job_id),
-                        "asset_type": item.asset_type,
-                        "chunks": len(item.chunks),
-                        "elapsed_ms": round(
-                            (time.monotonic() - write_started) * 1000,
-                            2,
-                        ),
-                    },
-                )
-                self._metrics["throughput"]["jobs_completed"] += 1
-                self._metrics["queue_depths"]["writing"] -= 1
-                self._remove_active(item.job_id)
-            except SupersededNoteRevision as exc:
-                self.queue.supersede(
-                    item.job_id,
-                    self.worker_id,
-                    message=str(exc),
-                )
-                self._remove_active(item.job_id)
-            except Exception as exc:
-                self._handle_failure(item.job_id, exc)
-        self._mark_bm25_dirty()
+                with SessionLocal() as session:
+                    counts = NoteIndexingService(
+                        session,
+                        self.engine,
+                    ).write_prepared(item.note, note_vectors)
+            else:
+                raise ValueError("Prepared indexing asset has no writable target.")
+            self.queue.transition(item.job_id, self.worker_id, "verifying")
+            self.queue.complete(
+                item.job_id,
+                self.worker_id,
+                message=f"Indexed and verified {counts['chunks_indexed']} chunks.",
+            )
+            logger.info(
+                "qdrant_batch_written",
+                extra={
+                    "event": "qdrant_batch_written",
+                    "job_id": str(item.job_id),
+                    "asset_type": item.asset_type,
+                    "chunks": len(item.chunks),
+                    "elapsed_ms": round((time.monotonic() - write_started) * 1000, 2),
+                },
+            )
+            logger.info(
+                "index_completed",
+                extra={
+                    "event": "index_completed",
+                    "job_id": str(item.job_id),
+                    "asset_type": item.asset_type,
+                    "chunks": int(counts["chunks_indexed"]),
+                },
+            )
+            self._metrics["throughput"]["jobs_completed"] += 1
+            if item.asset_type == "document":
+                self._metrics["throughput"]["documents_completed"] += 1
+            self._remove_active(item.job_id)
+            self._mark_bm25_dirty()
+        except SupersededNoteRevision as exc:
+            self.queue.supersede(item.job_id, self.worker_id, message=str(exc))
+            self._remove_active(item.job_id)
+        except Exception as exc:
+            self._handle_failure(item.job_id, exc)
 
     def _embed_with_oom_reduction(self, batch: list[ChunkEnvelope]) -> np.ndarray:
         try:
+            controller = getattr(self, "_batch_controller", None)
+            active_limit = (
+                controller.current
+                if controller is not None
+                else settings.indexer_embed_batch_size
+            )
             return self.engine.embed_chunk_batch(
                 [item.chunk for item in batch],
-                batch_size=min(settings.indexer_embed_batch_size, len(batch)),
+                batch_size=min(active_limit, len(batch)),
             )
         except RuntimeError as exc:
             if "out of memory" not in str(exc).casefold() or len(batch) <= 1:
                 raise
             midpoint = len(batch) // 2
+            controller = getattr(self, "_batch_controller", None)
+            next_limit = (
+                controller.record_oom(attempted_batch_size=len(batch))
+                if controller is not None
+                else midpoint
+            )
+            metrics = getattr(self, "_metrics", None)
+            if metrics is not None and controller is not None:
+                metrics["adaptive_batch"].update(
+                    current=next_limit,
+                    oom_count=controller.oom_count,
+                )
             logger.warning(
                 "cuda_oom_batch_reduced",
-                extra={"event": "embedding_batch_resize", "from": len(batch), "to": midpoint},
+                extra={
+                    "event": "embedding_batch_resize",
+                    "from": len(batch),
+                    "to": midpoint,
+                    "next_batch_limit": next_limit,
+                },
             )
             return np.concatenate(
                 (
@@ -982,7 +1176,7 @@ class ContinuousIndexer:
                             raise RuntimeError(
                                 f"Indexer lease was lost for job {job_id}."
                             )
-                    self._sample_gpu_metrics()
+                    self._sample_system_metrics()
                     self.queue.heartbeat(
                         self.worker_id,
                         service_state="active" if active else "watching",
@@ -990,6 +1184,14 @@ class ContinuousIndexer:
                         metrics=self._metrics,
                         embedding_device=self.actual_device,
                         embedding_precision=self.actual_precision,
+                    )
+                    logger.debug(
+                        "worker_heartbeat",
+                        extra={
+                            "event": "worker_heartbeat",
+                            "worker_id": self.worker_id,
+                            "active_jobs": len(active),
+                        },
                     )
                 except Exception:
                     logger.exception("indexer_heartbeat_or_lease_failed")
@@ -1000,19 +1202,46 @@ class ContinuousIndexer:
         self._heartbeat_thread = Thread(target=loop, name="cial-indexer-heartbeat", daemon=True)
         self._heartbeat_thread.start()
 
-    def _sample_gpu_metrics(self) -> None:
+    def _sample_system_metrics(self) -> None:
+        elapsed = max(time.monotonic() - self._started_monotonic, 0.000001)
+        throughput = self._metrics["throughput"]
+        throughput["documents_per_hour"] = round(
+            float(throughput.get("documents_completed") or 0) * 3600 / elapsed,
+            2,
+        )
+        throughput["chunks_per_minute"] = round(
+            float(throughput.get("chunks_embedded") or 0) * 60 / elapsed,
+            2,
+        )
+        throughput["uptime_seconds"] = round(elapsed, 2)
+        try:
+            import psutil
+
+            self._metrics["cpu"] = {
+                "utilization_percent": float(psutil.cpu_percent(interval=None)),
+                "process_utilization_percent": float(
+                    psutil.Process().cpu_percent(interval=None)
+                ),
+                "logical_cores": float(psutil.cpu_count(logical=True) or 0),
+            }
+        except (ImportError, OSError):
+            logger.debug("cpu_metrics_unavailable", exc_info=True)
+
         if not self.actual_device.casefold().startswith("cuda"):
             return
         executable = shutil.which("nvidia-smi")
         if not executable:
             return
         try:
+            command = [
+                executable,
+                "--query-gpu=utilization.gpu,memory.used,memory.total",
+                "--format=csv,noheader,nounits",
+            ]
+            if ":" in self.actual_device:
+                command.insert(1, f"--id={self.actual_device.rsplit(':', 1)[1]}")
             result = subprocess.run(
-                [
-                    executable,
-                    "--query-gpu=utilization.gpu,memory.used,memory.total",
-                    "--format=csv,noheader,nounits",
-                ],
+                command,
                 capture_output=True,
                 check=True,
                 text=True,
@@ -1063,8 +1292,8 @@ class ContinuousIndexer:
         )
         self._remove_active(job_id)
         logger.exception(
-            "indexing_job_failed",
-            extra={"event": "indexing_job_failed", "job_id": str(job_id), "error_code": code, "status": status},
+            "index_failed",
+            extra={"event": "index_failed", "job_id": str(job_id), "error_code": code, "status": status},
         )
 
     def _remove_active(self, job_id: uuid.UUID) -> None:
