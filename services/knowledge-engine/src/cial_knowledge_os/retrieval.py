@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Collection
 
-from qdrant_client.models import FieldCondition, Filter, MatchValue
+from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
 
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
@@ -68,13 +68,14 @@ def search_similar_chunks(
             )
         )
     if normalized_versions is not None or normalized_note_revisions:
-        version_conditions = [
-            FieldCondition(
-                key="metadata.document_version_id",
-                match=MatchValue(value=value),
+        version_conditions = []
+        if normalized_versions:
+            version_conditions.append(
+                FieldCondition(
+                    key="metadata.document_version_id",
+                    match=MatchAny(any=normalized_versions),
+                )
             )
-            for value in (normalized_versions or ())
-        ]
         version_conditions.extend(
             Filter(
                 must=[
@@ -101,9 +102,8 @@ def search_similar_chunks(
                 should=[
                     FieldCondition(
                         key="metadata.relative_path",
-                        match=MatchValue(value=value),
+                        match=MatchAny(any=normalized_paths),
                     )
-                    for value in normalized_paths
                 ]
             )
         )

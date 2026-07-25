@@ -345,6 +345,8 @@ class Phase3Config(Phase2Config):
     bm25_k1: float = 1.5
     bm25_b: float = 0.75
     parallel_retrieval: bool = True
+    bm25_retrieval_timeout_seconds: float = 10.0
+    hybrid_fusion_timeout_seconds: float = 5.0
     bm25_cache_dir: Path | None = None
     bm25_cache_filename: str = "bm25_index.pkl"
     max_context_tokens: int | None = 4_096
@@ -387,6 +389,14 @@ class Phase3Config(Phase2Config):
             raise ValueError("dense_top_k must be greater than zero.")
         if self.bm25_top_k <= 0:
             raise ValueError("bm25_top_k must be greater than zero.")
+        if self.bm25_retrieval_timeout_seconds <= 0:
+            raise ValueError(
+                "bm25_retrieval_timeout_seconds must be greater than zero."
+            )
+        if self.hybrid_fusion_timeout_seconds <= 0:
+            raise ValueError(
+                "hybrid_fusion_timeout_seconds must be greater than zero."
+            )
         if self.rrf_k <= 0:
             raise ValueError("rrf_k must be greater than zero.")
         if self.dense_weight <= 0 or self.bm25_weight <= 0:
@@ -454,7 +464,8 @@ class Phase4Config(Phase3Config):
     # Enterprise deployments set this to True to prohibit all network access.
     reranker_local_files_only: bool = False
     reranker_candidate_top_k: int = 30
-    reranker_timeout_seconds: float = 10.0
+    reranker_timeout_seconds: float = 15.0
+    evidence_selection_timeout_seconds: float = 5.0
 
     evidence_selection_strategies: tuple[str, ...] = (
         "top_k",
@@ -516,6 +527,12 @@ class Phase4Config(Phase3Config):
             raise ValueError("reranker_batch_size must be greater than zero.")
         if self.reranker_candidate_top_k <= 0:
             raise ValueError("reranker_candidate_top_k must be greater than zero.")
+        if self.reranker_timeout_seconds <= 0:
+            raise ValueError("reranker_timeout_seconds must be greater than zero.")
+        if self.evidence_selection_timeout_seconds <= 0:
+            raise ValueError(
+                "evidence_selection_timeout_seconds must be greater than zero."
+            )
         if self.max_selected_evidence is None:
             self.max_selected_evidence = self.evidence_max_chunks
         else:

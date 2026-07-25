@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -60,6 +62,8 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
             str,
             dict[str, list[dict[str, Any]]],
         ] = {}
+        self.last_retrieval_telemetry: dict[str, dict[str, Any]] = {}
+        self.last_retrieval_stage_events: list[dict[str, Any]] = []
         self.token_manager: TokenManager
         self.token_budget_manager: TokenBudgetManager | None = None
         self._token_config_key: tuple[int | None, str, int | None] | None = None
@@ -169,6 +173,11 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
                 "bm25": self.config.bm25_top_k,
             },
             parallel=self.config.parallel_retrieval,
+            stage_timeouts={
+                "dense": self.config.qdrant_query_timeout_seconds,
+                "bm25": self.config.bm25_retrieval_timeout_seconds,
+                "hybrid_fusion": self.config.hybrid_fusion_timeout_seconds,
+            },
         )
 
     def on_config_changed(self) -> None:
@@ -188,6 +197,17 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
                 "bm25": self.config.bm25_top_k,
             }
             self.hybrid_retriever.parallel = self.config.parallel_retrieval
+            self.hybrid_retriever.stage_timeouts = {
+                "dense": min(
+                    float(self.config.qdrant_query_timeout_seconds), 30.0
+                ),
+                "bm25": min(
+                    float(self.config.bm25_retrieval_timeout_seconds), 10.0
+                ),
+                "hybrid_fusion": min(
+                    float(self.config.hybrid_fusion_timeout_seconds), 5.0
+                ),
+            }
 
     def build_lexical_index(self) -> bool:
         """Build or reuse BM25 from the already-created Phase 2 chunks."""
@@ -284,6 +304,20 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
             if isinstance(lexical, BM25Retriever):
                 lexical.set_allowed_relative_paths(self._active_relative_path_filter)
             if not bool(getattr(lexical, "is_indexed", True)):
+                if self.config.require_authorization_metadata:
+                    self._emit_single_retrieval_stage(
+                        "bm25_retrieval",
+                        "started",
+                    )
+                    self._emit_single_retrieval_stage(
+                        "bm25_retrieval",
+                        "completed",
+                        error_state="published_generation_unavailable",
+                    )
+                    raise RuntimeError(
+                        "The active published BM25 generation is unavailable. "
+                        "Query-time snapshot rebuilding is disabled."
+                    )
                 self.build_lexical_index()
         if mode == "hybrid":
             assert self.hybrid_retriever is not None
@@ -293,6 +327,15 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
             results = self.hybrid_retriever.retrieve(
                 query,
                 top_k=self.config.retrieval_top_k,
+            )
+            self.last_retrieval_telemetry = {
+                name: dict(metrics)
+                for name, metrics in self.hybrid_retriever.last_stage_telemetry.items()
+            }
+            self.last_retrieval_stage_events.extend(
+                {"stage": name, **dict(metrics)}
+                for name, metrics in self.hybrid_retriever.last_stage_telemetry.items()
+                if metrics.get("stage_completed")
             )
             self.last_modality_results_by_query[query] = {
                 **{
@@ -308,20 +351,119 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
                 f"Retrieval mode '{mode}' has no registered retriever. "
                 f"Available modes: {available}."
             )
-        results = self._retrievers[mode].retrieve(
-            query,
-            top_k=self.config.retrieval_top_k,
-        )
+        if mode in {"dense", "bm25"}:
+            results = self._retrieve_single_with_deadline(
+                mode,
+                self._retrievers[mode],
+                query,
+            )
+        else:
+            results = self._retrievers[mode].retrieve(
+                query,
+                top_k=self.config.retrieval_top_k,
+            )
         self.last_modality_results_by_query[query] = {
             mode: [dict(item) for item in results],
             "fused": [dict(item) for item in results],
         }
         return results
 
+    def _retrieve_single_with_deadline(
+        self,
+        mode: str,
+        retriever: Retriever,
+        query: str,
+    ) -> list[dict[str, Any]]:
+        stage = "dense_retrieval" if mode == "dense" else "bm25_retrieval"
+        timeout_seconds = (
+            min(float(self.config.qdrant_query_timeout_seconds), 30.0)
+            if mode == "dense"
+            else min(float(self.config.bm25_retrieval_timeout_seconds), 10.0)
+        )
+        started = time.perf_counter()
+        self._emit_single_retrieval_stage(stage, "started")
+        completed = threading.Event()
+        result_box: dict[str, Any] = {}
+
+        def run() -> None:
+            try:
+                result_box["result"] = retriever.retrieve(
+                    query,
+                    top_k=self.config.retrieval_top_k,
+                )
+            except BaseException as exc:
+                result_box["error"] = exc
+            finally:
+                completed.set()
+
+        threading.Thread(
+            target=run,
+            name=f"cial-{mode}-retrieval",
+            daemon=True,
+        ).start()
+        error_state: str | None = None
+        if not completed.wait(timeout_seconds):
+            error_state = "timeout"
+            results: list[dict[str, Any]] = []
+        elif "error" in result_box:
+            error_state = type(result_box["error"]).__name__
+            self._emit_single_retrieval_stage(
+                stage,
+                "completed",
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                error_state=error_state,
+            )
+            raise result_box["error"]
+        else:
+            results = result_box["result"]
+        self._emit_single_retrieval_stage(
+            stage,
+            "completed",
+            duration_ms=int((time.perf_counter() - started) * 1000),
+            candidate_count=len(results),
+            error_state=error_state,
+        )
+        return results
+
+    def _emit_single_retrieval_stage(
+        self,
+        stage: str,
+        status: str,
+        *,
+        duration_ms: int = 0,
+        candidate_count: int = 0,
+        error_state: str | None = None,
+    ) -> None:
+        metrics = {
+            "stage_started": True,
+            "stage_completed": status == "completed",
+            "duration_ms": duration_ms,
+            "candidate_count": candidate_count,
+            "error_state": error_state,
+        }
+        self.last_retrieval_telemetry[stage] = dict(metrics)
+        if status == "completed":
+            self.last_retrieval_stage_events.append(
+                {"stage": stage, **dict(metrics)}
+            )
+        logger.info(
+            f"retrieval_{status}",
+            extra={
+                "event": f"stage_{status}",
+                "stage": stage,
+                **metrics,
+            },
+        )
+        callback = getattr(self, "telemetry_callback", None)
+        if callback is not None:
+            callback(stage, status, dict(metrics))
+
     def retrieve(self, question: str) -> list[dict[str, Any]]:
         """Reset and capture modality-level results for one question."""
 
         self.last_modality_results_by_query = {}
+        self.last_retrieval_telemetry = {}
+        self.last_retrieval_stage_events = []
         return super().retrieve(question)
 
     def answer(self, question: str) -> dict[str, Any]:
@@ -395,6 +537,28 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
             "retrieved_by_query": response.get("retrieved_by_query") or {},
             "stage_counts": response.get("stage_counts") or {},
             "token_usage": response["token_usage"],
+            "stage_telemetry": {
+                name: dict(metrics)
+                for name, metrics in self.last_retrieval_telemetry.items()
+            },
+            "stage_events": [
+                dict(event) for event in self.last_retrieval_stage_events
+            ],
+            "failed_stage": next(
+                (
+                    str(event["stage"])
+                    for event in self.last_retrieval_stage_events
+                    if event.get("error_state")
+                ),
+                None,
+            ),
+            "failed_stages": sorted(
+                {
+                    str(event["stage"])
+                    for event in self.last_retrieval_stage_events
+                    if event.get("error_state")
+                }
+            ),
         }
         response["question_trace"] = build_question_trace(
             question=question,

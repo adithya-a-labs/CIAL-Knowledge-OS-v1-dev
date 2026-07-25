@@ -141,6 +141,7 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
         self.token_callback = None
         self.cancel_event = None
         self.telemetry_callback = None
+        self._reranker_execution_lock = threading.Lock()
         self._phase4_component_key: tuple[Any, ...] | None = None
         super().__init__(
             config=phase4_config,
@@ -649,27 +650,28 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
             "reranking", event_type="reranking_started"
         )
         reranker_started = time.perf_counter()
-        reranker_metrics = {
-            "candidate_count": len(self.last_candidate_pool),
-            "reranker_device": str(
-                getattr(
-                    self.reranker,
-                    "resolved_device",
-                    getattr(self.reranker, "device", "unknown"),
-                )
-            ),
-        }
-        if self.telemetry_callback is not None:
-            self.telemetry_callback("reranking", "started", reranker_metrics)
+        reranker_error_state: str | None = None
+        self._emit_retrieval_stage(
+            "reranking",
+            "started",
+            candidate_count=len(self.last_candidate_pool),
+        )
         if self.config.reranker_enabled:
             result_box: dict[str, Any] = {}
             completed = threading.Event()
+            abandoned = threading.Event()
+            reranker_candidates = [
+                dict(item) for item in self.last_candidate_pool
+            ]
 
             def run_reranker() -> None:
                 try:
-                    result_box["result"] = self.reranker.rerank(
-                        question, self.last_candidate_pool
-                    )
+                    with self._reranker_execution_lock:
+                        if abandoned.is_set():
+                            return
+                        result_box["result"] = self.reranker.rerank(
+                            question, reranker_candidates
+                        )
                 except BaseException as exc:  # preserve the original model error
                     result_box["error"] = exc
                 finally:
@@ -680,42 +682,52 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
                 name="cial-reranker",
                 daemon=True,
             ).start()
-            if not completed.wait(float(self.config.reranker_timeout_seconds)):
-                if self.telemetry_callback is not None:
-                    self.telemetry_callback(
-                        "reranking",
-                        "failed",
-                        {
-                            **reranker_metrics,
-                            "duration_ms": int(
-                                (time.perf_counter() - reranker_started) * 1000
-                            ),
-                            "reason": "timeout",
-                        },
-                    )
-                raise TimeoutError(
-                    "Reranking exceeded the configured time limit."
+            reranker_deadline = min(
+                float(self.config.reranker_timeout_seconds), 15.0
+            )
+            if not completed.wait(reranker_deadline):
+                abandoned.set()
+                reranker_error_state = "timeout"
+                rerank_result = self._passthrough_rerank(
+                    self.last_candidate_pool
                 )
-            if "error" in result_box:
+                logger.warning(
+                    "reranking_degraded",
+                    extra={
+                        "event": "reranking_completed",
+                        "error_state": reranker_error_state,
+                        "candidate_count": len(self.last_candidate_pool),
+                    },
+                )
+            elif "error" in result_box:
+                self._emit_retrieval_stage(
+                    "reranking",
+                    "completed",
+                    duration_ms=int(
+                        (time.perf_counter() - reranker_started) * 1000
+                    ),
+                    candidate_count=0,
+                    error_state=type(result_box["error"]).__name__,
+                )
                 raise result_box["error"]
-            rerank_result = result_box["result"]
+            else:
+                rerank_result = result_box["result"]
         else:
             rerank_result = self._passthrough_rerank(self.last_candidate_pool)
         self.metrics["reranker_latency"] = rerank_result.latency_seconds
         self.last_reranked_candidates = [
             dict(item) for item in rerank_result.candidates
         ]
-        if self.telemetry_callback is not None:
-            self.telemetry_callback(
-                "reranking",
-                "completed",
-                {
-                    **reranker_metrics,
-                    "duration_ms": int(
-                        (time.perf_counter() - reranker_started) * 1000
-                    ),
-                },
-            )
+        reranker_duration_ms = int(
+            (time.perf_counter() - reranker_started) * 1000
+        )
+        self._emit_retrieval_stage(
+            "reranking",
+            "completed",
+            duration_ms=reranker_duration_ms,
+            candidate_count=len(self.last_reranked_candidates),
+            error_state=reranker_error_state,
+        )
         self.execution_manager.complete_stage(
             "reranking",
             event_type="reranking_completed",
@@ -723,19 +735,101 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
                 "reranking_latency_seconds": rerank_result.latency_seconds
             },
             candidate_count=len(self.last_reranked_candidates),
+            error_state=reranker_error_state,
         )
 
         self.execution_manager.start_stage(
             "evidence_selection",
             event_type="evidence_selection_started",
         )
-        selection = self.evidence_selector.select(
-            self.last_reranked_candidates
+        selection_started = time.perf_counter()
+        self._emit_retrieval_stage(
+            "evidence_selection",
+            "started",
+            candidate_count=len(self.last_reranked_candidates),
         )
+        selection_box: dict[str, Any] = {}
+        selection_candidates = [
+            dict(item) for item in self.last_reranked_candidates
+        ]
+        selection_completed = threading.Event()
+
+        def run_selection() -> None:
+            try:
+                selection_box["result"] = self.evidence_selector.select(
+                    selection_candidates
+                )
+            except BaseException as exc:
+                selection_box["error"] = exc
+            finally:
+                selection_completed.set()
+
+        threading.Thread(
+            target=run_selection,
+            name="cial-evidence-selection",
+            daemon=True,
+        ).start()
+        selection_deadline = min(
+            float(self.config.evidence_selection_timeout_seconds),
+            5.0,
+        )
+        selection_error_state: str | None = None
+        if not selection_completed.wait(selection_deadline):
+            selection_error_state = "timeout"
+            discarded = tuple(
+                {
+                    **dict(candidate),
+                    "discard_reason": "evidence_selection_timeout",
+                }
+                for candidate in self.last_reranked_candidates
+            )
+            selection = EvidenceSelectionResult(
+                selected=(),
+                discarded=discarded,
+                selected_tokens=0,
+                latency_seconds=time.perf_counter() - selection_started,
+                weak_evidence=True,
+                usable_candidate_count=len(self.last_reranked_candidates),
+                threshold_pass_count=0,
+                discard_reason_counts={
+                    "evidence_selection_timeout": len(discarded)
+                },
+            )
+            logger.warning(
+                "evidence_selection_degraded",
+                extra={
+                    "event": "evidence_selection_completed",
+                    "error_state": selection_error_state,
+                    "candidate_count": len(self.last_reranked_candidates),
+                },
+            )
+        elif "error" in selection_box:
+            exc = selection_box["error"]
+            self._emit_retrieval_stage(
+                "evidence_selection",
+                "completed",
+                duration_ms=int(
+                    (time.perf_counter() - selection_started) * 1000
+                ),
+                candidate_count=0,
+                error_state=type(exc).__name__,
+            )
+            raise exc
+        else:
+            selection = selection_box["result"]
         self.last_selection_result = selection
         self.metrics["evidence_selection_latency"] = selection.latency_seconds
         self.last_selected_chunks = [dict(item) for item in selection.selected]
         self.last_discarded_chunks = [dict(item) for item in selection.discarded]
+        self._emit_retrieval_stage(
+            "evidence_selection",
+            "completed",
+            duration_ms=int(
+                (time.perf_counter() - selection_started) * 1000
+            ),
+            candidate_count=len(self.last_selected_chunks),
+            error_state=selection_error_state,
+        )
         self.execution_manager.complete_stage(
             "evidence_selection",
             event_type="evidence_selection_completed",
@@ -744,6 +838,7 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
             },
             selected_count=len(self.last_selected_chunks),
             discarded_count=len(self.last_discarded_chunks),
+            error_state=selection_error_state,
         )
 
         # Phase 2/3 context construction stays unchanged; replacing this
@@ -752,6 +847,38 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
             dict(item) for item in self.last_selected_chunks
         ]
         return [dict(item) for item in self.last_selected_chunks]
+
+    def _emit_retrieval_stage(
+        self,
+        stage: str,
+        status: str,
+        *,
+        duration_ms: int = 0,
+        candidate_count: int = 0,
+        error_state: str | None = None,
+    ) -> None:
+        metrics = {
+            "stage_started": True,
+            "stage_completed": status == "completed",
+            "duration_ms": duration_ms,
+            "candidate_count": candidate_count,
+            "error_state": error_state,
+        }
+        self.last_retrieval_telemetry[stage] = dict(metrics)
+        if status == "completed":
+            self.last_retrieval_stage_events.append(
+                {"stage": stage, **dict(metrics)}
+            )
+        logger.info(
+            f"retrieval_{status}",
+            extra={
+                "event": f"stage_{status}",
+                "stage": stage,
+                **metrics,
+            },
+        )
+        if self.telemetry_callback is not None:
+            self.telemetry_callback(stage, status, dict(metrics))
 
     def answer(self, question: str) -> dict[str, Any]:
         """Run Phase 4 end to end and return a Phase 3-compatible response.
