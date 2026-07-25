@@ -431,3 +431,58 @@ Missing heartbeat or component telemetry is reported as stale/degraded.
 Unavailable GPU samples remain unavailable; CPU operation is never relabelled
 as CUDA. The projection contains identifiers and safe error codes only, never
 source content, credentials, repository paths, or exception text.
+
+## Physical GPU Isolation And Query Priority
+
+Process isolation does not isolate a shared CUDA device. The API therefore uses
+CPU query embeddings by default (`CIAL_QUERY_EMBEDDING_DEVICE=cpu`) and the
+standalone indexer owns throughput-oriented BGE-M3 CUDA batches. This prevents
+two process-local BGE-M3 copies from occupying VRAM alongside Ollama.
+
+The indexer yields between bounded batches whenever the API holds the
+stale-safe chat-priority lease. It moves the embedding model to CPU while
+yielding and after a configurable idle interval, releases cached CUDA allocator
+blocks, and restores the configured device only when another batch is ready.
+An in-flight kernel completes normally; no process is killed and no partial
+batch is published. These rules change physical scheduling only, not queue
+leases, retrieval, Qdrant verification, BM25, or publication semantics.
+
+Worker telemetry distinguishes configured device from current residency and
+reports GPU state, active embedding jobs, priority waits, and process-local CUDA
+memory. A stopped or restarting worker is not a query dependency once a valid
+publication exists.
+
+### Ollama-first allocation policy
+
+The operational defaults are `OLLAMA_KEEP_ALIVE=30m`,
+`OLLAMA_GPU_PRIORITY_ENABLED=true`, `OLLAMA_NUM_GPU=-1`, and
+`INDEXER_GPU_COOPERATIVE_MODE=true` (the equivalent `CIAL_`-prefixed names are
+also accepted). `num_gpu=-1` requests all available model layers on the GPU;
+the actual placement remains an Ollama/CUDA decision and is verified from
+Ollama's live process record.
+
+The allocation state machine is:
+
+1. With no active chat, the indexer may use CUDA at its adaptive throughput
+   limit.
+2. A chat lease causes the indexer to finish its bounded in-flight batch, move
+   BGE-M3 to CPU, empty its unused CUDA cache, and wait. Ollama then loads or
+   reuses Gemma with all GPU layers requested.
+3. After generation releases the chat lease, the next pending embedding batch
+   unloads the warm Ollama runner and restores BGE-M3 to CUDA immediately. If
+   there is no pending indexing work, Ollama may remain warm for its keep-alive
+   interval without blocking useful GPU work.
+
+This is cooperative scheduling, not CUDA process preemption: active kernels are
+not interrupted, continuous indexing is not disabled, and durable queue work
+continues. The warm model reservation is not treated as user activity: pending
+index work reclaims the device, while a failed unload leaves embedding on CPU
+for that batch rather than risking CUDA starvation.
+
+Generation telemetry samples `nvidia-smi` throughout generation and combines
+it with Ollama's live `size`/`size_vram` process record. It reports
+`ollama_processor_type`, `gpu_memory_used`, `gpu_memory_total`,
+`cpu_offload_detected`, and average/peak `generation_gpu_utilization`.
+`gpu_layers_used` is deliberately null because Ollama's process API does not
+publish an actual layer count; `gpu_layers_requested=-1` records the real
+request without fabricating a measurement.

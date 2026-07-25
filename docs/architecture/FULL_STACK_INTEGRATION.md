@@ -120,5 +120,34 @@ scripts\start_frontend.bat
 
 `Launch-CIAL-Knowledge-OS.bat` starts/checks all dependencies, runs Alembic,
 starts backend and indexer independently, starts the frontend, and opens login
-after API/frontend readiness plus a fresh indexer heartbeat.
+after API/frontend readiness. It warns if the indexer does not publish a fresh
+heartbeat, but continues serving an existing committed generation.
 `scripts\launch_all.bat` delegates to this same production launcher.
+
+## Shared GPU Runtime
+
+The query process defaults BGE-M3 to CPU so it does not retain a second CUDA
+copy. The standalone indexer retains GPU batches, releases its model from CUDA
+when idle, and yields between bounded batches while chat holds priority.
+Ollama uses an explicit keep-alive and remains the latency-priority workload.
+These rules do not alter scores, payloads, BM25, prompts, citations, or
+published generations.
+
+A stopped, stale, or restarting indexer changes indexing status to degraded but
+does not change `chat_available` when PostgreSQL, Qdrant, Ollama, and an already
+loaded valid generation remain available.
+
+Ollama is explicitly invoked with all GPU layers requested and a 30-minute
+keep-alive. During generation the operations monitor displays measured
+processor placement, CPU-offload detection, Ollama VRAM, total VRAM, average
+and peak GPU utilization, first-token latency, model-load time, and output
+throughput. Ollama does not expose the actual offloaded layer count through its
+process API, so that field remains unavailable instead of being inferred from
+memory percentages.
+
+When generation ends, the chat-priority lease is released and the next pending
+embedding batch unloads the warm Ollama runner and returns BGE-M3 to CUDA
+immediately. With no pending batch, Ollama may retain its configured warm
+window. A warm runner never extends exclusive generation priority beyond the
+active request. Durable indexing, verification, BM25 publication, and query
+isolation are unchanged.

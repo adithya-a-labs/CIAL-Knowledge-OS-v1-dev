@@ -221,3 +221,19 @@ publication telemetry. Supported types include `document_detected`,
 `worker_failed`. `service_failed` identifies a component and exception type
 only. A bounded in-process event buffer supports the live console; PostgreSQL
 job/history tables remain the durable source of truth.
+
+## Generation And GPU Performance Telemetry
+
+Generation completion/failure events additionally carry content-free workload
+and runtime measurements: prompt, context, system-instruction and output token
+counts; first-token latency; tokens per second; Ollama model-load,
+prompt-evaluation and total duration; retry count; and effective keep-alive.
+Generation deadlines retain `error_state=generation_timeout` rather than being
+collapsed to the outer wrapper failure.
+
+GPU samples run asynchronously at generation boundaries so telemetry cannot
+delay the answer path. Samples include total utilization and VRAM plus bounded
+active CUDA process IDs classified as Ollama, Python, or other. Indexer
+heartbeats separately report active embedding jobs, embedding queue depth, GPU
+residency/state, chat-priority waits, and process-local allocation/reservation.
+Driver-unavailable values remain unavailable rather than inferred.

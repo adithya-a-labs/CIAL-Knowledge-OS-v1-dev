@@ -711,3 +711,57 @@ the draft only after the NDJSON stream is established, supports cancellation,
 and keeps an explicit retry action. Event-driven progress now maps to Connected,
 Validating request, Loading published generation, Searching, Reranking,
 Generating, Completed, and Failed.
+
+## Query-Priority GPU Runtime
+
+The API and standalone indexer remain independent processes, but no longer
+duplicate BGE-M3 on CUDA by default. The API resolves
+`CIAL_QUERY_EMBEDDING_DEVICE=cpu` for single-vector query embedding, while the
+indexer retains `CIAL_INDEXER_DEVICE=auto` for throughput-oriented batches.
+This preserves retrieval behavior while reserving accelerator capacity for the
+latency-sensitive Ollama runner.
+
+The indexer moves its embedding model to CPU after
+`CIAL_INDEXER_GPU_IDLE_RELEASE_SECONDS` when idle. Before each bounded batch it
+observes a stale-safe local chat-priority lease. If chat is active, it releases
+CUDA residency and waits between batches; it never kills a process or
+interrupts an in-flight CUDA kernel. The model returns to its configured device
+on the next batch.
+
+Ollama generation uses `CIAL_OLLAMA_KEEP_ALIVE=30m` by default. Safe telemetry
+now includes model load, prompt evaluation, first-token latency, prompt/context/
+output tokens, tokens per second, total Ollama duration, GPU/VRAM samples, and
+active CUDA process classifications. The indexer heartbeat reports GPU state,
+active embedding jobs, chat-priority waits, residency, and process-local CUDA
+allocation/reservation.
+
+An absent, stopped, stale, or restarting indexer remains non-critical after a
+valid generation has been published. API startup loads that generation directly
+from PostgreSQL, Qdrant, and the BM25 snapshot. The launcher attempts to start
+the indexer but does not make a missing heartbeat a chat-readiness failure.
+
+Ollama requests `num_gpu=-1`, uses a 30-minute keep-alive, and owns CUDA
+priority while the chat lease is active. The cooperative indexer releases its
+embedding allocation for chat and restores CUDA on its next pending batch as
+soon as the response releases the lease. That batch unloads a still-warm
+Ollama runner before reclaiming CUDA; when no indexing is pending, keep-alive
+can retain Gemma without blocking useful work. Keep-alive never prolongs
+exclusive generation priority.
+Configuration accepts `OLLAMA_KEEP_ALIVE`, `OLLAMA_GPU_PRIORITY_ENABLED`,
+`OLLAMA_NUM_GPU`, and `INDEXER_GPU_COOPERATIVE_MODE`, plus their CIAL-prefixed
+forms.
+
+The administrator monitor exposes only measured generation data:
+`ollama_processor_type`, Ollama/total GPU memory,
+`cpu_offload_detected`, sampled average/peak GPU utilization, prompt/output
+tokens, first-token latency, model-load time, and tokens/second. Ollama's live
+process API does not disclose a layer count, so `gpu_layers_used` is null while
+`gpu_layers_requested=-1` documents the actual request.
+
+Live verification on the RTX 5070 Ti Laptop GPU (12,227 MiB reported VRAM)
+showed `gemma3:12b` at `100% GPU` in `ollama ps`, 7,672.1 MiB attributed to
+the Ollama model, no CPU offload, and 100% sampled peak generation utilization.
+A cold one-word probe completed in 16.0 seconds including a 15.3-second model
+load; the immediately repeated warm probe completed in 1.6 seconds at 33.59
+tokens/second. These probes validate the generation runtime and keep-alive,
+not the latency of retrieval or a full authenticated chat request.

@@ -278,8 +278,8 @@ function Start-Indexer {
     $env:PYTHONPATH = "$BackendRoot;$BackendRoot\src"
     Start-Process -FilePath $PythonExe -ArgumentList @("backend\indexer_main.py") -WorkingDirectory $BackendRoot -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err | Out-Null
     $env:PYTHONPATH = $previousPythonPath
-    if (-not (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 300 -Predicate { param($body) $body.indexer_seen -eq $true })) {
-        Stop-Launch "The standalone indexer did not publish a heartbeat. See $out and $err."
+    if (-not (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 60 -Predicate { param($body) $body.indexer_seen -eq $true })) {
+        Write-Warning "The standalone indexer did not publish a heartbeat. Chat will continue from the last published generation. See $out and $err."
     }
 }
 
@@ -314,7 +314,7 @@ function Start-Frontend {
 function Confirm-ApplicationStable {
     Write-Step "Confirming application readiness"
     Start-Sleep -Seconds 3
-    if (-not (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 10 -Predicate { param($body) $body.api_ready -eq $true -and $body.indexer_seen -eq $true })) {
+    if (-not (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 10 -Predicate { param($body) $body.api_ready -eq $true })) {
         Stop-Launch "Backend readiness was not stable after startup."
     }
     if (-not (Wait-Url -Url "http://127.0.0.1:$FrontendPort/login" -Seconds 10)) {

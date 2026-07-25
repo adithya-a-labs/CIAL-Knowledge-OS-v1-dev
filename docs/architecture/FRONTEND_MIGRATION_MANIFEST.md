@@ -788,3 +788,14 @@ artifacts/cial-dashboard/dev-server.out.log
 ```
 
 These are generated or development-only artifacts. Recreate `dist` with the production build and recreate `node_modules` by installing dependencies from the migrated `package.json` and lockfile strategy.
+
+## Runtime Performance Status Addendum
+
+The live operations console distinguishes configured GPU device from current
+indexer model residency. It shows indexer GPU state, active embedding jobs,
+chat-priority state, first-token latency, tokens per second, and Ollama
+model-load time. Missing driver values remain unavailable.
+
+A stale or stopped indexer is a degraded indexing condition. The Assistant send
+gate continues to use backend `chat_available`, so an existing published
+generation remains queryable while the worker is stopped or restarting.
