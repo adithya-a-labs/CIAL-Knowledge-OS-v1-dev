@@ -105,6 +105,10 @@ export default function ChatPanel() {
   const isSubmittingRef = useRef(false);
   const activeRequestIdRef = useRef<string | null>(null);
   const retryQuestionRef = useRef<string | null>(null);
+  const degradedStageRef = useRef<{
+    stage: string;
+    reason: string;
+  } | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const [chatMessagesWidth, setChatMessagesWidth] = useState<number>(0);
   const messages = activeSession.messages as ChatMessageData[];
@@ -334,6 +338,7 @@ export default function ChatPanel() {
 
     setIsLoading(true);
     setGenerationEvents([]);
+    degradedStageRef.current = null;
     setStreamingText(''); tokenBufferRef.current = '';
     setErrorMessage(null);
     const controller = new AbortController();
@@ -356,7 +361,16 @@ export default function ChatPanel() {
         );
       }
       const response = await streamQuestion(toChatRequest(requestPayload, requestSessionId), (event) => {
-        if (event.type === 'stage') setGenerationEvents((current) => [...current, event].slice(-30));
+        if (event.type === 'stage') {
+          setGenerationEvents((current) => [...current, event].slice(-30));
+          const errorState = event.metrics?.error_state;
+          if (errorState) {
+            degradedStageRef.current = {
+              stage: event.stage_id,
+              reason: String(errorState),
+            };
+          }
+        }
         if (event.type === 'token' && event.delta && activeRequestControllerRef.current === controller) {
           tokenBufferRef.current += event.delta;
           if (tokenFrameRef.current === null) tokenFrameRef.current = requestAnimationFrame(() => { setStreamingText((current) => current + tokenBufferRef.current); tokenBufferRef.current = ''; tokenFrameRef.current = null; });
@@ -391,7 +405,18 @@ export default function ChatPanel() {
       updateSession(requestSessionId, {
         messages: [...messages, persistedUserMsg, aiMsg],
       });
-      retryQuestionRef.current = null;
+      const failed = degradedStageRef.current as {
+        stage: string;
+        reason: string;
+      } | null;
+      if (failed) {
+        retryQuestionRef.current = question;
+        setErrorMessage(
+          `Retrieval degraded at ${failed.stage.replaceAll('_', ' ')} (${failed.reason}). The answer used only the available safe results. You can retry.`,
+        );
+      } else {
+        retryQuestionRef.current = null;
+      }
     } catch (error) {
       const cancelled = controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
       const message = cancelled

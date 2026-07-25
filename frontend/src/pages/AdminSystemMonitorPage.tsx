@@ -268,13 +268,20 @@ function AuthorizedMonitor() {
 
         <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
           <div className="flex items-center gap-2"><Activity size={18} className="text-[#2f6d25]" /><h2 className="font-semibold">Query pipeline</h2></div>
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
             <Metric label="Active" value={q.active_chat_requests} />
+            <Metric label="Current stage" value={q.current_stage ?? 'Idle'} detail={q.current_stage_duration_ms === null ? undefined : `${q.current_stage_duration_ms} ms active`} />
             <Metric label="Validation" value={formatNumber(q.validation_latency_ms, ' ms')} />
             <Metric label="Retrieval" value={formatNumber(q.retrieval_latency_ms, ' ms')} />
             <Metric label="Reranking" value={formatNumber(q.reranker_latency_ms, ' ms')} />
             <Metric label="Generation" value={formatNumber(q.generation_latency_ms, ' ms')} />
           </div>
+          {q.failed_stage ? (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Failed stage: <strong>{q.failed_stage}</strong>
+              {q.timeout_reason ? ` · Timeout: ${q.timeout_reason}` : ''}
+            </div>
+          ) : null}
         </article>
       </div>
 
