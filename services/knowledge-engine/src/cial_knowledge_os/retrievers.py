@@ -6,6 +6,7 @@ import hashlib
 import logging
 import pickle
 import re
+import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Callable, Mapping, Sequence
@@ -355,14 +356,35 @@ class HybridRetriever:
         self.candidate_limits = dict(candidate_limits)
         self.parallel = parallel
         self.last_rankings: dict[str, list[dict[str, Any]]] = {}
+        self.telemetry_callback: Callable[[str, str, dict[str, Any]], None] | None = None
 
     def retrieve(self, query: str, *, top_k: int) -> list[dict[str, Any]]:
         def search(retriever: Retriever) -> list[dict[str, Any]]:
+            started = time.perf_counter()
+            event = "dense_retrieval" if retriever.name == "dense" else "bm25"
+            if self.telemetry_callback is not None:
+                self.telemetry_callback(event, "started", {})
             candidate_limit = self.candidate_limits.get(retriever.name, top_k)
-            return retriever.retrieve(
-                query,
-                top_k=candidate_limit,
-            )
+            try:
+                results = retriever.retrieve(query, top_k=candidate_limit)
+            except Exception:
+                if self.telemetry_callback is not None:
+                    self.telemetry_callback(
+                        event,
+                        "failed",
+                        {"duration_ms": int((time.perf_counter() - started) * 1000)},
+                    )
+                raise
+            if self.telemetry_callback is not None:
+                self.telemetry_callback(
+                    event,
+                    "completed",
+                    {
+                        "duration_ms": int((time.perf_counter() - started) * 1000),
+                        "candidate_count": len(results),
+                    },
+                )
+            return results
 
         if self.parallel and len(self.retrievers) > 1:
             with ThreadPoolExecutor(
@@ -382,11 +404,24 @@ class HybridRetriever:
                 retriever.name: search(retriever)
                 for retriever in self.retrievers
             }
+        fusion_started = time.perf_counter()
+        if self.telemetry_callback is not None:
+            self.telemetry_callback("hybrid_fusion", "started", {})
         self.last_rankings = {
             name: [dict(result) for result in values]
             for name, values in rankings.items()
         }
         results = self.fuser.fuse(rankings, limit=top_k)
+        if self.telemetry_callback is not None:
+            self.telemetry_callback(
+                "hybrid_fusion",
+                "completed",
+                {
+                    "duration_ms": int((time.perf_counter() - fusion_started) * 1000),
+                    "candidate_count": sum(len(values) for values in rankings.values()),
+                    "result_count": len(results),
+                },
+            )
         logger.info(
             "hybrid_retrieval_complete",
             extra={

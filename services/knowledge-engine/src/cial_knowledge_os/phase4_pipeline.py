@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 from collections import Counter
 from collections.abc import Mapping
@@ -139,6 +140,7 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
         self.last_selection_result: EvidenceSelectionResult | None = None
         self.token_callback = None
         self.cancel_event = None
+        self.telemetry_callback = None
         self._phase4_component_key: tuple[Any, ...] | None = None
         super().__init__(
             config=phase4_config,
@@ -269,6 +271,15 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
         total_attempts = self.config.generation_retries + 1
         last_error: Exception | None = None
         generation_started = time.perf_counter()
+        if (
+            self.telemetry_callback is not None
+            and not getattr(self, "_generation_telemetry_started", False)
+        ):
+            self.telemetry_callback(
+                "generation",
+                "started",
+                {"model": self.config.ollama_model_name},
+            )
         self.execution_manager.start_stage(
             "generation",
             event_type="generation_started",
@@ -278,18 +289,26 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
             emitted_token = False
             try:
                 stream = getattr(self.llm, "stream", None)
-                if self.token_callback is not None and callable(stream):
+                if callable(stream):
                     iterator = stream(prompt)
                     pieces: list[str] = []
                     try:
                         for token in iterator:
                             if self.cancel_event is not None and self.cancel_event.is_set():
                                 raise RuntimeError("Generation cancelled.")
+                            if (
+                                time.perf_counter() - generation_started
+                                > float(self.config.generation_timeout_seconds)
+                            ):
+                                raise TimeoutError(
+                                    "Answer generation exceeded the configured time limit."
+                                )
                             value = str(token)
                             if value:
                                 pieces.append(value)
                                 emitted_token = True
-                                self.token_callback(value)
+                                if self.token_callback is not None:
+                                    self.token_callback(value)
                     finally:
                         close = getattr(iterator, "close", None)
                         if callable(close):
@@ -305,10 +324,35 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
                     metrics={"retry_count": attempt - 1},
                     model=self.config.ollama_model_name,
                 )
+                if self.telemetry_callback is not None:
+                    self.telemetry_callback(
+                        "generation",
+                        "completed",
+                        {
+                            "duration_ms": int(
+                                (time.perf_counter() - generation_started) * 1000
+                            ),
+                            "retry_count": attempt - 1,
+                            "model": self.config.ollama_model_name,
+                        },
+                    )
+                self._generation_telemetry_started = False
                 return answer
             except Exception as exc:
                 last_error = exc
-                retryable = self._is_retryable_generation_error(exc) and not emitted_token and not (self.cancel_event is not None and self.cancel_event.is_set())
+                deadline_exhausted = (
+                    time.perf_counter() - generation_started
+                    >= float(self.config.generation_timeout_seconds)
+                )
+                retryable = (
+                    self._is_retryable_generation_error(exc)
+                    and not emitted_token
+                    and not deadline_exhausted
+                    and not (
+                        self.cancel_event is not None
+                        and self.cancel_event.is_set()
+                    )
+                )
                 logger.exception(
                     "phase4_generation_attempt_failed",
                     extra={
@@ -332,6 +376,19 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
                         payload={"model": self.config.ollama_model_name},
                         source="phase4_pipeline",
                     )
+                    if self.telemetry_callback is not None:
+                        self.telemetry_callback(
+                            "generation",
+                            "failed",
+                            {
+                                "duration_ms": int(
+                                    (time.perf_counter() - generation_started) * 1000
+                                ),
+                                "retry_count": attempt - 1,
+                                "model": self.config.ollama_model_name,
+                            },
+                        )
+                    self._generation_telemetry_started = False
                     raise GenerationFailedError(
                         exc,
                         attempts=attempt,
@@ -354,7 +411,11 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
                     },
                 )
                 if self.config.retry_cooldown_seconds:
-                    time.sleep(self.config.retry_cooldown_seconds)
+                    if self.cancel_event is not None:
+                        if self.cancel_event.wait(self.config.retry_cooldown_seconds):
+                            raise RuntimeError("Generation cancelled.")
+                    else:
+                        time.sleep(self.config.retry_cooldown_seconds)
         assert last_error is not None
         self.execution_manager.emit(
             "generation_failed",
@@ -587,15 +648,74 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
         self.execution_manager.start_stage(
             "reranking", event_type="reranking_started"
         )
-        rerank_result = (
-            self.reranker.rerank(question, self.last_candidate_pool)
-            if self.config.reranker_enabled
-            else self._passthrough_rerank(self.last_candidate_pool)
-        )
+        reranker_started = time.perf_counter()
+        reranker_metrics = {
+            "candidate_count": len(self.last_candidate_pool),
+            "reranker_device": str(
+                getattr(
+                    self.reranker,
+                    "resolved_device",
+                    getattr(self.reranker, "device", "unknown"),
+                )
+            ),
+        }
+        if self.telemetry_callback is not None:
+            self.telemetry_callback("reranking", "started", reranker_metrics)
+        if self.config.reranker_enabled:
+            result_box: dict[str, Any] = {}
+            completed = threading.Event()
+
+            def run_reranker() -> None:
+                try:
+                    result_box["result"] = self.reranker.rerank(
+                        question, self.last_candidate_pool
+                    )
+                except BaseException as exc:  # preserve the original model error
+                    result_box["error"] = exc
+                finally:
+                    completed.set()
+
+            threading.Thread(
+                target=run_reranker,
+                name="cial-reranker",
+                daemon=True,
+            ).start()
+            if not completed.wait(float(self.config.reranker_timeout_seconds)):
+                if self.telemetry_callback is not None:
+                    self.telemetry_callback(
+                        "reranking",
+                        "failed",
+                        {
+                            **reranker_metrics,
+                            "duration_ms": int(
+                                (time.perf_counter() - reranker_started) * 1000
+                            ),
+                            "reason": "timeout",
+                        },
+                    )
+                raise TimeoutError(
+                    "Reranking exceeded the configured time limit."
+                )
+            if "error" in result_box:
+                raise result_box["error"]
+            rerank_result = result_box["result"]
+        else:
+            rerank_result = self._passthrough_rerank(self.last_candidate_pool)
         self.metrics["reranker_latency"] = rerank_result.latency_seconds
         self.last_reranked_candidates = [
             dict(item) for item in rerank_result.candidates
         ]
+        if self.telemetry_callback is not None:
+            self.telemetry_callback(
+                "reranking",
+                "completed",
+                {
+                    **reranker_metrics,
+                    "duration_ms": int(
+                        (time.perf_counter() - reranker_started) * 1000
+                    ),
+                },
+            )
         self.execution_manager.complete_stage(
             "reranking",
             event_type="reranking_completed",

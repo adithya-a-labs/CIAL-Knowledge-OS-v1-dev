@@ -54,6 +54,8 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
         self.bm25_retriever: BM25Retriever | None = None
         self.hybrid_retriever: HybridRetriever | None = None
         self._active_relative_path_filter: frozenset[str] | None = None
+        self.published_document_version_ids: frozenset[str] | None = None
+        self.published_note_revisions: frozenset[tuple[str, int]] | None = None
         self.last_modality_results_by_query: dict[
             str,
             dict[str, list[dict[str, Any]]],
@@ -117,6 +119,8 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
             self.config,
             top_k=top_k,
             allowed_relative_paths=self._active_relative_path_filter,
+            allowed_document_version_ids=self.published_document_version_ids,
+            allowed_note_revisions=self.published_note_revisions,
         )
 
     def set_retrieval_relative_paths(
@@ -283,6 +287,9 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
                 self.build_lexical_index()
         if mode == "hybrid":
             assert self.hybrid_retriever is not None
+            self.hybrid_retriever.telemetry_callback = getattr(
+                self, "telemetry_callback", None
+            )
             results = self.hybrid_retriever.retrieve(
                 query,
                 top_k=self.config.retrieval_top_k,

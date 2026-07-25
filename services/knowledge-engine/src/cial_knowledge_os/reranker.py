@@ -126,6 +126,15 @@ class CrossEncoderReranker:
         self._model = model
         self.load_source: str | None = "injected" if model is not None else None
 
+    @property
+    def resolved_device(self) -> str:
+        """Report the loaded model device rather than the requested alias."""
+
+        model_device = getattr(self._model, "device", None)
+        if model_device is None:
+            model_device = getattr(getattr(self._model, "model", None), "device", None)
+        return str(model_device or self.device)
+
     def _load_model(self) -> Any:
         if self._model is not None:
             return self._model

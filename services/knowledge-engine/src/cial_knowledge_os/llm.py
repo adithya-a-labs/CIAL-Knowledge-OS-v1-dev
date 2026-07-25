@@ -6,7 +6,7 @@ from typing import Any, Protocol
 
 from httpx import HTTPError
 from langchain_ollama import OllamaLLM
-from ollama import ResponseError, list as list_ollama_models
+from ollama import Client, ResponseError
 
 from .config import KnowledgeOSConfig
 from .prompts import DEFAULT_PROMPT_MANAGER
@@ -45,9 +45,11 @@ def create_local_llm(config: KnowledgeOSConfig) -> OllamaLLM:
     """Validate and create a deterministic local Ollama model interface."""
 
     try:
+        timeout = float(getattr(config, "generation_timeout_seconds", 120.0))
+        availability_timeout = min(5.0, timeout)
         available_models = {
             model.model
-            for model in list_ollama_models().models
+            for model in Client(timeout=availability_timeout).list().models
             if model.model is not None
         }
     except (HTTPError, OSError, ResponseError) as exc:
@@ -63,7 +65,12 @@ def create_local_llm(config: KnowledgeOSConfig) -> OllamaLLM:
             "KnowledgeOSConfig.ollama_model_name. No model was downloaded."
         )
 
-    return OllamaLLM(model=config.ollama_model_name, temperature=0)
+    return OllamaLLM(
+        model=config.ollama_model_name,
+        temperature=0,
+        client_kwargs={"timeout": timeout},
+        sync_client_kwargs={"timeout": timeout},
+    )
 
 
 def build_grounded_prompt(

@@ -24,6 +24,8 @@ def search_similar_chunks(
     *,
     top_k: int | None = None,
     allowed_relative_paths: Collection[str] | None = None,
+    allowed_document_version_ids: Collection[str] | None = None,
+    allowed_note_revisions: Collection[tuple[str, int]] | None = None,
 ) -> list[dict[str, Any]]:
     """Embed a query locally and return normalized, inspectable search results.
 
@@ -45,6 +47,16 @@ def search_similar_chunks(
         )
         if not normalized_paths:
             return []
+    normalized_versions: list[str] | None = None
+    if allowed_document_version_ids is not None:
+        normalized_versions = sorted(
+            {
+                str(value).strip()
+                for value in allowed_document_version_ids
+                if str(value).strip()
+            }
+        )
+    normalized_note_revisions = sorted(set(allowed_note_revisions or ()))
     query_vector = embed_texts(embedding_model, [query])[0]
     filter_must = []
     repository_id = None if allowed_relative_paths is not None else getattr(config, "repository_id", None)
@@ -55,18 +67,47 @@ def search_similar_chunks(
                 match=MatchValue(value=repository_id),
             )
         )
-    query_filter = Filter(must=filter_must) if filter_must else None
-    if normalized_paths is not None:
-        query_filter = Filter(
-            must=filter_must,
-            should=[
-                FieldCondition(
-                    key="metadata.relative_path",
-                    match=MatchValue(value=value),
-                )
-                for value in normalized_paths
-            ]
+    if normalized_versions is not None or normalized_note_revisions:
+        version_conditions = [
+            FieldCondition(
+                key="metadata.document_version_id",
+                match=MatchValue(value=value),
+            )
+            for value in (normalized_versions or ())
+        ]
+        version_conditions.extend(
+            Filter(
+                must=[
+                    FieldCondition(
+                        key="metadata.note_id",
+                        match=MatchValue(value=note_id),
+                    ),
+                    FieldCondition(
+                        key="metadata.note_revision",
+                        match=MatchValue(value=revision),
+                    ),
+                ]
+            )
+            for note_id, revision in normalized_note_revisions
         )
+        if not version_conditions:
+            return []
+        filter_must.append(
+            Filter(should=version_conditions)
+        )
+    if normalized_paths is not None:
+        filter_must.append(
+            Filter(
+                should=[
+                    FieldCondition(
+                        key="metadata.relative_path",
+                        match=MatchValue(value=value),
+                    )
+                    for value in normalized_paths
+                ]
+            )
+        )
+    query_filter = Filter(must=filter_must) if filter_must else None
     response = execute_qdrant_operation(
         config,
         "query_points",

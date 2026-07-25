@@ -109,10 +109,51 @@ class Phase2RAGPipeline(BasicRAGPipeline):
             )
         with Timer(self.metrics, "generation_latency"):
             if not context_result.context.strip():
+                telemetry = getattr(self, "telemetry_callback", None)
+                if telemetry is not None:
+                    telemetry(
+                        "generation",
+                        "started",
+                        {"model": self.config.ollama_model_name, "skipped": True},
+                    )
                 raw_answer = INSUFFICIENT_EVIDENCE_RESPONSE
+                if telemetry is not None:
+                    telemetry(
+                        "generation",
+                        "completed",
+                        {
+                            "model": self.config.ollama_model_name,
+                            "skipped": True,
+                            "duration_ms": 0,
+                        },
+                    )
             else:
                 if self.llm is None:
-                    self.llm = create_local_llm(self.config)
+                    telemetry = getattr(self, "telemetry_callback", None)
+                    if telemetry is not None:
+                        telemetry(
+                            "generation",
+                            "started",
+                            {
+                                "model": self.config.ollama_model_name,
+                                "phase": "model_availability",
+                            },
+                        )
+                        self._generation_telemetry_started = True
+                    try:
+                        self.llm = create_local_llm(self.config)
+                    except Exception:
+                        if telemetry is not None:
+                            telemetry(
+                                "generation",
+                                "failed",
+                                {
+                                    "model": self.config.ollama_model_name,
+                                    "phase": "model_availability",
+                                },
+                            )
+                        self._generation_telemetry_started = False
+                        raise
                 raw_answer = self._generate_grounded_answer(
                     question,
                     context_result.context,
