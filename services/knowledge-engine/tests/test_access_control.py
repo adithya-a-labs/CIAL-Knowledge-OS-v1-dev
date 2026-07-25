@@ -165,7 +165,7 @@ def test_access_scope_filter_restricts_retrieval_candidates() -> None:
         def on_config_changed(self) -> None:
             self.changed += 1
 
-        def run(self, question: str) -> dict[str, object]:
+        def answer(self, question: str) -> dict[str, object]:
             results = self._search(question)
             return {
                 "answer": "ok",
@@ -185,3 +185,55 @@ def test_access_scope_filter_restricts_retrieval_candidates() -> None:
 
     assert [item["chunk_id"] for item in response["retrieved"]] == ["allowed"]
     assert response["access_scope_filter"]["filtered_count"] == 1
+
+
+def test_authorized_scope_candidate_expansion_is_bounded_before_reranking() -> None:
+    service = KnowledgeEngineService()
+
+    class FakePipeline:
+        def __init__(self) -> None:
+            self.config = SimpleNamespace(
+                retrieval_top_k=10,
+                dense_top_k=10,
+                bm25_top_k=10,
+                reranker_candidate_top_k=30,
+            )
+            self.observed = None
+
+        def _search(self, query):
+            return []
+
+        def on_config_changed(self):
+            return None
+
+        def set_retrieval_relative_paths(self, allowed):
+            return None
+
+        def answer(self, question):
+            self.observed = (
+                self.config.dense_top_k,
+                self.config.bm25_top_k,
+                self.config.reranker_candidate_top_k,
+            )
+            return {
+                "answer": "none",
+                "answer_status": "insufficient_evidence",
+                "retrieved": [],
+                "context_stages": {"compressed": []},
+                "selected_evidence": [],
+                "citations": [],
+            }
+
+    pipeline = FakePipeline()
+    allowed = frozenset(f"public/{index}.pdf" for index in range(1_000))
+
+    response = service._run_with_relative_path_filter(
+        pipeline,
+        "Question?",
+        allowed,
+        response_key="access_scope_filter",
+        filter_payload={"applied": True, "mode": "access_scope:enterprise"},
+    )
+
+    assert pipeline.observed == (250, 250, 250)
+    assert response["access_scope_filter"]["candidate_floor"] == 250

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,7 @@ from cial_knowledge_os.config import KnowledgeOSConfig, Phase2Config, Phase3Conf
 from cial_knowledge_os.context_builder import merge_overlapping_chunks
 from cial_knowledge_os.fusion import ReciprocalRankFusion
 from cial_knowledge_os.phase3_pipeline import Phase3RAGPipeline
-from cial_knowledge_os.retrievers import BM25Retriever
+from cial_knowledge_os.retrievers import BM25Retriever, HybridRetriever
 from cial_knowledge_os.token_budget import (
     TiktokenTokenizer,
     TokenBudgetManager,
@@ -54,6 +55,27 @@ class _StaticRetriever:
         return [dict(value) for value in self.results[:top_k]]
 
 
+class _SlowRetriever(_StaticRetriever):
+    def __init__(
+        self,
+        name: str,
+        results: list[dict[str, Any]],
+        delay_seconds: float,
+    ) -> None:
+        super().__init__(name, results)
+        self.delay_seconds = delay_seconds
+
+    def retrieve(self, query: str, *, top_k: int) -> list[dict[str, Any]]:
+        time.sleep(self.delay_seconds)
+        return super().retrieve(query, top_k=top_k)
+
+
+class _SlowFuser:
+    def fuse(self, rankings, *, limit):
+        time.sleep(0.05)
+        return []
+
+
 class _CitingLLM:
     def invoke(self, prompt: str) -> str:
         self.prompt = prompt
@@ -91,6 +113,113 @@ class Phase3ConfigurationTests(unittest.TestCase):
 
 
 class BM25AndFusionTests(unittest.TestCase):
+    def test_authorized_bm25_query_reuses_published_tokenized_corpus(
+        self,
+    ) -> None:
+        tokenized_inputs: list[str] = []
+
+        def tokenizer(value: str) -> list[str]:
+            tokenized_inputs.append(value)
+            return value.casefold().split()
+
+        retriever = BM25Retriever(tokenizer=tokenizer)
+        retriever.index(
+            [
+                {
+                    **_result(90, "alpha evidence"),
+                    "metadata": {
+                        **_result(90, "alpha evidence")["metadata"],
+                        "relative_path": "public/a.pdf",
+                    },
+                },
+                {
+                    **_result(91, "beta evidence"),
+                    "metadata": {
+                        **_result(91, "beta evidence")["metadata"],
+                        "relative_path": "private/b.pdf",
+                    },
+                },
+            ]
+        )
+        tokenized_inputs.clear()
+        retriever.set_allowed_relative_paths(frozenset({"public/a.pdf"}))
+
+        results = retriever.retrieve("alpha", top_k=5)
+
+        self.assertEqual([item["chunk_id"] for item in results], ["chunk-90"])
+        self.assertEqual(tokenized_inputs, ["alpha"])
+
+    def test_timeout_returns_partial_results_and_exposes_stage_telemetry(
+        self,
+    ) -> None:
+        dense_result = _result(100, "Dense evidence.", score=0.9)
+        retriever = HybridRetriever(
+            [
+                _StaticRetriever("dense", [dense_result]),
+                _SlowRetriever("bm25", [], 0.05),
+            ],
+            fuser=ReciprocalRankFusion(),
+            candidate_limits={"dense": 5, "bm25": 5},
+            stage_timeouts={
+                "dense": 0.1,
+                "bm25": 0.01,
+                "hybrid_fusion": 0.1,
+            },
+        )
+        events: list[tuple[str, str, dict[str, Any]]] = []
+        retriever.telemetry_callback = (
+            lambda stage, status, metrics: events.append(
+                (stage, status, metrics)
+            )
+        )
+
+        results = retriever.retrieve("question", top_k=5)
+
+        self.assertEqual(results[0]["chunk_id"], "chunk-100")
+        self.assertEqual(
+            retriever.last_stage_telemetry["bm25_retrieval"]["error_state"],
+            "timeout",
+        )
+        self.assertEqual(
+            [status for stage, status, _ in events if stage == "bm25_retrieval"],
+            ["started", "completed"],
+        )
+        for metrics in retriever.last_stage_telemetry.values():
+            self.assertEqual(
+                set(metrics),
+                {
+                    "stage_started",
+                    "stage_completed",
+                    "duration_ms",
+                    "candidate_count",
+                    "error_state",
+                },
+            )
+
+    def test_fusion_timeout_returns_an_available_ranking(self) -> None:
+        dense_result = _result(101, "Dense evidence.", score=0.9)
+        retriever = HybridRetriever(
+            [
+                _StaticRetriever("dense", [dense_result]),
+                _StaticRetriever("bm25", []),
+            ],
+            fuser=_SlowFuser(),
+            candidate_limits={"dense": 5, "bm25": 5},
+            stage_timeouts={
+                "dense": 0.1,
+                "bm25": 0.1,
+                "hybrid_fusion": 0.01,
+            },
+        )
+
+        results = retriever.retrieve("question", top_k=5)
+
+        self.assertEqual(results[0]["chunk_id"], "chunk-101")
+        self.assertEqual(
+            retriever.last_stage_telemetry["hybrid_fusion"]["error_state"],
+            "timeout",
+        )
+
     def test_bm25_finds_exact_rare_identifier_and_reuses_index(self) -> None:
         chunks = [
             Document(
@@ -297,6 +426,39 @@ class TokenBudgetAndPipelineTests(unittest.TestCase):
             set(trace["citations"][0]["retrieval_sources"]),
             {"dense", "bm25"},
         )
+
+    def test_pipeline_trace_exposes_the_exact_failed_retrieval_stage(
+        self,
+    ) -> None:
+        evidence = _result(102, "Available dense evidence.", score=0.9)
+        with tempfile.TemporaryDirectory() as directory:
+            pipeline = Phase3RAGPipeline(
+                Phase3Config(
+                    project_root=Path(directory),
+                    max_context_tokens=500,
+                    max_query_variants=1,
+                    enable_neighbor_expansion=False,
+                    bm25_retrieval_timeout_seconds=0.01,
+                ),
+                llm=_CitingLLM(),
+                tokenizer=_CharacterTokenizer(),
+                retrievers={
+                    "dense": _StaticRetriever("dense", [evidence]),
+                    "bm25": _SlowRetriever("bm25", [], 0.05),
+                },
+            )
+            response = pipeline.answer("What is documented?")
+
+        retrieval_trace = response["retrieval_trace"]
+        self.assertEqual(
+            retrieval_trace["failed_stage"],
+            "bm25_retrieval",
+        )
+        self.assertEqual(
+            retrieval_trace["failed_stages"],
+            ["bm25_retrieval"],
+        )
+        self.assertTrue(response["retrieved"])
 
     def test_phase3_context_budget_uses_tiktoken_by_default(self) -> None:
         evidence = _result(

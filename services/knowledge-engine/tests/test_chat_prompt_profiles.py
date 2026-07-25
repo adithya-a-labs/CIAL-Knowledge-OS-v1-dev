@@ -143,7 +143,7 @@ def test_selected_context_filter_restricts_retrieval_candidates() -> None:
         def on_config_changed(self) -> None:
             self.changed += 1
 
-        def run(self, question: str) -> dict[str, Any]:
+        def answer(self, question: str) -> dict[str, Any]:
             results = self._search(question)
             return {
                 "answer": "ok",
@@ -240,7 +240,7 @@ def test_selected_context_no_match_does_not_fall_back_to_global_results() -> Non
         def on_config_changed(self) -> None:
             return None
 
-        def run(self, question: str) -> dict[str, Any]:
+        def answer(self, question: str) -> dict[str, Any]:
             return {
                 "answer": "global fallback would be wrong",
                 "retrieved": [],
@@ -296,7 +296,7 @@ def test_selected_context_insufficient_evidence_is_normalized_to_no_match() -> N
         def set_retrieval_relative_paths(self, allowed_relative_paths) -> None:
             self.allowed_relative_paths = allowed_relative_paths
 
-        def run(self, question: str) -> dict[str, Any]:
+        def answer(self, question: str) -> dict[str, Any]:
             return {
                 "answer": "The retrieved documents do not contain sufficient evidence to answer this question.",
                 "raw_answer": "The retrieved documents do not contain sufficient evidence to answer this question.",
