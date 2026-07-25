@@ -272,6 +272,13 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
         total_attempts = self.config.generation_retries + 1
         last_error: Exception | None = None
         generation_started = time.perf_counter()
+        prompt_tokens = self.token_manager.count(prompt)
+        context_tokens = self.token_manager.count(context)
+        question_tokens = self.token_manager.count(question)
+        prompt_overhead_tokens = max(
+            0,
+            prompt_tokens - context_tokens - question_tokens,
+        )
         if (
             self.telemetry_callback is not None
             and not getattr(self, "_generation_telemetry_started", False)
@@ -279,7 +286,12 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
             self.telemetry_callback(
                 "generation",
                 "started",
-                {"model": self.config.ollama_model_name},
+                {
+                    "model": self.config.ollama_model_name,
+                    "prompt_tokens": prompt_tokens,
+                    "context_tokens": context_tokens,
+                    "system_prompt_tokens": prompt_overhead_tokens,
+                },
             )
         self.execution_manager.start_stage(
             "generation",
@@ -288,11 +300,12 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
         )
         for attempt in range(1, total_attempts + 1):
             emitted_token = False
+            first_token_ms: int | None = None
+            pieces: list[str] = []
             try:
                 stream = getattr(self.llm, "stream", None)
                 if callable(stream):
                     iterator = stream(prompt)
-                    pieces: list[str] = []
                     try:
                         for token in iterator:
                             if self.cancel_event is not None and self.cancel_event.is_set():
@@ -306,6 +319,11 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
                                 )
                             value = str(token)
                             if value:
+                                if first_token_ms is None:
+                                    first_token_ms = int(
+                                        (time.perf_counter() - generation_started)
+                                        * 1000
+                                    )
                                 pieces.append(value)
                                 emitted_token = True
                                 if self.token_callback is not None:
@@ -326,6 +344,9 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
                     model=self.config.ollama_model_name,
                 )
                 if self.telemetry_callback is not None:
+                    native_metrics = dict(
+                        getattr(self.llm, "last_generation_metrics", {}) or {}
+                    )
                     self.telemetry_callback(
                         "generation",
                         "completed",
@@ -335,6 +356,22 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
                             ),
                             "retry_count": attempt - 1,
                             "model": self.config.ollama_model_name,
+                            "prompt_tokens": prompt_tokens,
+                            "context_tokens": context_tokens,
+                            "system_prompt_tokens": prompt_overhead_tokens,
+                            "output_tokens": int(
+                                native_metrics.get("output_tokens")
+                                or self.token_manager.count(answer)
+                            ),
+                            "first_token_ms": native_metrics.get("first_token_ms")
+                            or first_token_ms,
+                            "tokens_per_second": native_metrics.get(
+                                "tokens_per_second"
+                            ),
+                            "model_load_ms": native_metrics.get("model_load_ms"),
+                            "prompt_eval_ms": native_metrics.get("prompt_eval_ms"),
+                            "ollama_total_ms": native_metrics.get("ollama_total_ms"),
+                            "keep_alive": native_metrics.get("keep_alive"),
                         },
                     )
                 self._generation_telemetry_started = False
@@ -378,6 +415,10 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
                         source="phase4_pipeline",
                     )
                     if self.telemetry_callback is not None:
+                        timeout_failure = isinstance(exc, TimeoutError) or (
+                            "timeout" in type(exc).__name__.casefold()
+                            or "time limit" in str(exc).casefold()
+                        )
                         self.telemetry_callback(
                             "generation",
                             "failed",
@@ -387,6 +428,18 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
                                 ),
                                 "retry_count": attempt - 1,
                                 "model": self.config.ollama_model_name,
+                                "error_state": (
+                                    "generation_timeout"
+                                    if timeout_failure
+                                    else type(exc).__name__
+                                ),
+                                "prompt_tokens": prompt_tokens,
+                                "context_tokens": context_tokens,
+                                "system_prompt_tokens": prompt_overhead_tokens,
+                                "output_tokens": self.token_manager.count(
+                                    "".join(pieces)
+                                ),
+                                "first_token_ms": first_token_ms,
                             },
                         )
                     self._generation_telemetry_started = False
