@@ -3,18 +3,27 @@ import { useState } from 'react';
 import type { GenerationEvent } from '@/api/types';
 
 const labels: Record<string, string> = {
-  'request.validating': 'Searching knowledge', 'context.building': 'Searching knowledge',
-  'index_generation.loaded': 'Searching knowledge', dense_retrieval: 'Retrieving sources',
-  bm25: 'Retrieving sources', hybrid_fusion: 'Retrieving sources',
-  'retrieval.searching': 'Retrieving sources', reranking: 'Retrieving sources',
-  'evidence.selecting': 'Retrieving sources', generation: 'Generating answer',
-  'citations.linking': 'Completing answer', 'persistence.saving': 'Completing answer',
+  connection: 'Connected',
+  'request.validating': 'Validating request',
+  'context.building': 'Validating request',
+  'index_generation.loaded': 'Loading published generation',
+  dense_retrieval: 'Searching',
+  bm25: 'Searching',
+  hybrid_fusion: 'Searching',
+  'retrieval.searching': 'Searching',
+  reranking: 'Reranking',
+  'evidence.selecting': 'Reranking',
+  generation: 'Generating',
+  'citations.linking': 'Generating',
+  'persistence.saving': 'Generating',
   chat: 'Completed',
+  complete: 'Completed',
+  error: 'Failed',
 };
 
 export default function RetrievalTimeline({ events, elapsedSeconds, onStop }: { events: GenerationEvent[]; elapsedSeconds: number; onStop: () => void }) {
   const [expanded, setExpanded] = useState(false);
-  const latest = events.at(-1); const current = latest ? labels[latest.stage_id] ?? latest.stage_id : 'Starting request';
+  const latest = events.at(-1); const current = latest ? labels[latest.stage_id] ?? latest.stage_id : 'Connecting';
   const completed = events.filter((event, index) => event.status === 'completed' && events.findIndex((item) => item.stage_id === event.stage_id && item.status === 'completed') === index);
   return (
     <div className="max-w-[46rem] py-1 text-sm text-slate-600" data-testid="inline-generation-status" role="status" aria-live="polite">

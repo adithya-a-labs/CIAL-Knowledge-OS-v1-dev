@@ -14,7 +14,7 @@ import { createAssistantExport, getCorpusTree, regenerateMessage, streamQuestion
 import type { AssistantExportFormat, GenerationEvent } from '@/api/types';
 import ExportPreviewDialog from './ExportPreviewDialog';
 import { flattenCorpusTree, toAssistantMessage, toChatRequest } from '@/api/adapters';
-import type { CorpusDocument, HealthResponse, SelectedContextItem } from '@/api/types';
+import type { CorpusDocument, SelectedContextItem } from '@/api/types';
 import { DEFAULT_RESPONSE_LENGTH, DEFAULT_SEARCH_SCOPE } from '@/data/assistantData';
 import { suggestedPrompts } from '@/data/homePageData';
 import { toast } from '@/hooks/use-toast';
@@ -24,7 +24,7 @@ import type {
   UploadedFileContext,
 } from '@/types/assistant';
 import { useDocumentIndexingStatuses } from '@/hooks/useDocumentIndexingStatuses';
-import { useBackendHealth } from '@/hooks/useBackendHealth';
+import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { AIComposerFrame } from './AIComposer';
 import { PENDING_COMPOSER_SUBMIT_KEY } from '@/lib/conversationHandoff';
 import SaveToKnowledgeDialog from './SaveToKnowledgeDialog';
@@ -34,15 +34,6 @@ const ASSISTANT_CONTEXT_STORAGE_KEY = 'cial-assistant-selected-context';
 const ASSISTANT_CONTEXT_INTENT_STORAGE_KEY = 'cial-assistant-context-intent';
 const ASSISTANT_SOURCE_PANEL_SIZE_STORAGE_KEY = 'cial-assistant-source-panel-size';
 const DEFAULT_SOURCE_PANEL_SIZE = 40;
-
-function readinessLabel(healthStatus: HealthResponse | undefined) {
-  if (!healthStatus) return 'Backend starting';
-  if (healthStatus.retrieval_ready || healthStatus.engine_ready) return 'Ready';
-  if (!healthStatus.qdrant_ready) return 'Qdrant unavailable';
-  if (!healthStatus.models_ready) return 'Model unavailable';
-  if (healthStatus.status === 'failed') return 'Startup failed';
-  return 'Backend starting';
-}
 
 function createUploadedFileContext(file: File): UploadedFileContext {
   return {
@@ -111,6 +102,7 @@ export default function ChatPanel() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const activeRequestControllerRef = useRef<AbortController | null>(null);
+  const isSubmittingRef = useRef(false);
   const activeRequestIdRef = useRef<string | null>(null);
   const retryQuestionRef = useRef<string | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
@@ -131,18 +123,16 @@ export default function ChatPanel() {
   const searchScope = activeSession.searchScope;
   const activeProfile = activeSession.activeProfile;
 
-  const healthQuery = useBackendHealth();
+  const systemStatusQuery = useSystemStatus();
   const corpusTreeQuery = useQuery({
     queryKey: ['corpus-tree-assistant'],
     queryFn: getCorpusTree,
     retry: false,
     staleTime: 30_000,
   });
-  const chatReady = Boolean(healthQuery.data?.retrieval_ready ?? healthQuery.data?.engine_ready);
-  const healthLabel = readinessLabel(healthQuery.data);
-  const backgroundIndexing = Object.entries(healthQuery.data?.queue_counts ?? {})
-    .filter(([status]) => !['completed', 'failed', 'superseded', 'cancelled'].includes(status))
-    .reduce((total, [, count]) => total + count, 0);
+  const chatReady = Boolean(systemStatusQuery.data?.chat_available);
+  const healthLabel = systemStatusQuery.data?.label ?? 'Checking system status';
+  const backgroundIndexing = systemStatusQuery.data?.indexing.queue_depth ?? 0;
 
   const corpusLookup = useMemo(() => {
     if (!corpusTreeQuery.data?.root) {
@@ -302,20 +292,14 @@ export default function ChatPanel() {
 
   const handleSend = async (questionOverride?: string, profileOverride?: typeof activeProfile) => {
     const question = (questionOverride ?? input).trim();
-    if (!question || isLoading) return;
+    if (!question || isLoading || isSubmittingRef.current) return;
     if (blockingAttachments.length > 0) {
       const preparing = blockingAttachments.filter((file) => file.uploadStatus === 'uploading' || ['pending', 'indexing', undefined].includes(file.indexingStatus));
       toast({ title: preparing.length ? 'Preparing attached files' : 'An attached file is not ready',
         description: blockingAttachments.map((file) => file.name).join(', ') });
       return;
     }
-    if (!chatReady) {
-      toast({
-        title: 'Backend is not ready',
-        description: healthQuery.data?.message ?? 'Startup checks are still running.',
-      });
-      return;
-    }
+    isSubmittingRef.current = true;
 
     const explicitDocumentIds = selectedContextItems
         .filter((item) => item.type === 'document')
@@ -348,10 +332,6 @@ export default function ChatPanel() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
-    updateSession(requestSessionId, {
-      messages: [...messages, userMsg],
-    });
-    setInput('');
     setIsLoading(true);
     setGenerationEvents([]);
     setStreamingText(''); tokenBufferRef.current = '';
@@ -364,13 +344,35 @@ export default function ChatPanel() {
     console.debug('[chat-request]', { requestId, status: 'started' });
 
     try {
+      const liveStatus = await systemStatusQuery.refetch();
+      if (liveStatus.error || !liveStatus.data) {
+        throw new TypeError('The live system status check could not be completed.');
+      }
+      if (!liveStatus.data.chat_available) {
+        throw new ApiError(
+          `${liveStatus.data.label}. The assistant cannot start this request yet.`,
+          503,
+          liveStatus.data,
+        );
+      }
       const response = await streamQuestion(toChatRequest(requestPayload, requestSessionId), (event) => {
         if (event.type === 'stage') setGenerationEvents((current) => [...current, event].slice(-30));
         if (event.type === 'token' && event.delta && activeRequestControllerRef.current === controller) {
           tokenBufferRef.current += event.delta;
           if (tokenFrameRef.current === null) tokenFrameRef.current = requestAnimationFrame(() => { setStreamingText((current) => current + tokenBufferRef.current); tokenBufferRef.current = ''; tokenFrameRef.current = null; });
         }
-      }, controller.signal);
+      }, controller.signal, () => {
+        updateSession(requestSessionId, { messages: [...messages, userMsg] });
+        if (!questionOverride) setInput('');
+        setGenerationEvents([{
+          request_id: requestId,
+          type: 'stage',
+          stage_id: 'connection',
+          status: 'completed',
+          elapsed_ms: Math.round(performance.now() - startedAt),
+          metrics: {},
+        }]);
+      });
       if (tokenFrameRef.current !== null) cancelAnimationFrame(tokenFrameRef.current);
       tokenFrameRef.current = null; tokenBufferRef.current = ''; setStreamingText('');
       const adapted = toAssistantMessage(response, requestPayload);
@@ -397,7 +399,7 @@ export default function ChatPanel() {
         : error instanceof Error && error.name === 'TimeoutError'
           ? 'The assistant timed out. Your current index is still available; retry the request.'
         : error instanceof ApiError && error.status === 503
-          ? 'The assistant is temporarily unavailable. Please retry.'
+          ? error.message
           : error instanceof TypeError
             ? 'The connection to the local knowledge service was interrupted.'
             : error instanceof Error && error.message
@@ -419,6 +421,7 @@ export default function ChatPanel() {
         activeRequestControllerRef.current = null;
         activeRequestIdRef.current = null;
       }
+      isSubmittingRef.current = false;
       setIsLoading(false);
     }
   };
@@ -698,7 +701,7 @@ export default function ChatPanel() {
           <button
             type="button"
             onClick={() => void handleSend()}
-            disabled={!input.trim() || isLoading || !chatReady || blockingAttachments.length > 0}
+            disabled={!input.trim() || isLoading || blockingAttachments.length > 0}
             className="col-start-2 row-span-2 row-start-1 mb-3 mr-3 inline-flex h-11 w-11 self-end items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition hover:bg-[#285f22] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:bg-[#d9dfd7] disabled:text-slate-500 disabled:shadow-none sm:h-12 sm:w-12"
             data-testid="button-send"
             aria-label={chatReady ? 'Send message' : healthLabel}
