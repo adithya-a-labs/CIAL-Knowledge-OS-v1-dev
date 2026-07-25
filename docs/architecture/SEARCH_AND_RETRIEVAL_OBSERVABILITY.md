@@ -138,3 +138,21 @@ resolution projects only indexed documents' relative paths through the existing
 PostgreSQL RBAC predicates instead of hydrating complete document rows. Dense
 filters also include the document versions and note revisions in the loaded
 publication, preventing in-progress Qdrant points from leaking into results.
+
+## Live System Status
+
+Authenticated `GET /api/system/status` complements request-level chat debug
+telemetry with current dependency telemetry. PostgreSQL and queue checks use
+their real stores; Qdrant checks the configured collection with a bounded
+request; Ollama checks `/api/tags` for the exact configured model; embedding
+readiness and loaded generation come from the live query runtime; worker,
+queue, publication and GPU data come from PostgreSQL heartbeats/generations.
+Independent Qdrant and Ollama probes run concurrently and have hard timeouts.
+
+The response provides safe per-component availability, detail, check timestamp
+and latency plus total latency. Structured `health_check_completed` events
+(`telemetry_type=system_status_snapshot`)
+record only color, chat availability, indexing activity, generation, queue
+depth and duration. Component failures log the component and exception type,
+never URLs with secrets, credentials, document content, prompts, or raw
+exception messages.

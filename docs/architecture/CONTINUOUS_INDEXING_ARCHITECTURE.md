@@ -351,9 +351,9 @@ claims, keeps leases renewed for active bounded work, closes watchers, records
 
 Verified on 2026-07-25:
 
-- backend: 466 tests passed plus 50 subtests in 31.46 seconds; one upstream
+- backend: 476 tests passed plus 50 subtests in 28.02 seconds; one upstream
   Starlette/httpx deprecation warning;
-- frontend: 46 tests passed; TypeScript typecheck passed; Vite production build
+- frontend: 53 tests passed; TypeScript typecheck passed; Vite production build
   passed from a temporary output directory;
 - operational Phase 4.5 prompt guard passed with temperature 0 and the existing
   operational profile;
@@ -369,3 +369,18 @@ The configured live PostgreSQL password was rejected by the local server, so a
 live migration and durable end-to-end queue/Qdrant throughput run could not be
 claimed on this machine. Qdrant health, Ollama, CUDA, the actual embedding
 model, and offline migration SQL were verified independently.
+
+## Assistant Health Projection
+
+Continuous indexing projects its existing durable state into authenticated
+`GET /api/system/status`; it does not create a second queue or publication
+pointer. The projection includes the latest atomically published dense/BM25
+generation, publication time and point count, queue depth/counts, bounded active
+job summaries, worker state and heartbeat, and the worker's CPU/GPU telemetry.
+
+An active queue with a fresh healthy worker produces blue only when the API can
+still answer from a valid published generation and all chat-critical
+dependencies are healthy. A missing/stale worker is yellow when chat remains
+usable, and any loss of the published generation or another chat-critical
+dependency is red. Thus indexing progress never becomes a reason to wait before
+chat submission, while stalled indexing remains visible as degradation.

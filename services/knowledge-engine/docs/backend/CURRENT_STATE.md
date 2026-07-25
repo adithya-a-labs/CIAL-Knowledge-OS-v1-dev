@@ -634,7 +634,7 @@ embedding-model and chunking contract versions allow unchanged chunks to reuse
 verified Qdrant vectors. A complete new version is still written and verified
 before stale points are removed.
 
-Validation on 2026-07-25 passed 466 backend tests plus 50 subtests, 46 frontend
+Validation on 2026-07-25 passed 476 backend tests plus 50 subtests, 53 frontend
 contract tests, TypeScript checking, and the Vite production build. The existing
 running frontend held `dist` open on Windows, so the identical production build
 was verified in an isolated temporary output directory.
@@ -643,3 +643,29 @@ The assistant frontend now presents Searching knowledge, Retrieving sources,
 Generating answer, Completed, and Failed lifecycle states. User Stop,
 150-second client timeout, safe terminal errors, and Retry prevent an abandoned
 stream from leaving the UI in an infinite loading state.
+
+## Real-time Assistant Health and Reliable Submission (2026-07-25)
+
+Authenticated `GET /api/system/status` is the canonical assistant availability
+contract. It measures PostgreSQL, the configured Qdrant collection, the active
+published generation, durable queue/worker heartbeat, Ollama and its exact
+configured model, the loaded embedding runtime, and worker GPU telemetry.
+Every component includes a safe detail, UTC check timestamp, and latency; the
+response also includes total latency, generation/publication timestamps, queue
+depth/counts, active jobs, worker state, model names, and GPU utilization/memory
+when the indexer reports them.
+
+Overall state is `green` (all chat-critical dependencies healthy), `blue`
+(indexing is active while chat remains available from the published
+generation), `yellow` (non-critical degradation), or `red` (chat-critical
+dependency unavailable). `chat_available`, rather than queue emptiness, is the
+authoritative composer preflight gate.
+
+The assistant header polls and expands this status as System ready, Updating
+knowledge, Degraded, or Unavailable. Enter and Send share one single-flight
+submission path. It refreshes the live status immediately before submission,
+allows blue state, retains the draft on connection/preflight failure, clears
+the draft only after the NDJSON stream is established, supports cancellation,
+and keeps an explicit retry action. Event-driven progress now maps to Connected,
+Validating request, Loading published generation, Searching, Reranking,
+Generating, Completed, and Failed.

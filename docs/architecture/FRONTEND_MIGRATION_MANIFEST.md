@@ -727,6 +727,19 @@ frontend/src/api/
 
 `frontend/src/api/client.ts` should configure base URL, auth/session behavior, generated client access, and shared error handling for the integrated backend.
 
+### AI Assistant health and submission contract
+
+The integrated assistant owns `AssistantSystemHealth.tsx`,
+`useSystemStatus.ts`, and the typed `/api/system/status` client contract. The
+header indicator must preserve the four labels System ready, Updating
+knowledge, Degraded, and Unavailable, adaptive polling, and the expandable
+generation/queue/worker/GPU/model detail view.
+
+The composer must preserve the single Enter/Send path, immediate authenticated
+status preflight, blue-state submission, request cancellation, terminal Retry,
+and draft-clearing boundary: text is cleared only from the stream's successful
+connection callback, never before fetch initiation succeeds.
+
 ### Files not to place anywhere
 
 Do not copy these into the integrated frontend, even if present under `artifacts/cial-dashboard`:

@@ -584,3 +584,14 @@ This is the explicit file-by-file migration list for recreating the current fron
 - `lib/api-spec/openapi.yaml`
 - `lib/api-spec/orval.config.ts`
 - `lib/api-spec/package.json`
+
+### AI Assistant runtime additions
+
+Migrate `src/components/assistant/AssistantSystemHealth.tsx`,
+`src/hooks/useSystemStatus.ts`, and their `api/client.ts` and `api/types.ts`
+contracts together. The health indicator polls authenticated
+`GET /api/system/status`, renders green/blue/yellow/red with expandable
+generation, queue, worker, GPU, and model telemetry, and uses `chat_available`
+for submission preflight. Preserve the composer rule that its draft is cleared
+only from the successful stream-connection callback; connection failures retain
+the text and expose Retry.

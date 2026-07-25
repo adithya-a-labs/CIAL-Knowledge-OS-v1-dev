@@ -52,6 +52,9 @@ is mandatory for API-plus-indexer concurrency.
 - `POST /api/index/rebuild`: authorized, confirmed `202` rebuild request.
 - `GET /api/chat/debug`: authenticated, content-free query timing, loaded
   generation, and safe queue snapshot.
+- `GET /api/system/status`: authenticated real-time assistant dependency,
+  published-generation, queue/worker, model, GPU, timestamp, and component
+  latency contract with green/blue/yellow/red overall state.
 - upload/note routes: return persistence independently from background index
   readiness.
 
@@ -61,19 +64,26 @@ existing routes/services.
 
 ## Frontend
 
-The frontend treats `retrieval_ready` as the chat gate. A non-empty queue shows
-a non-blocking banner and does not disable chat. File upload rows appear
+The frontend treats `chat_available` from `/api/system/status` as the live chat
+gate. A non-empty queue shows a non-blocking blue status/banner and does not
+disable chat. File upload rows appear
 immediately and poll their document status until ready or failed. Note
 Saving/Saved state remains database persistence; note `indexing_status` is a
 separate AI-index state.
 
-Streaming assistant requests expose Searching knowledge, Retrieving sources,
-Generating answer, Completed, and Failed states. Stop aborts the browser stream
+Streaming assistant requests expose Connected, Validating request, Loading
+published generation, Searching, Reranking, Generating, Completed, and Failed
+states. Stop aborts the browser stream
 and propagates cancellation to the local generation loop. Both server and
 browser terminate a request after 150 seconds, component failures provide safe
 messages, loading state clears in `finally`, and failed requests retain an
 explicit Retry action. The background banner means “Knowledge updating in
 background”; assistant answers continue from the latest published index.
+
+Enter and Send use the same single-flight handler. It refreshes the authenticated
+status before opening the chat stream, permits blue/indexing state, retains
+composer text when preflight or connection initiation fails, and clears the
+draft only after a successful streaming response has been established.
 
 ## Commands
 
