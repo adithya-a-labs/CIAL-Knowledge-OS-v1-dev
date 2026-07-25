@@ -50,6 +50,10 @@ complete repository performs no extraction or embedding.
 `POST /api/corpus/sync` enqueues a reconciliation request and returns `202`;
 the API process does not scan or index synchronously.
 
+OCR-supported image jobs are tagged for the dedicated OCR workload pool and
+scheduled below normal documents in the same repository tier. This prevents a
+bulk scan of image documents from occupying the normal extraction pool.
+
 ## Configuration and Logging
 
 Watcher/reconciliation settings are documented in

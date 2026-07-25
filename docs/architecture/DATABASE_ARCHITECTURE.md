@@ -121,7 +121,15 @@ Migration `20260720_0009` adds `folders.system_key`, document JSON metadata for 
 
 `document_versions` stores version-level metadata such as `storage_key`, `mime_type`, `extracted_text_path`, `preview_artifact_path`, `created_by_user_id`, and `status`.
 
-`document_chunks` stores chunk-level metadata such as `document_version_id`, `chunk_index`, `section`, `text`, and JSON metadata. The indexing pipeline hydrates PostgreSQL metadata before Qdrant upserts so payloads now include `workspace_id` in addition to `document_id`, `document_version_id`, `storage_scope`, `owner_user_id`, `department_id`, `folder_id`, `visibility`, and `lifecycle_status`.
+`document_chunks` stores chunk-level metadata such as `document_version_id`,
+`chunk_index`, `section`, `text`, `chunk_hash`, `embedding_model_version`,
+`chunking_version`, and JSON metadata. Revision `20260725_0017` adds the
+indexed reuse contract. The worker reuses an existing Qdrant vector only when
+all three contract values match; changed text or a model/chunking-version
+change is embedded normally. The indexing pipeline hydrates PostgreSQL
+metadata before Qdrant upserts so payloads include `workspace_id` in addition
+to `document_id`, `document_version_id`, `storage_scope`, `owner_user_id`,
+`department_id`, `folder_id`, `visibility`, and `lifecycle_status`.
 
 `indexing_jobs` is the durable operational queue for documents, note versions,
 metadata refreshes, deletes, reconciliation, and rebuild plans. Revision

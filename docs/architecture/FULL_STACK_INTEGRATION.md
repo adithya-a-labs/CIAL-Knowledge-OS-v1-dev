@@ -32,15 +32,18 @@ returning success. API-local wakeups are optional; the indexer continuously
 polls PostgreSQL.
 
 The indexer performs startup reconciliation, watches both roots, periodically
-reconciles, renews leases, runs bounded extraction, cross-document/note embedding,
-verified writes, and atomic BM25 publication. Qdrant server mode is mandatory
-for API-plus-indexer concurrency.
+reconciles, renews leases, runs bounded extraction, cross-document/note
+embedding, dedicated asynchronous verified Qdrant writes, and atomic BM25
+publication. The bounded writer stage allows CPU extraction and GPU embedding
+to continue while Qdrant network operations are in flight. Qdrant server mode
+is mandatory for API-plus-indexer concurrency.
 
 ## API Contracts
 
 - `GET /api/health`: API/retrieval/dependency/indexer readiness and safe queue
   summary.
-- `GET /api/index/status`: durable queue, heartbeat, and generation state.
+- `GET /api/index/status` and `GET /api/indexer/status`: durable queue,
+  heartbeat, adaptive-batch, CPU/GPU, throughput, and generation state.
 - `POST /api/corpus/sync`: authorized `202` reconciliation request.
 - `POST /api/index/rebuild`: authorized, confirmed `202` rebuild request.
 - upload/note routes: return persistence independently from background index
@@ -70,3 +73,4 @@ scripts\start_frontend.bat
 `Launch-CIAL-Knowledge-OS.bat` starts/checks all dependencies, runs Alembic,
 starts backend and indexer independently, starts the frontend, and opens login
 after API/frontend readiness plus a fresh indexer heartbeat.
+`scripts\launch_all.bat` delegates to this same production launcher.

@@ -818,9 +818,14 @@ Runtime-critical additions:
 - `alembic/versions/20260724_0016_continuous_indexing.py`
 - `scripts/start_indexer.bat`
 - `scripts/start_indexer.ps1`
+- `scripts/launch_all.bat`
 - `docs/architecture/CONTINUOUS_INDEXING_ARCHITECTURE.md`
 
 The API and indexer must migrate together with Qdrant server configuration.
 Do not migrate a backend composition root that starts `IndexingWorker` or
 `CorpusWatcher` in FastAPI. Do not copy BM25 runtime snapshots as source; they
 are regenerated and atomically published under the configured app-data root.
+The worker's operational defaults are eight bounded extraction workers,
+adaptive 64-to-256 GPU embedding batches with OOM reduction, FP16 with safe
+CPU fallback, and 256-point Qdrant write batches. Preserve the
+`/api/indexer/status` alias and CPU/GPU/rate telemetry when migrating the API.

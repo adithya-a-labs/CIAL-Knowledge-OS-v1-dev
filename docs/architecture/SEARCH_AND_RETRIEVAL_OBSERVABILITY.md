@@ -96,3 +96,7 @@ actual embedding device, internal queue depths, and safe throughput data.
 Structured logs cover watcher stability, leases, stage changes, cross-asset
 batch composition, Qdrant verification, stale cleanup, and BM25 swap. Bodies,
 embeddings, prompt text, credentials, and absolute personal paths are excluded.
+
+`GET /api/indexer/status` is an additive alias. Heartbeat metrics include
+system/process CPU utilization, logical cores, documents/hour, chunks/minute,
+the adaptive embedding limit, assigned-device GPU utilization, and GPU memory.

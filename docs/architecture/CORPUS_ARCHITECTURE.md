@@ -127,6 +127,11 @@ Returns document metadata by PostgreSQL document id.
 Queues a durable reconciliation request and returns `202 Accepted`. The
 standalone indexer performs the scan; FastAPI never performs vector work.
 
+Document version indexing is chunk-incremental: PostgreSQL stores each
+`chunk_hash`, embedding-model version, and chunking version. Unchanged chunks
+reuse their verified Qdrant vectors while changed chunks alone return to the
+embedding worker.
+
 ## Continuous Runtime
 
 Enterprise filesystem reconciliation, real-time events, personal workspace

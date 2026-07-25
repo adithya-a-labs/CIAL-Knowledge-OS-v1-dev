@@ -1,6 +1,6 @@
 # Continuous Indexing Architecture
 
-Status: implemented in revision `20260724_0016`.
+Status: implemented in revisions `20260724_0016` and `20260725_0017`.
 
 This document is the canonical runtime description for continuous indexing.
 PostgreSQL is the durable queue and control plane, source files stay in the
@@ -118,13 +118,38 @@ same queue. Prepared assets feed a bounded cross-document/note batcher in
 round-robin order. A batch flushes at the first configured chunk, token, or
 wait limit. The embedding model is loaded once when the indexer starts.
 Explicit CUDA configuration fails if CUDA is unavailable; `auto` may choose
-CPU. CUDA OOM reduces the active batch recursively and retries the bounded
-batch.
+CPU. The adaptive controller starts at 64 chunks, grows healthy full batches
+through 128 to the configured maximum (256 by default), and considers
+per-chunk latency plus the configured VRAM target. CUDA OOM immediately lowers
+the active limit and retries recursively. Requested FP16/BF16 safely falls
+back to FP32 when the resolved device is CPU.
+
+OCR-supported image documents are tagged `workload_queue=ocr` and execute in a
+separate bounded `CIAL_INDEXER_OCR_WORKERS` pool. Normal extraction keeps all
+of its configured workers even during an OCR burst. Repository/reconciliation
+OCR work receives a lower priority within its source tier, while an explicit
+user upload retains the top upload priority.
+
+Completed embedding sets are submitted to a dedicated, single-consumer Qdrant
+writer stage backed by the bounded `CIAL_INDEXER_WRITE_QUEUE_SIZE`. The
+embedding stage returns to newly prepared work without waiting for Qdrant
+network writes. Writer futures retain their job leases, perform batched
+upserts, verify the complete asset version, finalize PostgreSQL, and mark BM25
+dirty. Queue capacity applies backpressure, and graceful shutdown drains the
+writer before generation publication and engine close.
 
 Qdrant writes are verified before job completion. A new document version is
 written and verified before older versions are removed. Normal document
 replacement uses filtered delete/upsert/count/retrieve verification and does
 not use Qdrant `scroll()`.
+
+Before embedding a new immutable document version, each prepared chunk receives
+a SHA-256 `chunk_hash` and the active embedding-model and chunking contract
+versions. Matching prior `document_chunks` rows resolve to their verified
+Qdrant points and reuse the existing vectors. Only unmatched chunks enter the
+GPU batcher. The worker still writes a complete, newly versioned Qdrant point
+set before stale-version cleanup, preserving atomic replacement and all
+existing payload fields.
 
 ## Watcher and Reconciliation
 
@@ -189,7 +214,8 @@ workspace. BM25 authorization filtering happens before candidate scoring.
 
 ## Readiness and Status APIs
 
-`GET /api/health` and `GET /api/index/status` distinguish:
+`GET /api/health`, `GET /api/index/status`, and the additive v2 alias
+`GET /api/indexer/status` distinguish:
 
 - `api_ready`
 - `retrieval_ready`
@@ -220,16 +246,23 @@ explicit confirmation.
 | `CIAL_INDEXER_HEARTBEAT_STALE_SECONDS` | `45` |
 | `CIAL_INDEXER_MAX_ATTEMPTS` | `5` |
 | `CIAL_INDEXER_RETRY_BACKOFF_SECONDS` | `5` |
-| `CIAL_INDEXER_EXTRACTION_WORKERS` | bounded from CPU count |
+| `CIAL_INDEXER_MIN_EXTRACTION_WORKERS` / `MIN_EXTRACTION_WORKERS` | `1` |
+| `CIAL_INDEXER_MAX_EXTRACTION_WORKERS` / `MAX_EXTRACTION_WORKERS` | at least `8`, operator bounded |
+| `CIAL_INDEXER_EXTRACTION_WORKERS` / `EXTRACTION_WORKERS` | `8`, clamped to min/max |
+| `CIAL_INDEXER_OCR_WORKERS` | `2` |
 | `CIAL_INDEXER_PREPARED_QUEUE_SIZE` | `8` |
 | `CIAL_INDEXER_EMBED_QUEUE_SIZE` | `4096` |
 | `CIAL_INDEXER_WRITE_QUEUE_SIZE` | `16` |
 | `CIAL_INDEXER_EMBED_BATCH_SIZE` | `64` |
+| `CIAL_INDEXER_EMBED_MIN_BATCH_SIZE` | `1` (OOM recovery floor; healthy startup remains `64`) |
+| `CIAL_INDEXER_EMBED_MAX_BATCH_SIZE` | `256` |
+| `CIAL_INDEXER_EMBED_GROWTH_LATENCY_TOLERANCE` | `1.15` |
+| `CIAL_INDEXER_EMBED_VRAM_TARGET_RATIO` | `0.70` (about 11.2 GiB on a 16 GiB RTX 5070 Ti) |
 | `CIAL_INDEXER_EMBED_MAX_BATCH_TOKENS` | `32768` |
 | `CIAL_INDEXER_EMBED_MAX_WAIT_MS` | `75` |
-| `CIAL_INDEXER_QDRANT_BATCH_SIZE` | `128` |
+| `CIAL_INDEXER_QDRANT_BATCH_SIZE` | `256` |
 | `CIAL_INDEXER_DEVICE` | `auto` |
-| `CIAL_INDEXER_PRECISION` | `auto` |
+| `CIAL_INDEXER_PRECISION` / `EMBEDDING_PRECISION` | `fp16`; CPU safely falls back to FP32 |
 | `CIAL_INDEXER_GPU_POLICY` | `balanced` |
 | `CIAL_CORPUS_WATCH` | `true` in deployed indexer |
 | `CIAL_CORPUS_WATCH_DEBOUNCE_MS` | `750` |
@@ -264,6 +297,8 @@ validates the repository, starts dependencies, applies Alembic, starts the API,
 starts the indexer if there is no fresh heartbeat, starts the frontend, and
 waits for API/frontend readiness plus an indexer heartbeat—not for queue drain.
 Backend, indexer, and frontend have separate launcher log files.
+`scripts\launch_all.bat` is the short compatibility entry point and delegates
+to the same production launcher.
 
 ## Failure Recovery and Observability
 
@@ -272,6 +307,10 @@ claim/lease/stages/retry/completion, extraction, cross-asset GPU batches,
 Qdrant verification, stale cleanup, BM25 generation, queue depths, heartbeats,
 and shutdown. Logs never include document/note bodies, embeddings, credentials,
 prompt bodies, unrestricted errors, or absolute personal paths.
+
+Worker heartbeats expose CPU/process utilization, logical core count,
+documents/hour, chunks/minute, active adaptive batch limit, GPU utilization,
+and GPU memory for the assigned CUDA device.
 
 PostgreSQL loss stops claims/finalization. Qdrant loss creates retryable jobs
 while the API may keep serving its previous index. Graceful shutdown stops new

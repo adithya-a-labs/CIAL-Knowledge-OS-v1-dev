@@ -73,3 +73,8 @@ PostgreSQL now owns `indexing_jobs`, `indexer_workers`, and
 Qdrant. Revision `20260724_0016` is additive and backfills legacy job targets,
 operations, and statuses. See
 [Continuous Indexing Architecture](CONTINUOUS_INDEXING_ARCHITECTURE.md).
+
+Revision `20260725_0017` adds `chunk_hash`, `embedding_model_version`, and
+`chunking_version` to `document_chunks`. These values are metadata only; they
+allow the worker to retrieve and reuse a verified existing Qdrant vector for
+unchanged chunks without storing embeddings in PostgreSQL.

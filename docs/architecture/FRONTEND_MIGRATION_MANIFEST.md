@@ -378,6 +378,11 @@ Recommended treatment:
 - [ ] Verify visual parity for dashboard, assistant, knowledge center, workspace, admin, analytics, and mobile layout.
 - [ ] Run typecheck and production build in the integrated repository after migration.
 
+Continuous-indexing UI note: My Workspace upload completion is non-blocking
+and explicitly tells the user that processing continues in the background.
+Document rows poll the durable status through queued, extraction, chunking,
+embedding, indexed, or failed states without freezing the upload surface.
+
 ## 16. Complete Files to Migrate
 
 This is the explicit file-by-file migration list for recreating the current frontend in the integrated repository.
