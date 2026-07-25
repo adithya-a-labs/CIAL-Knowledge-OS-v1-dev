@@ -16,6 +16,35 @@ timestamps. List and read queries are constrained by the authenticated user;
 another user's session id returns not found. Browser storage is not a history
 store, and an empty database or API failure does not activate demo data.
 
+## Admin AI Operations Console
+
+The production frontend now has an administrator-only operations route at
+`/admin/system-monitor`. The route is absent from normal-user navigation and
+renders a local 403 access-denied surface unless the authenticated profile has
+`monitor_system` or `manage_settings`. Backend authorization remains
+authoritative: both `GET /api/admin/system/monitor` and
+`GET /api/admin/system/stream` resolve the current PostgreSQL RBAC graph and
+return 403 to an authenticated principal without either grant.
+
+The console is a projection of real runtime sources, not a separate analytics
+store. It combines the bounded dependency probes from `SystemStatusService`,
+durable `indexing_jobs`, `indexer_workers`, and `index_generations` state,
+standalone-indexer CPU/GPU/throughput samples, live query-runtime model
+diagnostics, and the query pipeline's safe stage timings. It exposes
+infrastructure cards, the active indexing pipeline, GPU/CPU workers, model
+readiness, query latency, priority queues, failures, and a bounded operational
+event stream without prompts, document content, credentials, or raw exception
+messages.
+
+The stream uses authenticated server-sent events. The browser performs an
+authorized snapshot preflight, then consumes the SSE feed with credentials,
+bounded exponential reconnect, explicit connection state, and stale-data
+detection. Last-known values remain visible during a partial failure and are
+labelled stale rather than replaced with invented healthy values. Query start
+and completion/failure events come from the actual chat route lifecycle;
+indexing events are derived from durable job-state, worker-state, and published
+generation transitions.
+
 ## Project Overview
 
 CIAL Knowledge OS is an enterprise-grade, fully offline, notebook-first
