@@ -82,6 +82,7 @@ class IndexStatusResponse(BaseModel):
     reconciliation_metrics: dict[str, object] = Field(default_factory=dict)
     bm25_metrics: dict[str, object] = Field(default_factory=dict)
     gpu_metrics: dict[str, float] = Field(default_factory=dict)
+    cpu_metrics: dict[str, float] = Field(default_factory=dict)
     last_successful_index_at: str | None = None
     last_startup_check_at: str | None = None
     last_index_run_at: str | None = None

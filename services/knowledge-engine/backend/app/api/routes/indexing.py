@@ -27,3 +27,10 @@ def rebuild_index(payload: RebuildIndexRequest, request: Request) -> dict[str, o
 @router.get("/index/status", response_model=IndexStatusResponse)
 def index_status(request: Request) -> dict[str, object]:
     return request.app.state.indexing_service.status()
+
+
+@router.get("/indexer/status", response_model=IndexStatusResponse, include_in_schema=True)
+def indexer_status(request: Request) -> dict[str, object]:
+    """Compatibility alias using the service-oriented v2 endpoint name."""
+
+    return request.app.state.indexing_service.status()
