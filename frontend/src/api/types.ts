@@ -114,6 +114,102 @@ export interface SystemStatusResponse {
   latency_ms: Record<string, number>;
 }
 
+export type OperationsStatus = 'green' | 'blue' | 'yellow' | 'red';
+
+export interface OperationsComponent {
+  status: 'available' | 'degraded' | 'unavailable' | 'unknown';
+  available: boolean | null;
+  detail: string;
+  checked_at: string;
+  latency_ms: number;
+}
+
+export interface OperationsEvent {
+  id: string;
+  type: string;
+  severity: 'info' | 'warning' | 'error';
+  message: string;
+  timestamp: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface AdminSystemMonitor {
+  status: OperationsStatus;
+  label: string;
+  generated_at: string;
+  uptime_seconds: number;
+  stale: boolean;
+  connection_hint_seconds: number;
+  infrastructure: {
+    backend: OperationsComponent;
+    postgresql: OperationsComponent;
+    qdrant: OperationsComponent;
+    service_latency_ms: number;
+    uptime_seconds: number;
+  };
+  indexing: {
+    worker_status: string;
+    worker_heartbeat_at: string | null;
+    worker_heartbeat_age_seconds: number | null;
+    worker_stale: boolean;
+    active_workers: number;
+    queue_depth: number;
+    priority_queues: Record<string, number>;
+    pending_jobs: number;
+    active_jobs_count: number;
+    completed_jobs: number;
+    failed_jobs: number;
+    active_jobs: Array<Record<string, unknown>>;
+    recent_errors: Array<Record<string, unknown>>;
+    active_published_generation: number;
+    bm25_generation: number;
+    state: string;
+    last_successful_publish: string | null;
+    throughput: Record<string, number>;
+    internal_queue_depths: Record<string, number>;
+  };
+  gpu: {
+    cuda_available: boolean;
+    device: string;
+    utilization_percent: number | null;
+    memory_used_mb: number | null;
+    memory_total_mb: number | null;
+    embedding_device: string;
+    precision: string;
+    batch_size: number;
+    embedding_throughput_chunks_per_minute: number | null;
+  };
+  cpu: {
+    utilization_percent?: number;
+    process_utilization_percent?: number;
+    logical_cores?: number;
+    indexer: Record<string, number>;
+    extraction_workers: number;
+    active_worker_count: number;
+    current_tasks: number;
+    ocr_workers: number;
+  };
+  models: {
+    ollama_available: boolean | null;
+    loaded_models: string[];
+    embedding_model: string;
+    embedding_model_ready: boolean;
+    reranker_model: string;
+    reranker_ready: boolean;
+  };
+  query: {
+    active_chat_requests: number;
+    status: string;
+    validation_latency_ms: number | null;
+    retrieval_latency_ms: number | null;
+    reranker_latency_ms: number | null;
+    generation_latency_ms: number | null;
+    total_latency_ms: number | null;
+    last_error: string | null;
+  };
+  events: OperationsEvent[];
+}
+
 export interface ChatRequest {
   session_id?: string;
   question: string;

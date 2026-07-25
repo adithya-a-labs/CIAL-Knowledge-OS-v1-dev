@@ -14,6 +14,7 @@ import type {
   ExportListResponse,
   HealthResponse,
   SystemStatusResponse,
+  AdminSystemMonitor,
   IndexStatusResponse,
   EnterpriseRepositoryRequest,
   EnterpriseRepositorySettings,
@@ -137,6 +138,54 @@ export function getSystemStatus(signal?: AbortSignal) {
     cache: 'no-store',
     signal: boundedSignal,
   });
+}
+
+export function getAdminSystemMonitor(signal?: AbortSignal) {
+  return request<AdminSystemMonitor>('/api/admin/system/monitor', {
+    cache: 'no-store',
+    signal,
+  });
+}
+
+export async function streamAdminSystemMonitor(
+  onSnapshot: (snapshot: AdminSystemMonitor) => void,
+  signal: AbortSignal,
+  onConnected?: () => void,
+) {
+  const response = await fetch(apiUrl('/api/admin/system/stream'), {
+    credentials: 'include',
+    cache: 'no-store',
+    headers: { Accept: 'text/event-stream' },
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    throw new ApiError(
+      response.status === 403
+        ? 'System monitoring permission is required.'
+        : `Monitor stream failed with status ${response.status}`,
+      response.status,
+      null,
+    );
+  }
+  onConnected?.();
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const frames = buffer.split(/\r?\n\r?\n/);
+    buffer = frames.pop() ?? '';
+    for (const frame of frames) {
+      const data = frame
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trimStart())
+        .join('\n');
+      if (data) onSnapshot(JSON.parse(data) as AdminSystemMonitor);
+    }
+    if (done) break;
+  }
 }
 
 export function signUp(payload: SignupRequest) {
