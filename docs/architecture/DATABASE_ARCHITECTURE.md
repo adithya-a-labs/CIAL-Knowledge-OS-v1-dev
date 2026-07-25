@@ -142,7 +142,13 @@ versions.
 `indexer_workers` stores service state, fresh heartbeat, safe queue/throughput
 metrics, actual embedding device, and reconciliation state.
 `index_generations` is the single committed pointer for dense and BM25
-generations. See
+generations. Query execution reads only an already-loaded pointer whose
+generation is positive, publication timestamp exists, and Qdrant collection
+matches configuration. Pointer discovery is asynchronous to chat; pending and
+failed `indexing_jobs` do not participate in validity, so they cannot displace
+the prior committed row. No schema migration is required for this query-path
+isolation because the existing publication fields encode the complete
+contract. See
 [Continuous Indexing Architecture](CONTINUOUS_INDEXING_ARCHITECTURE.md).
 
 ## Search and Observability Additions

@@ -21,7 +21,11 @@ query-time models. It never calls corpus-wide `load()`, `chunk()`, `embed()`,
 The first deployment is allowed to report `api_ready=true` and
 `retrieval_ready=false` while the standalone indexer builds the first
 generation. When a previous generation exists, chat remains available while
-the queue is active.
+the queue is active. Chat uses the loaded published generation immediately and
+requests publication discovery asynchronously. Pending, processing, retrying,
+and failed jobs cannot enter the query dependency graph or invalidate the prior
+generation. Dense filters are pinned to the document versions and note
+revisions listed by the same published snapshot.
 
 ## Durable Change Flow
 
@@ -46,6 +50,8 @@ is mandatory for API-plus-indexer concurrency.
   heartbeat, adaptive-batch, CPU/GPU, throughput, and generation state.
 - `POST /api/corpus/sync`: authorized `202` reconciliation request.
 - `POST /api/index/rebuild`: authorized, confirmed `202` rebuild request.
+- `GET /api/chat/debug`: authenticated, content-free query timing, loaded
+  generation, and safe queue snapshot.
 - upload/note routes: return persistence independently from background index
   readiness.
 
@@ -60,6 +66,14 @@ a non-blocking banner and does not disable chat. File upload rows appear
 immediately and poll their document status until ready or failed. Note
 Saving/Saved state remains database persistence; note `indexing_status` is a
 separate AI-index state.
+
+Streaming assistant requests expose Searching knowledge, Retrieving sources,
+Generating answer, Completed, and Failed states. Stop aborts the browser stream
+and propagates cancellation to the local generation loop. Both server and
+browser terminate a request after 150 seconds, component failures provide safe
+messages, loading state clears in `finally`, and failed requests retain an
+explicit Retry action. The background banner means “Knowledge updating in
+background”; assistant answers continue from the latest published index.
 
 ## Commands
 

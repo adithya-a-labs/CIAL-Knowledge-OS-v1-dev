@@ -71,7 +71,10 @@ The indexing pipeline now hydrates these fields into Qdrant payload metadata:
 - `visibility`
 - `lifecycle_status`
 
-That keeps the current retrieval flow unchanged while making future retrieval-time privacy filters possible.
+Dense retrieval enforces these fields with Qdrant keyword payload indexes, and
+BM25 filters the published in-memory snapshot before scoring. Generation
+refresh, Qdrant timeout, and stale-generation fallback retain the same owner
+boundary; they never fall back to unfiltered enterprise or personal evidence.
 
 ## Runtime Status
 

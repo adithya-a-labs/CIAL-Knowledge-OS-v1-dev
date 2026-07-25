@@ -199,9 +199,20 @@ worker heartbeat into a degraded state with an actionable error.
 Dense points are visible after a verified Qdrant write. The indexer then writes
 a complete BM25 source snapshot to a temporary file, `fsync`s it, and atomically
 publishes it with `os.replace`. Only after publication does it advance the
-PostgreSQL generation. The API checks that pointer before each chat turn and
-swaps the lexical retriever under the query lock. A failed or partial snapshot
-never replaces the last valid generation.
+PostgreSQL generation. A chat turn always captures the already-loaded published
+generation and starts generation discovery on a daemon refresh path. It never
+waits for PostgreSQL generation reads, queue state, worker heartbeats,
+reconciliation, extraction, embedding, or a building generation. The refresh
+builds the replacement BM25 index away from the query lock and performs only a
+short opportunistic activation; an active chat wins the race and refresh retries
+later. A failed, partial, missing, unpublished, zero-valued, or
+collection-mismatched generation never replaces the last valid generation.
+Dense search is additionally constrained to document-version and note-revision
+identities recorded in that published BM25 snapshot. Qdrant's in-place writer
+may therefore prepare or verify new points without making a partial version
+queryable. If an old dense version has already been retired during the short
+publication window, the old BM25 snapshot continues serving that asset until
+the atomic pointer advances.
 
 BM25 publication is debounced during a sustained job burst and forced before
 the worker enters its queue-empty watching state. If the API started before the
@@ -229,6 +240,9 @@ workspace. BM25 authorization filtering happens before candidate scoring.
 
 The API can be ready while `retrieval_ready=false` on a first deployment. A
 non-empty queue does not disable chat when a valid generation exists.
+If no valid generation has ever been published, chat returns controlled
+unavailability rather than attaching to an arbitrary collection. Failed and
+pending jobs leave the prior valid generation serving.
 
 `POST /api/corpus/sync` and `POST /api/index/rebuild` require their existing
 permissions, enqueue durable work, and return `202`. Rebuild also requires
@@ -274,10 +288,26 @@ explicit confirmation.
 | `QDRANT_RETRY_ATTEMPTS` | `3` |
 | `QDRANT_RETRY_BACKOFF_SECONDS` | `2` |
 | `QDRANT_HEALTH_TIMEOUT_SECONDS` | `5` |
-| `QDRANT_QUERY_TIMEOUT_SECONDS` | `30` |
+| `QDRANT_QUERY_TIMEOUT_SECONDS` | `3` |
+| `QDRANT_QUERY_RETRY_ATTEMPTS` | `2` |
 | `QDRANT_UPSERT_TIMEOUT_SECONDS` | `60` |
 | `QDRANT_DELETE_TIMEOUT_SECONDS` | `60` |
 | `QDRANT_COLLECTION_TIMEOUT_SECONDS` | `120` |
+| `CIAL_RERANKER_TIMEOUT_SECONDS` | `10` |
+| `CIAL_GENERATION_TIMEOUT_SECONDS` | `120` |
+| `CIAL_CHAT_LOCK_TIMEOUT_SECONDS` | `5` |
+| `CIAL_CHAT_REQUEST_TIMEOUT_SECONDS` | `150` |
+
+Query retries apply only to transient network, timeout, HTTP 408/429, and 5xx
+failures. Invalid requests and other permanent Qdrant failures are not retried.
+Server collections maintain payload indexes for relative path,
+document/version id, note id/revision, repository id, owner id, visibility, and lifecycle state;
+authorization and replacement filters therefore execute inside Qdrant rather
+than scanning corpus files or fetching every point.
+The server stream and browser use matching 150-second terminal watchdogs; the
+shorter component limits normally fail first. The reranker is loaded once at
+runtime initialization, keeps its resolved device, receives at most the
+configured candidate cap, and has a hard per-turn deadline.
 
 The legacy `CIAL_AUTO_INDEX_ON_STARTUP` and
 `CIAL_FORCE_REBUILD_ON_STARTUP` values are parsed for compatibility but logged
@@ -319,11 +349,11 @@ claims, keeps leases renewed for active bounded work, closes watchers, records
 
 ## Validation
 
-Verified on 2026-07-24:
+Verified on 2026-07-25:
 
-- backend: 446 tests passed plus 50 subtests in 53.94 seconds; one upstream
+- backend: 466 tests passed plus 50 subtests in 31.46 seconds; one upstream
   Starlette/httpx deprecation warning;
-- frontend: 43 tests passed; TypeScript typecheck passed; Vite production build
+- frontend: 46 tests passed; TypeScript typecheck passed; Vite production build
   passed from a temporary output directory;
 - operational Phase 4.5 prompt guard passed with temperature 0 and the existing
   operational profile;

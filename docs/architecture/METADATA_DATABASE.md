@@ -28,6 +28,12 @@ Without it the indexer stops durable claims, leases, finalization, and
 generation publication. It never continues vector work that cannot be
 finalized.
 
+Chat never waits for PostgreSQL generation discovery. It serves the loaded
+published generation while a single-flight daemon check looks for a newer
+valid pointer. Missing metadata before the first publication is controlled
+unavailability; missing or failed update metadata after publication preserves
+the previous generation.
+
 ## Migration
 
 Run from `services/knowledge-engine`:

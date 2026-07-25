@@ -146,3 +146,10 @@ and lifecycle values from PostgreSQL immediately before Qdrant writes.
 ACL, visibility, path, or workspace metadata changes. Personal note/document
 text enters BM25 only with owner-private metadata and is filtered before
 candidate scoring. Department classification never grants personal access.
+
+At query time PostgreSQL projects only accessible indexed relative paths
+through the same ACL/RBAC predicate. Dense retrieval sends that boundary as a
+Qdrant filter over keyword-indexed payload fields; BM25 builds or reuses a
+bounded in-memory authorization index before scoring. Background indexing state
+is never used as an authorization shortcut, and timeout/fallback paths do not
+broaden scope.
