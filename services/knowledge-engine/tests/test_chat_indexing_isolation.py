@@ -279,9 +279,20 @@ def test_generation_timeout_is_controlled(tmp_path):
     )
     pipeline = Phase4RAGPipeline(config=config, llm=_SlowStream())
     pipeline.token_callback = lambda token: None
+    events = []
+    pipeline.telemetry_callback = (
+        lambda stage, status, metrics: events.append((stage, status, metrics))
+    )
 
     with pytest.raises(GenerationFailedError, match="configured time limit"):
         pipeline._generate_grounded_answer("question", "evidence")
+    failed = next(
+        metrics
+        for stage, status, metrics in events
+        if stage == "generation" and status == "failed"
+    )
+    assert failed["error_state"] == "generation_timeout"
+    assert failed["prompt_tokens"] >= failed["context_tokens"]
 
 
 def test_chat_debug_snapshot_never_exposes_prompt_or_document_content():

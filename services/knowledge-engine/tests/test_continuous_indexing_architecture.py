@@ -190,6 +190,67 @@ def test_api_startup_never_invokes_indexing_pipeline() -> None:
     assert runtime.retrieval_ready is True
 
 
+def test_api_startup_remains_ready_with_stopped_indexer_and_published_runtime() -> None:
+    engine = MagicMock()
+    engine.engine_available = True
+    engine.build_config.return_value = SimpleNamespace()
+    engine.check_ollama_model.return_value = (True, "ready")
+    engine.prepare_query_runtime.return_value = {
+        "retrieval_ready": True,
+        "generation": 7,
+        "message": "published generation loaded",
+    }
+    runtime = RuntimeState()
+    service = StartupService(engine=engine, runtime_state=runtime)
+    service.validate_corpus_root = MagicMock()
+    service.ensure_required_folders = MagicMock()
+    with (
+        patch(
+            "backend.app.services.startup_service.check_database_health",
+            return_value=SimpleNamespace(database_ready=True),
+        ),
+        patch.object(service, "check_qdrant", return_value=(True, "ready")),
+        patch(
+            "backend.app.services.startup_service.DurableIndexQueue"
+        ) as queue_type,
+    ):
+        queue_type.return_value.status.return_value = {
+            "indexer_seen": False,
+            "indexer_state": "unknown",
+            "latest_index_generation": 7,
+            "bm25_generation": 4,
+        }
+        service.run_startup()
+
+    assert runtime.api_ready is True
+    assert runtime.retrieval_ready is True
+    assert runtime.engine_ready is True
+    assert runtime.indexer_seen is False
+    assert runtime.indexer_state == "unknown"
+
+
+def test_query_runtime_defaults_to_cpu_embedding_to_preserve_ollama_vram() -> None:
+    source = Path("backend/app/services/knowledge_engine_service.py").read_text(
+        encoding="utf-8"
+    )
+    assert "settings.query_embedding_device" in source
+    assert "CIAL_QUERY_EMBEDDING_DEVICE" in Path(
+        "backend/app/core/config.py"
+    ).read_text(encoding="utf-8")
+
+
+def test_indexer_runtime_does_not_require_an_existing_publication() -> None:
+    source = Path("backend/app/services/knowledge_engine_service.py").read_text(
+        encoding="utf-8"
+    )
+    branch = source.split(
+        "if not self._published_generation_valid(", 1
+    )[1].split("snapshot_path =", 1)[0]
+    assert "if create_collection:" in branch
+    assert '"indexing_ready": True' in branch
+    assert "Indexer runtime is ready to create the first" in branch
+
+
 def test_fastapi_composition_root_does_not_own_indexer_worker() -> None:
     source = Path("backend/app/main.py").read_text(encoding="utf-8")
     assert "IndexingWorker" not in source
