@@ -200,6 +200,10 @@ export interface AdminSystemMonitor {
   query: {
     active_chat_requests: number;
     status: string;
+    current_stage: string | null;
+    current_stage_duration_ms: number | null;
+    failed_stage: string | null;
+    timeout_reason: string | null;
     validation_latency_ms: number | null;
     retrieval_latency_ms: number | null;
     reranker_latency_ms: number | null;
@@ -334,9 +338,15 @@ export interface GenerationEvent {
   stage_id: string;
   status: 'started' | 'completed' | 'failed';
   elapsed_ms: number;
-  metrics?: Record<string, number | string | boolean>;
+  metrics?: Record<string, number | string | boolean | null>;
   delta?: string;
-  payload?: ChatResponse | { message?: string };
+  payload?: ChatResponse | {
+    message?: string;
+    failed_stage?: string | null;
+    reason?: string | null;
+    timeout_state?: string | null;
+    retry_allowed?: boolean;
+  };
 }
 
 export interface ChatHistoryMessage {

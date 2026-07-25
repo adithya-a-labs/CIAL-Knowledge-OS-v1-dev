@@ -366,7 +366,20 @@ export async function streamQuestion(
         if (!line.trim()) continue;
         const event = JSON.parse(line) as import('./types').GenerationEvent; onEvent(event);
         if (event.type === 'result') result = event.payload as import('./types').ChatResponse;
-        if (event.type === 'error') throw new Error((event.payload as { message?: string })?.message || 'Generation failed.');
+        if (event.type === 'error') {
+          const failure = event.payload as {
+            message?: string;
+            failed_stage?: string | null;
+            reason?: string | null;
+          };
+          const failedStage = failure?.failed_stage?.replaceAll('_', ' ');
+          const detail = failedStage
+            ? ` Failed stage: ${failedStage}${failure.reason ? ` (${failure.reason})` : ''}.`
+            : '';
+          throw new Error(
+            `${failure?.message || 'Generation failed.'}${detail}`,
+          );
+        }
         if (event.type === 'cancelled') throw new DOMException('Generation stopped', 'AbortError');
       }
       if (done) break;
