@@ -9,7 +9,7 @@ import hashlib
 import logging
 from pathlib import Path
 import sys
-from threading import Lock, RLock
+from threading import Lock, RLock, Thread
 import time
 from typing import Any, Callable
 import uuid
@@ -23,6 +23,13 @@ from backend.app.models.knowledge import Document, DocumentChunk, DocumentVersio
 from backend.app.models.operations import IndexGeneration
 from backend.app.models.workspace_content import Note, NoteIndexState
 from backend.app.services.note_indexing_service import note_relative_path
+from backend.app.services.gpu_resource_coordinator import (
+    GenerationGpuSampler,
+    GpuResourceCoordinator,
+    inspect_ollama_runtime,
+    inspect_gpu_runtime,
+    release_ollama_runtime,
+)
 from backend.app.security.access import (
     RequestAccessContext,
     anonymous_access_context,
@@ -190,11 +197,17 @@ class KnowledgeEngineService:
             "qdrant_latency": None,
             "reranker_latency": None,
             "generation_latency": None,
+            "generation_metrics": {},
+            "generation_gpu_start": {},
+            "generation_gpu_end": {},
             "last_error": None,
         }
         self._loaded_generation = 0
         self._loaded_bm25_generation = 0
         self._cached_embedding_model: Any | None = None
+        self._indexer_embedding_target_device: str | None = None
+        self._indexer_embedding_gpu_resident = False
+        self._gpu_coordinator = GpuResourceCoordinator()
         self._load_engine_symbols()
 
     @property
@@ -243,6 +256,21 @@ class KnowledgeEngineService:
             ),
             "loaded_generation": self._loaded_generation,
             "loaded_bm25_generation": self._loaded_bm25_generation,
+            "query_embedding_device": (
+                str(getattr(embedding_model, "device", "unknown"))
+                if embedding_model is not None
+                else None
+            ),
+            "indexer_embedding_gpu_resident": self._indexer_embedding_gpu_resident,
+            "ollama_keep_alive": settings.ollama_keep_alive,
+            "ollama_num_gpu": settings.ollama_num_gpu,
+            "ollama_gpu_priority_enabled": settings.ollama_gpu_priority_enabled,
+            "indexer_gpu_cooperative_mode": settings.indexer_gpu_cooperative_mode,
+            "ollama_runtime": inspect_ollama_runtime(settings.ollama_model_name),
+            "generation_metrics": dict(
+                getattr(getattr(pipeline, "llm", None), "last_generation_metrics", {})
+                or {}
+            ),
         }
 
     @staticmethod
@@ -342,7 +370,22 @@ class KnowledgeEngineService:
         )
 
         config = self.build_config(force_rebuild_index=False)
-        config.embedding_device = settings.indexer_device if create_collection else config.embedding_device
+        ollama_blocks_indexer_gpu = False
+        if create_collection and settings.indexer_gpu_cooperative_mode:
+            ollama_loaded = inspect_ollama_runtime(
+                settings.ollama_model_name
+            ).get("model_loaded")
+            ollama_blocks_indexer_gpu = bool(
+                ollama_loaded
+                and not release_ollama_runtime(settings.ollama_model_name)
+            )
+        config.embedding_device = (
+            "cpu"
+            if ollama_blocks_indexer_gpu
+            else settings.indexer_device
+            if create_collection
+            else settings.query_embedding_device
+        )
         if create_collection:
             config.qdrant_batch_size = settings.indexer_qdrant_batch_size
         pipeline = self._phase4_pipeline_cls(config)
@@ -389,6 +432,39 @@ class KnowledgeEngineService:
             if not self._published_generation_valid(
                 generation, config.qdrant_collection_name
             ):
+                if create_collection:
+                    # The indexer must be able to create the first publication.
+                    # Its embedding/Qdrant runtime is valid without a query
+                    # generation; only the API query runtime requires one.
+                    pipeline.chunks = []
+                    self.set_pipeline(pipeline)
+                    actual_device = str(
+                        getattr(
+                            pipeline.embedding_model,
+                            "device",
+                            config.embedding_device,
+                        )
+                    )
+                    self._indexer_embedding_target_device = (
+                        settings.indexer_device if create_collection else actual_device
+                    )
+                    self._indexer_embedding_gpu_resident = (
+                        actual_device.startswith("cuda")
+                    )
+                    return {
+                        "retrieval_ready": False,
+                        "indexing_ready": True,
+                        "qdrant_ready": True,
+                        "collection_exists": True,
+                        "generation": 0,
+                        "bm25_generation": 0,
+                        "bm25_chunks": 0,
+                        "embedding_device": actual_device,
+                        "message": (
+                            "Indexer runtime is ready to create the first "
+                            "published generation."
+                        ),
+                    }
                 close = getattr(pipeline, "close", None)
                 if callable(close):
                     close()
@@ -445,6 +521,11 @@ class KnowledgeEngineService:
                 int(generation.bm25_generation or 0) if generation is not None else 0
             )
             actual_device = str(getattr(pipeline.embedding_model, "device", config.embedding_device))
+            if create_collection:
+                self._indexer_embedding_target_device = (
+                    settings.indexer_device if create_collection else actual_device
+                )
+                self._indexer_embedding_gpu_resident = actual_device.startswith("cuda")
             return {
                 "retrieval_ready": True,
                 "qdrant_ready": True,
@@ -834,11 +915,63 @@ class KnowledgeEngineService:
         from cial_knowledge_os.embeddings import embed_texts
 
         with self._embedding_lock:
+            self.ensure_indexer_embedding_device()
             return embed_texts(
                 pipeline.embedding_model,
                 [chunk.page_content for chunk in chunks],
                 batch_size=batch_size,
             )
+
+    def ensure_indexer_embedding_device(self) -> bool:
+        """Move the indexer model back to its configured accelerator on demand."""
+
+        pipeline = self._ready_pipeline("standard")
+        target = self._indexer_embedding_target_device or settings.indexer_device
+        if not str(target).startswith("cuda") or self._indexer_embedding_gpu_resident:
+            return False
+        if settings.indexer_gpu_cooperative_mode:
+            ollama_loaded = inspect_ollama_runtime(
+                settings.ollama_model_name
+            ).get("model_loaded")
+            if ollama_loaded and not release_ollama_runtime(
+                settings.ollama_model_name
+            ):
+                return False
+        mover = getattr(pipeline.embedding_model, "to", None)
+        if not callable(mover):
+            return False
+        mover(target)
+        if settings.indexer_precision == "float16":
+            half = getattr(pipeline.embedding_model, "half", None)
+            if callable(half):
+                half()
+        elif settings.indexer_precision == "bfloat16":
+            bfloat16 = getattr(pipeline.embedding_model, "bfloat16", None)
+            if callable(bfloat16):
+                bfloat16()
+        self._indexer_embedding_gpu_resident = True
+        return True
+
+    def release_indexer_gpu(self) -> bool:
+        """Release indexer CUDA residency while retaining the loaded CPU model."""
+
+        if not self._indexer_embedding_gpu_resident:
+            return False
+        pipeline = self._ready_pipeline("standard")
+        mover = getattr(pipeline.embedding_model, "to", None)
+        if not callable(mover):
+            return False
+        with self._embedding_lock:
+            mover("cpu")
+            try:
+                import torch
+
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except (ImportError, RuntimeError):
+                pass
+            self._indexer_embedding_gpu_resident = False
+        return True
 
     @staticmethod
     def chunk_hash(text_value: str) -> str:
@@ -1195,6 +1328,38 @@ class KnowledgeEngineService:
                     }.get(stage_id)
                     if latency_key is not None:
                         self._chat_debug[latency_key] = metrics["duration_ms"]
+                    if stage_id == "generation":
+                        allowed_generation_metrics = {
+                            key: metrics.get(key)
+                            for key in (
+                                "prompt_tokens",
+                                "context_tokens",
+                                "system_prompt_tokens",
+                                "output_tokens",
+                                "first_token_ms",
+                                "tokens_per_second",
+                                "model_load_ms",
+                                "prompt_eval_ms",
+                                "ollama_total_ms",
+                                "keep_alive",
+                                "retry_count",
+                                "ollama_processor_type",
+                                "gpu_layers_used",
+                                "gpu_layers_requested",
+                                "gpu_memory_used",
+                                "gpu_memory_total",
+                                "cpu_offload_detected",
+                                "generation_gpu_utilization",
+                                "generation_gpu_utilization_peak",
+                                "generation_gpu_memory_peak",
+                                "generation_gpu_samples",
+                            )
+                            if metrics.get(key) is not None
+                            or key in {"gpu_layers_used", "cpu_offload_detected"}
+                        }
+                        self._chat_debug["generation_metrics"] = (
+                            allowed_generation_metrics
+                        )
                 if error_state:
                     if (
                         stage_id != "chat"
@@ -1234,6 +1399,9 @@ class KnowledgeEngineService:
                 hybrid_fusion_latency=None,
                 reranker_latency=None,
                 generation_latency=None,
+                generation_metrics={},
+                generation_gpu_start={},
+                generation_gpu_end={},
                 total_latency=None,
                 last_error=None,
             )
@@ -1320,7 +1488,11 @@ class KnowledgeEngineService:
                 "The assistant is finishing another request. Please retry."
             )
         pipeline = None
+        priority_context = None
+        generation_gpu_sampler: GenerationGpuSampler | None = None
         try:
+            priority_context = self._gpu_coordinator.chat_priority(chat_request_id)
+            priority_context.__enter__()
             pipeline = self._ready_pipeline(
                 request.response_length,
                 profile=request.profile,
@@ -1332,6 +1504,31 @@ class KnowledgeEngineService:
             def pipeline_telemetry(
                 stage_name: str, status: str, metrics: dict[str, Any]
             ) -> None:
+                if stage_name == "generation" and status in {
+                    "started",
+                    "completed",
+                    "failed",
+                }:
+                    nonlocal generation_gpu_sampler
+                    gpu_key = (
+                        "generation_gpu_start"
+                        if status == "started"
+                        else "generation_gpu_end"
+                    )
+                    if status == "started":
+                        generation_gpu_sampler = GenerationGpuSampler(
+                            settings.ollama_model_name
+                        )
+                        generation_gpu_sampler.start()
+                        sample = inspect_gpu_runtime()
+                    elif generation_gpu_sampler is not None:
+                        sample = generation_gpu_sampler.stop()
+                        generation_gpu_sampler = None
+                        metrics.update(sample)
+                    else:
+                        sample = inspect_gpu_runtime()
+                    with self._chat_metrics_lock:
+                        self._chat_debug[gpu_key] = sample
                 progress(stage_name, status, **metrics)
 
             pipeline.telemetry_callback = pipeline_telemetry
@@ -1401,10 +1598,14 @@ class KnowledgeEngineService:
                 "The assistant could not complete the retrieval pipeline."
             ) from exc
         finally:
+            if generation_gpu_sampler is not None:
+                generation_gpu_sampler.stop()
             if pipeline is not None:
                 pipeline.token_callback = None
                 pipeline.cancel_event = None
                 pipeline.telemetry_callback = None
+            if priority_context is not None:
+                priority_context.__exit__(None, None, None)
             self._query_lock.release()
 
         latency_ms = int((time.perf_counter() - started_at) * 1000)
@@ -1547,6 +1748,8 @@ class KnowledgeEngineService:
             qdrant_delete_timeout_seconds=settings.qdrant_delete_timeout_seconds,
             qdrant_collection_timeout_seconds=settings.qdrant_collection_timeout_seconds,
             ollama_model_name=settings.ollama_model_name,
+            ollama_keep_alive=settings.ollama_keep_alive,
+            ollama_num_gpu=settings.ollama_num_gpu,
             embedding_model_name=settings.embedding_model_name,
             embedding_batch_size=settings.indexer_embed_batch_size,
             reranker_model_name=settings.reranker_model_name,
