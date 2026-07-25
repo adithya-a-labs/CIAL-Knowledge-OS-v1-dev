@@ -466,6 +466,19 @@ class DurableIndexQueue:
             worker = session.scalar(
                 select(IndexerWorker).order_by(IndexerWorker.heartbeat_at.desc()).limit(1)
             )
+            active_workers = int(
+                session.scalar(
+                    select(func.count())
+                    .select_from(IndexerWorker)
+                    .where(
+                        IndexerWorker.heartbeat_at
+                        >= utc_now()
+                        - timedelta(seconds=settings.indexer_heartbeat_stale_seconds),
+                        IndexerWorker.service_state.notin_(["stopped", "degraded"]),
+                    )
+                )
+                or 0
+            )
             generation = session.get(IndexGeneration, "active")
             last_success = session.scalar(
                 select(func.max(IndexingJob.completed_at)).where(IndexingJob.status == "completed")
@@ -490,6 +503,7 @@ class DurableIndexQueue:
                 )
             )
         values["queue_counts"] = {str(key): int(value) for key, value in counts}
+        values["active_workers"] = active_workers
         values["queue_by_operation"] = {str(key): int(value) for key, value in operations}
         values["queue_depth"] = sum(
             count

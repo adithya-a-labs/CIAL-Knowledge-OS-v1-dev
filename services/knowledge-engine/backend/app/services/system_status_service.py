@@ -131,7 +131,7 @@ class SystemStatusService:
                 checked_at=checked_at,
                 latency_ms=_latency_ms(started),
                 degraded=not installed,
-            )
+            ) | {"loaded_models": sorted(model for model in models if model)}
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "system_status_component_unavailable",

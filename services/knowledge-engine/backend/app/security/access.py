@@ -31,6 +31,7 @@ _ENTERPRISE_READ_PERMISSIONS = frozenset({"view_enterprise_documents", "manage_e
 _DEPARTMENT_READ_PERMISSIONS = frozenset({"view_department_documents", "manage_enterprise_documents"})
 _ENTERPRISE_WRITE_PERMISSIONS = frozenset({"upload_enterprise_documents", "manage_enterprise_documents"})
 _CORPUS_SYNC_PERMISSIONS = frozenset({"manage_enterprise_documents", "manage_settings"})
+_SYSTEM_MONITOR_PERMISSIONS = frozenset({"monitor_system", "manage_settings"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,6 +239,17 @@ def can_manage_settings(access_context: RequestAccessContext) -> bool:
     if "manage_settings" in permissions or "manage_enterprise_documents" in permissions:
         return True
     return not access_context.principal.is_authenticated
+
+
+def can_monitor_system(access_context: RequestAccessContext) -> bool:
+    """Return whether an authenticated principal may inspect operational telemetry."""
+
+    return bool(
+        access_context.principal.is_authenticated
+        and access_context.principal.permission_names.intersection(
+            _SYSTEM_MONITOR_PERMISSIONS
+        )
+    )
 
 
 def has_enterprise_read_access(access_context: RequestAccessContext) -> bool:

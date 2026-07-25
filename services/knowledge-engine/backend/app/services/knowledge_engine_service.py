@@ -179,6 +179,7 @@ class KnowledgeEngineService:
         self._chat_debug: dict[str, Any] = {
             "status": "idle",
             "current_index_generation": 0,
+            "validation_latency": None,
             "retrieval_latency": None,
             "qdrant_latency": None,
             "reranker_latency": None,
@@ -1321,6 +1322,7 @@ class KnowledgeEngineService:
             "status": "completed",
             "request_id": chat_request_id,
             "current_index_generation": self._loaded_generation,
+            "validation_latency": stage_metrics.get("request.validating", {}).get("duration_ms"),
             "retrieval_latency": stage_metrics.get("retrieval.searching", {}).get("duration_ms"),
             "qdrant_latency": stage_metrics.get("dense_retrieval", {}).get("duration_ms"),
             "bm25_latency": stage_metrics.get("bm25", {}).get("duration_ms"),
