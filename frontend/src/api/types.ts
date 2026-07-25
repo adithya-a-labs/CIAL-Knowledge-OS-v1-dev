@@ -178,6 +178,13 @@ export interface AdminSystemMonitor {
     precision: string;
     batch_size: number;
     embedding_throughput_chunks_per_minute: number | null;
+    state?: string | null;
+    embedding_model_gpu_resident?: boolean | null;
+    active_embedding_jobs?: number | null;
+    chat_priority_active?: boolean | null;
+    embedding_model_memory?: Record<string, number | boolean>;
+    generation_start?: Record<string, unknown>;
+    generation_end?: Record<string, unknown>;
   };
   cpu: {
     utilization_percent?: number;
@@ -194,6 +201,7 @@ export interface AdminSystemMonitor {
     loaded_models: string[];
     embedding_model: string;
     embedding_model_ready: boolean;
+    query_embedding_device?: string;
     reranker_model: string;
     reranker_ready: boolean;
   };
@@ -208,6 +216,29 @@ export interface AdminSystemMonitor {
     retrieval_latency_ms: number | null;
     reranker_latency_ms: number | null;
     generation_latency_ms: number | null;
+    generation_metrics?: {
+      prompt_tokens?: number;
+      context_tokens?: number;
+      system_prompt_tokens?: number;
+      output_tokens?: number;
+      first_token_ms?: number;
+      tokens_per_second?: number;
+      model_load_ms?: number;
+      prompt_eval_ms?: number;
+      ollama_total_ms?: number;
+      keep_alive?: string;
+      retry_count?: number;
+      ollama_processor_type?: string;
+      gpu_layers_used?: number | null;
+      gpu_layers_requested?: number;
+      gpu_memory_used?: number;
+      gpu_memory_total?: number;
+      cpu_offload_detected?: boolean | null;
+      generation_gpu_utilization?: number;
+      generation_gpu_utilization_peak?: number;
+      generation_gpu_memory_peak?: number;
+      generation_gpu_samples?: number;
+    };
     total_latency_ms: number | null;
     last_error: string | null;
   };

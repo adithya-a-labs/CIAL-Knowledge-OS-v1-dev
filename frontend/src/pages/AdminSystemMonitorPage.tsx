@@ -248,6 +248,10 @@ function AuthorizedMonitor() {
               <Metric label="Precision" value={data.gpu.precision} />
               <Metric label="Batch size" value={data.gpu.batch_size} />
               <Metric label="Device" value={data.gpu.embedding_device} />
+              <Metric label="Query embedding" value={data.models.query_embedding_device ?? 'unknown'} />
+              <Metric label="GPU state" value={data.gpu.state ?? 'unknown'} />
+              <Metric label="Embedding jobs" value={data.gpu.active_embedding_jobs ?? 0} />
+              <Metric label="Chat priority" value={data.gpu.chat_priority_active ? 'active' : 'idle'} />
               <Metric label="Chunks / min" value={formatNumber(data.gpu.embedding_throughput_chunks_per_minute)} />
             </div>
           </div>
@@ -275,6 +279,14 @@ function AuthorizedMonitor() {
             <Metric label="Retrieval" value={formatNumber(q.retrieval_latency_ms, ' ms')} />
             <Metric label="Reranking" value={formatNumber(q.reranker_latency_ms, ' ms')} />
             <Metric label="Generation" value={formatNumber(q.generation_latency_ms, ' ms')} />
+            <Metric label="First token" value={formatNumber(q.generation_metrics?.first_token_ms, ' ms')} />
+            <Metric label="Tokens / sec" value={formatNumber(q.generation_metrics?.tokens_per_second)} />
+            <Metric label="Model load" value={formatNumber(q.generation_metrics?.model_load_ms, ' ms')} />
+            <Metric label="Ollama processor" value={q.generation_metrics?.ollama_processor_type ?? 'Unavailable'} />
+            <Metric label="GPU layers" value={q.generation_metrics?.gpu_layers_used ?? 'Unavailable'} detail={q.generation_metrics?.gpu_layers_requested === -1 ? 'all requested' : undefined} />
+            <Metric label="Generation GPU" value={formatNumber(q.generation_metrics?.generation_gpu_utilization, '%')} detail={q.generation_metrics?.generation_gpu_utilization_peak === undefined ? undefined : `${q.generation_metrics.generation_gpu_utilization_peak}% peak`} />
+            <Metric label="Ollama VRAM" value={q.generation_metrics?.gpu_memory_used === undefined ? 'Unavailable' : `${q.generation_metrics.gpu_memory_used} / ${q.generation_metrics.gpu_memory_total ?? '?'} MB`} />
+            <Metric label="CPU offload" value={q.generation_metrics?.cpu_offload_detected === null || q.generation_metrics?.cpu_offload_detected === undefined ? 'Unavailable' : q.generation_metrics.cpu_offload_detected ? 'detected' : 'none'} />
           </div>
           {q.failed_stage ? (
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">

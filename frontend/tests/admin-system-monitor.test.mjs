@@ -47,6 +47,13 @@ test('dashboard renders every required live operations section', () => {
   assert.match(page, /Current stage/);
   assert.match(page, /Failed stage:/);
   assert.match(page, /timeout_reason/);
+  assert.match(page, /generation_metrics/);
+  assert.match(page, /tokens_per_second/);
+  assert.match(page, /chat_priority_active/);
+  assert.match(page, /ollama_processor_type/);
+  assert.match(page, /gpu_layers_used/);
+  assert.match(page, /generation_gpu_utilization/);
+  assert.match(page, /cpu_offload_detected/);
 });
 
 test('monitor uses authenticated SSE with reconnect and stale detection', () => {
