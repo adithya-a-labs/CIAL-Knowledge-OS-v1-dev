@@ -173,6 +173,18 @@ class KnowledgeEngineService:
         self._target_update_lock = Lock()
         self._embedding_lock = Lock()
         self._query_lock = Lock()
+        self._generation_refresh_lock = Lock()
+        self._generation_refresh_inflight = False
+        self._chat_metrics_lock = Lock()
+        self._chat_debug: dict[str, Any] = {
+            "status": "idle",
+            "current_index_generation": 0,
+            "retrieval_latency": None,
+            "qdrant_latency": None,
+            "reranker_latency": None,
+            "generation_latency": None,
+            "last_error": None,
+        }
         self._loaded_generation = 0
         self._loaded_bm25_generation = 0
         self._cached_embedding_model: Any | None = None
@@ -204,6 +216,23 @@ class KnowledgeEngineService:
         return bool(
             pipeline is not None
             and getattr(pipeline, "is_ready_for_answering", False)
+        )
+
+    @staticmethod
+    def _published_generation_valid(
+        generation: IndexGeneration | None,
+        collection_name: str,
+    ) -> bool:
+        """Validate only an atomically published pointer, never job state."""
+
+        return bool(
+            generation is not None
+            and int(generation.generation or 0) > 0
+            and generation.published_at is not None
+            and (
+                not generation.qdrant_collection
+                or generation.qdrant_collection == collection_name
+            )
         )
 
     def prepare_pipeline(
@@ -279,7 +308,11 @@ class KnowledgeEngineService:
             raise KnowledgeEngineUnavailable(self._engine_error_message())
         from cial_knowledge_os.bm25_snapshot import load_bm25_snapshot
         from cial_knowledge_os.embeddings import get_embedding_dimension, load_embedding_model
-        from cial_knowledge_os.vectorstore import create_qdrant_client, ensure_collection
+        from cial_knowledge_os.vectorstore import (
+            create_qdrant_client,
+            ensure_collection,
+            execute_qdrant_operation,
+        )
 
         config = self.build_config(force_rebuild_index=False)
         config.embedding_device = settings.indexer_device if create_collection else config.embedding_device
@@ -292,7 +325,15 @@ class KnowledgeEngineService:
                 self._cached_embedding_model = load_embedding_model(config)
             pipeline.embedding_model = self._cached_embedding_model
             client = create_qdrant_client(config)
-            collection_exists = bool(client.collection_exists(config.qdrant_collection_name))
+            collection_exists = bool(
+                execute_qdrant_operation(
+                    config,
+                    "collection_exists",
+                    lambda timeout: client.collection_exists(
+                        config.qdrant_collection_name
+                    ),
+                )
+            )
             if create_collection:
                 ensure_collection(
                     client,
@@ -318,6 +359,21 @@ class KnowledgeEngineService:
             if SessionLocal is not None:
                 with SessionLocal() as session:
                     generation = session.get(IndexGeneration, "active")
+            if not self._published_generation_valid(
+                generation, config.qdrant_collection_name
+            ):
+                close = getattr(pipeline, "close", None)
+                if callable(close):
+                    close()
+                return {
+                    "retrieval_ready": False,
+                    "qdrant_ready": True,
+                    "collection_exists": True,
+                    "message": (
+                        "No valid published index generation is available. "
+                        "The indexer must publish a verified generation before chat can start."
+                    ),
+                }
             snapshot_path = (
                 Path(generation.bm25_snapshot_path)
                 if generation is not None and generation.bm25_snapshot_path
@@ -336,6 +392,22 @@ class KnowledgeEngineService:
                     for item in snapshot.chunks
                 ]
             pipeline.chunks = chunks
+            published_versions = frozenset(
+                str(item.metadata.get("document_version_id") or "").strip()
+                for item in chunks
+                if str(item.metadata.get("document_version_id") or "").strip()
+            )
+            pipeline.published_document_version_ids = published_versions or None
+            published_notes = frozenset(
+                (
+                    str(item.metadata.get("note_id") or "").strip(),
+                    int(item.metadata.get("note_revision") or 0),
+                )
+                for item in chunks
+                if str(item.metadata.get("note_id") or "").strip()
+                and int(item.metadata.get("note_revision") or 0) > 0
+            )
+            pipeline.published_note_revisions = published_notes or None
             if pipeline.bm25_retriever is not None:
                 pipeline.bm25_retriever.index(chunks)
             if load_reranker:
@@ -369,50 +441,63 @@ class KnowledgeEngineService:
 
         if SessionLocal is None:
             return False
+        if not self._generation_refresh_lock.acquire(blocking=False):
+            return False
         from cial_knowledge_os.bm25_snapshot import load_bm25_snapshot
         from cial_knowledge_os.retrievers import BM25Retriever
 
         try:
-            with SessionLocal() as session:
-                generation = session.get(IndexGeneration, "active")
-        except Exception:
-            logger.warning("index_generation_check_failed", exc_info=True)
-            return False
-        with self._lock:
-            pipeline_present = self._pipeline is not None
-        if (
-            not pipeline_present
-            and generation is not None
-            and int(generation.generation or 0) > 0
-        ):
-            with self._index_lock:
-                with self._lock:
-                    if self._pipeline is not None:
-                        return True
-                try:
-                    runtime = self.prepare_query_runtime()
-                except Exception:
-                    logger.warning("query_runtime_generation_activation_failed", exc_info=True)
-                    return False
-                return bool(runtime.get("retrieval_ready"))
-        if generation is None or int(generation.bm25_generation or 0) <= self._loaded_bm25_generation:
-            return False
-        if not generation.bm25_snapshot_path:
-            return False
-        snapshot = load_bm25_snapshot(Path(generation.bm25_snapshot_path))
-        if snapshot is None:
-            logger.warning("bm25_generation_snapshot_unavailable")
-            return False
-        from langchain_core.documents import Document as LangchainDocument
+            with self._lock:
+                pipeline_present = self._pipeline is not None
+            try:
+                with SessionLocal() as session:
+                    generation = session.get(IndexGeneration, "active")
+            except Exception:
+                logger.warning("index_generation_check_failed", exc_info=True)
+                return False
+            if (
+                not pipeline_present
+                and generation is not None
+                and int(generation.generation or 0) > 0
+            ):
+                with self._index_lock:
+                    with self._lock:
+                        if self._pipeline is not None:
+                            return True
+                    try:
+                        runtime = self.prepare_query_runtime()
+                    except Exception:
+                        logger.warning("query_runtime_generation_activation_failed", exc_info=True)
+                        return False
+                    return bool(runtime.get("retrieval_ready"))
+            if generation is None or int(generation.bm25_generation or 0) <= self._loaded_bm25_generation:
+                return False
+            if not self._published_generation_valid(
+                generation, settings.qdrant_collection_name
+            ):
+                logger.warning(
+                    "index_generation_invalid",
+                    extra={
+                        "event": "index_generation_invalid",
+                        "generation": int(generation.generation or 0),
+                    },
+                )
+                return False
+            if not generation.bm25_snapshot_path:
+                return False
+            snapshot = load_bm25_snapshot(Path(generation.bm25_snapshot_path))
+            if snapshot is None:
+                logger.warning("bm25_generation_snapshot_unavailable")
+                return False
+            from langchain_core.documents import Document as LangchainDocument
 
-        chunks = [
-            LangchainDocument(
-                page_content=str(item.get("text") or ""),
-                metadata=dict(item.get("metadata") or {}),
-            )
-            for item in snapshot.chunks
-        ]
-        with self._query_lock:
+            chunks = [
+                LangchainDocument(
+                    page_content=str(item.get("text") or ""),
+                    metadata=dict(item.get("metadata") or {}),
+                )
+                for item in snapshot.chunks
+            ]
             with self._lock:
                 pipeline = self._pipeline
             if pipeline is None:
@@ -423,28 +508,82 @@ class KnowledgeEngineService:
                 cache_path=Path(pipeline.config.bm25_cache_dir) / pipeline.config.bm25_cache_filename,
             )
             lexical.index(chunks)
-            lexical.set_allowed_relative_paths(
-                getattr(pipeline.bm25_retriever, "allowed_relative_paths", None)
+            # Activation is opportunistic. A chat already using the immutable
+            # published snapshot always wins this race; refresh retries later.
+            if not self._query_lock.acquire(timeout=0.05):
+                return False
+            try:
+                lexical.set_allowed_relative_paths(
+                    getattr(pipeline.bm25_retriever, "allowed_relative_paths", None)
+                )
+                pipeline.chunks = chunks
+                published_versions = frozenset(
+                    str(item.metadata.get("document_version_id") or "").strip()
+                    for item in chunks
+                    if str(item.metadata.get("document_version_id") or "").strip()
+                )
+                pipeline.published_document_version_ids = (
+                    published_versions or None
+                )
+                published_notes = frozenset(
+                    (
+                        str(item.metadata.get("note_id") or "").strip(),
+                        int(item.metadata.get("note_revision") or 0),
+                    )
+                    for item in chunks
+                    if str(item.metadata.get("note_id") or "").strip()
+                    and int(item.metadata.get("note_revision") or 0) > 0
+                )
+                pipeline.published_note_revisions = published_notes or None
+                pipeline.bm25_retriever = lexical
+                pipeline._retrievers = {}
+                pipeline._injected_retrievers = {
+                    **getattr(pipeline, "_injected_retrievers", {}),
+                    "bm25": lexical,
+                }
+                pipeline._ensure_retrievers()
+                self._loaded_generation = int(generation.generation or 0)
+                self._loaded_bm25_generation = int(generation.bm25_generation or 0)
+            finally:
+                self._query_lock.release()
+            logger.info(
+                "bm25_generation_reloaded",
+                extra={
+                    "event": "bm25_generation_reloaded",
+                    "generation": self._loaded_bm25_generation,
+                    "chunk_count": len(chunks),
+                },
             )
-            pipeline.chunks = chunks
-            pipeline.bm25_retriever = lexical
-            pipeline._retrievers = {}
-            pipeline._injected_retrievers = {
-                **getattr(pipeline, "_injected_retrievers", {}),
-                "bm25": lexical,
+            return True
+        finally:
+            self._generation_refresh_lock.release()
+
+    def request_generation_refresh(self) -> None:
+        """Refresh publication metadata asynchronously without delaying chat."""
+
+        with self._chat_metrics_lock:
+            if self._generation_refresh_inflight:
+                return
+            self._generation_refresh_inflight = True
+
+        def refresh() -> None:
+            try:
+                self.refresh_query_runtime_if_needed()
+            finally:
+                with self._chat_metrics_lock:
+                    self._generation_refresh_inflight = False
+
+        from threading import Thread
+        Thread(target=refresh, name="query-generation-refresh", daemon=True).start()
+
+    def chat_debug_snapshot(self) -> dict[str, Any]:
+        with self._chat_metrics_lock:
+            return {
+                **self._chat_debug,
+                "current_index_generation": self._loaded_generation,
+                "current_bm25_generation": self._loaded_bm25_generation,
+                "generation_refresh_running": self._generation_refresh_inflight,
             }
-            pipeline._ensure_retrievers()
-            self._loaded_generation = int(generation.generation or 0)
-            self._loaded_bm25_generation = int(generation.bm25_generation or 0)
-        logger.info(
-            "bm25_generation_reloaded",
-            extra={
-                "event": "bm25_generation_reloaded",
-                "generation": self._loaded_bm25_generation,
-                "chunk_count": len(chunks),
-            },
-        )
-        return True
 
     def _prepare_pipeline_locked(
         self, *, force_rebuild_index: bool, response_length: str,
@@ -931,40 +1070,144 @@ class KnowledgeEngineService:
         progress_callback: Any | None = None,
         token_callback: Any | None = None,
         cancel_event: Any | None = None,
+        request_id: str | None = None,
     ) -> ChatResponse:
+        chat_request_id = request_id or str(uuid.uuid4())
+        request_started = time.perf_counter()
+        stage_started: dict[str, float] = {}
+        stage_metrics: dict[str, Any] = {}
+
         def progress(stage_id: str, status: str, **metrics: Any) -> None:
+            now = time.perf_counter()
+            if status == "started":
+                stage_started[stage_id] = now
+            duration_ms = (
+                int((now - stage_started.get(stage_id, now)) * 1000)
+                if status != "started"
+                else 0
+            )
+            metrics = {**metrics, "duration_ms": metrics.get("duration_ms", duration_ms)}
+            if status in {"completed", "failed"}:
+                previous = stage_metrics.get(stage_id, {})
+                stage_metrics[stage_id] = {
+                    **metrics,
+                    "duration_ms": int(previous.get("duration_ms", 0))
+                    + int(metrics.get("duration_ms", 0)),
+                }
+            logger.info(
+                stage_id.replace(".", "_") + "_" + status,
+                extra={
+                    "event": stage_id.replace(".", "_") + "_" + status,
+                    "request_id": chat_request_id,
+                    **metrics,
+                },
+            )
             if progress_callback is not None:
                 progress_callback(stage_id, status, metrics)
 
+        logger.info(
+            "request_received",
+            extra={"event": "request_received", "request_id": chat_request_id},
+        )
+        with self._chat_metrics_lock:
+            self._chat_debug.update(status="running", request_id=chat_request_id, last_error=None)
         progress("request.validating", "started")
-        if not self.engine_available:
-            raise KnowledgeEngineUnavailable(self._engine_error_message())
-
-        self.refresh_query_runtime_if_needed()
-        access_context = access_context or anonymous_access_context()
-        profile = self._resolve_profile(request.response_length, request.profile)
-        pipeline = self._ready_pipeline(
-            request.response_length,
-            profile=request.profile,
-            max_answer_words=request.max_answer_words,
-        )
-        selected_scope = self._resolve_selected_context(
-            request,
-            access_context=access_context,
-        )
-        progress("request.validating", "completed")
-        progress("context.building", "started")
-        access_relative_paths = self._accessible_relative_paths(access_context)
-        effective_relative_paths = self._effective_relative_paths(
-            access_relative_paths,
-            selected_scope,
-        )
-        progress("context.building", "completed", documents_searched=len(effective_relative_paths or ()))
-        started_at = time.perf_counter()
-        self._query_lock.acquire()
-        pipeline.token_callback = token_callback
-        pipeline.cancel_event = cancel_event
         try:
+            if not self.engine_available:
+                raise KnowledgeEngineUnavailable(self._engine_error_message())
+
+            # Publication discovery is deliberately detached from this request.
+            # The request uses the already-loaded stable snapshot while a daemon
+            # refresh checks whether a newer complete generation is available.
+            self.request_generation_refresh()
+            access_context = access_context or anonymous_access_context()
+            profile = self._resolve_profile(request.response_length, request.profile)
+            selected_scope = self._resolve_selected_context(
+                request,
+                access_context=access_context,
+            )
+            progress("request.validating", "completed")
+            progress("context.building", "started")
+            access_relative_paths = self._accessible_relative_paths(access_context)
+            effective_relative_paths = self._effective_relative_paths(
+                access_relative_paths,
+                selected_scope,
+            )
+            progress("context.building", "completed", documents_searched=len(effective_relative_paths or ()))
+        except Exception as exc:
+            logger.info(
+                "chat_failed",
+                extra={
+                    "event": "chat_failed",
+                    "request_id": chat_request_id,
+                    "error_type": type(exc).__name__,
+                },
+            )
+            with self._chat_metrics_lock:
+                self._chat_debug.update(
+                    status="failed",
+                    last_error=type(exc).__name__,
+                    completed_at=time.time(),
+                )
+            raise
+        logger.info(
+            "permission_validation_completed",
+            extra={
+                "event": "permission_validation_completed",
+                "request_id": chat_request_id,
+                "duration_ms": stage_metrics["context.building"]["duration_ms"],
+            },
+        )
+        progress(
+            "index_generation.loaded",
+            "completed",
+            generation=self._loaded_generation,
+            bm25_generation=self._loaded_bm25_generation,
+        )
+        logger.info(
+            "index_generation_loaded",
+            extra={
+                "event": "index_generation_loaded",
+                "request_id": chat_request_id,
+                "generation": self._loaded_generation,
+                "bm25_generation": self._loaded_bm25_generation,
+            },
+        )
+        started_at = time.perf_counter()
+        if not self._query_lock.acquire(timeout=settings.chat_lock_timeout_seconds):
+            logger.info(
+                "chat_failed",
+                extra={
+                    "event": "chat_failed",
+                    "request_id": chat_request_id,
+                    "error_type": "QueryCapacityTimeout",
+                },
+            )
+            with self._chat_metrics_lock:
+                self._chat_debug.update(
+                    status="failed",
+                    last_error="QueryCapacityTimeout",
+                    completed_at=time.time(),
+                )
+            raise KnowledgeEngineUnavailable(
+                "The assistant is finishing another request. Please retry."
+            )
+        pipeline = None
+        try:
+            pipeline = self._ready_pipeline(
+                request.response_length,
+                profile=request.profile,
+                max_answer_words=request.max_answer_words,
+            )
+            pipeline.token_callback = token_callback
+            pipeline.cancel_event = cancel_event
+
+            def pipeline_telemetry(
+                stage_name: str, status: str, metrics: dict[str, Any]
+            ) -> None:
+                progress(stage_name, status, **metrics)
+
+            pipeline.telemetry_callback = pipeline_telemetry
             progress("retrieval.searching", "started", documents_searched=len(effective_relative_paths or ()))
             if selected_scope.applied or access_relative_paths is not None:
                 response = self._run_with_relative_path_filter(
@@ -1009,11 +1252,29 @@ class KnowledgeEngineService:
             progress("retrieval.searching", "completed", candidates=len(retrieved) if isinstance(retrieved, list) else 0)
             progress("evidence.selecting", "completed", selected_evidence=len(selected) if isinstance(selected, list) else 0)
         except Exception as exc:  # noqa: BLE001 - convert local runtime failures to API errors.
-            logger.exception("knowledge_engine_answer_failed")
-            raise KnowledgeEngineUnavailable(str(exc)) from exc
+            progress("chat", "failed", error_type=type(exc).__name__)
+            logger.exception(
+                "chat_failed",
+                extra={"event": "chat_failed", "request_id": chat_request_id},
+            )
+            with self._chat_metrics_lock:
+                self._chat_debug.update(
+                    status="failed",
+                    last_error=type(exc).__name__,
+                    completed_at=time.time(),
+                )
+            if isinstance(exc, TimeoutError):
+                raise KnowledgeEngineUnavailable(
+                    "The assistant timed out while searching or generating. Please retry."
+                ) from exc
+            raise KnowledgeEngineUnavailable(
+                "The assistant could not complete the retrieval pipeline."
+            ) from exc
         finally:
-            pipeline.token_callback = None
-            pipeline.cancel_event = None
+            if pipeline is not None:
+                pipeline.token_callback = None
+                pipeline.cancel_event = None
+                pipeline.telemetry_callback = None
             self._query_lock.release()
 
         latency_ms = int((time.perf_counter() - started_at) * 1000)
@@ -1030,6 +1291,24 @@ class KnowledgeEngineService:
             allowed_relative_paths=effective_relative_paths if effective_relative_paths else None,
         )
         progress("citations.linking", "completed", citations=len(result.citations))
+        total_ms = int((time.perf_counter() - request_started) * 1000)
+        progress("chat", "completed", duration_ms=total_ms)
+        debug_update = {
+            "status": "completed",
+            "request_id": chat_request_id,
+            "current_index_generation": self._loaded_generation,
+            "retrieval_latency": stage_metrics.get("retrieval.searching", {}).get("duration_ms"),
+            "qdrant_latency": stage_metrics.get("dense_retrieval", {}).get("duration_ms"),
+            "bm25_latency": stage_metrics.get("bm25", {}).get("duration_ms"),
+            "hybrid_fusion_latency": stage_metrics.get("hybrid_fusion", {}).get("duration_ms"),
+            "reranker_latency": stage_metrics.get("reranking", {}).get("duration_ms"),
+            "generation_latency": stage_metrics.get("generation", {}).get("duration_ms"),
+            "total_latency": total_ms,
+            "last_error": None,
+            "completed_at": time.time(),
+        }
+        with self._chat_metrics_lock:
+            self._chat_debug.update(debug_update)
         return result
 
     def rebuild_index(self, *, force: bool) -> tuple[bool, str, int, int]:
@@ -1130,6 +1409,7 @@ class KnowledgeEngineService:
             qdrant_retry_backoff_seconds=settings.qdrant_retry_backoff_seconds,
             qdrant_health_timeout_seconds=settings.qdrant_health_timeout_seconds,
             qdrant_query_timeout_seconds=settings.qdrant_query_timeout_seconds,
+            qdrant_query_retry_attempts=settings.qdrant_query_retry_attempts,
             qdrant_upsert_timeout_seconds=settings.qdrant_upsert_timeout_seconds,
             qdrant_delete_timeout_seconds=settings.qdrant_delete_timeout_seconds,
             qdrant_collection_timeout_seconds=settings.qdrant_collection_timeout_seconds,
@@ -1140,6 +1420,7 @@ class KnowledgeEngineService:
             reranker_device=settings.reranker_device,
             reranker_batch_size=settings.reranker_batch_size,
             reranker_local_files_only=settings.reranker_local_files_only,
+            reranker_timeout_seconds=settings.reranker_timeout_seconds,
             force_rebuild_index=(
                 settings.force_rebuild_on_startup
                 if force_rebuild_index is None
@@ -1149,6 +1430,7 @@ class KnowledgeEngineService:
             max_answer_words=settings.max_answer_words,
             generation_retries=settings.generation_retries,
             retry_cooldown_seconds=settings.retry_cooldown_seconds,
+            generation_timeout_seconds=settings.generation_timeout_seconds,
             observability_console=False,
         )
         self._apply_response_profile(

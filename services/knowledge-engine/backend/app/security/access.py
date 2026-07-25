@@ -291,8 +291,8 @@ def list_accessible_documents(session: Session, access_context: RequestAccessCon
 
 
 def list_accessible_relative_paths(session: Session, access_context: RequestAccessContext) -> frozenset[str]:
-    documents = list(session.scalars(apply_document_access_filter(
-        select(Document).where(
+    relative_paths = list(session.scalars(apply_document_access_filter(
+        select(Document.relative_path).where(
             Document.indexed.is_(True),
             Document.indexing_status == "indexed",
             Document.lifecycle_status == "indexed",
@@ -300,9 +300,9 @@ def list_accessible_relative_paths(session: Session, access_context: RequestAcce
         access_context,
     )))
     return frozenset(
-        str(document.relative_path or "").replace("\\", "/").strip("/")
-        for document in documents
-        if document.relative_path
+        str(relative_path or "").replace("\\", "/").strip("/")
+        for relative_path in relative_paths
+        if relative_path
     )
 
 
