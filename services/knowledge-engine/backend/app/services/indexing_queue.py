@@ -537,6 +537,13 @@ class DurableIndexQueue:
                 reconciliation_metrics=(worker.metrics or {}).get("reconciliation", {}),
                 bm25_metrics=(worker.metrics or {}).get("bm25", {}),
                 gpu_metrics=(worker.metrics or {}).get("gpu", {}),
+                cpu_metrics=(worker.metrics or {}).get("cpu", {}),
+                active_batch_limit=int(
+                    ((worker.metrics or {}).get("adaptive_batch") or {}).get(
+                        "current",
+                        settings.indexer_embed_batch_size,
+                    )
+                ),
             )
         if generation is not None:
             values.update(
