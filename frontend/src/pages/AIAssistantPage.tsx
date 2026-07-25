@@ -3,6 +3,7 @@ import { ChevronLeft, History, X } from 'lucide-react';
 import { AssistantSessionsProvider } from '@/components/assistant/AssistantSessionContext';
 import ChatPanel from '@/components/assistant/ChatPanel';
 import ConversationHistory from '@/components/assistant/ConversationHistory';
+import AssistantSystemHealth from '@/components/assistant/AssistantSystemHealth';
 import {
   ASSISTANT_HISTORY_SIDEBAR_OPEN_EVENT,
   readAssistantHistorySidebarOpen,
@@ -32,7 +33,9 @@ export default function AIAssistantPage() {
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">AI Assistant</p>
           </div>
 
-          <div className="xl:hidden">
+          <div className="flex items-center gap-2">
+            <AssistantSystemHealth />
+            <div className="xl:hidden">
             <button
               onClick={() => setHistoryDrawerOpen(true)}
               className="inline-flex min-h-8 items-center gap-2 rounded-lg px-2.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
@@ -41,6 +44,7 @@ export default function AIAssistantPage() {
               <History size={14} />
               History
             </button>
+            </div>
           </div>
         </div>
 
