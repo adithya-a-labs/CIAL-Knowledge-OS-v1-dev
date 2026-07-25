@@ -740,6 +740,31 @@ status preflight, blue-state submission, request cancellation, terminal Retry,
 and draft-clearing boundary: text is cleared only from the stream's successful
 connection callback, never before fetch initiation succeeds.
 
+### Admin AI Operations Console contract
+
+The integrated frontend must retain these production files:
+
+- `src/pages/AdminSystemMonitorPage.tsx`
+- `src/pages/AdminAccessDeniedPage.tsx`
+- `src/hooks/useAdminSystemMonitor.ts`
+- the `AdminSystemMonitor` and `OperationsEvent` API types;
+- the `/api/admin/system/monitor` snapshot and
+  `/api/admin/system/stream` SSE client functions; and
+- the permission-filtered System Monitor navigation entry.
+
+`/admin/system-monitor` must be declared before the generic `/admin/:sub`
+route. Client access checks use the authenticated `permission_names` array and
+accept only `monitor_system` or `manage_settings`; the backend repeats the
+authorization and is authoritative. Normal users must not receive the
+navigation entry or initialize the monitor hook.
+
+The monitor is backend-driven. Do not migrate mock metrics, random chart data,
+or simulated service states into this route. The hook must preserve
+credentialed SSE, snapshot preflight, bounded reconnect, authentication-failure
+state, and seven-second stale detection. The console must preserve the CIAL
+green enterprise visual language, reduced visual motion, and explicit
+unavailable values when a telemetry source has no sample.
+
 ### Files not to place anywhere
 
 Do not copy these into the integrated frontend, even if present under `artifacts/cial-dashboard`:

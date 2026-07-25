@@ -384,3 +384,26 @@ dependencies are healthy. A missing/stale worker is yellow when chat remains
 usable, and any loss of the published generation or another chat-critical
 dependency is red. Thus indexing progress never becomes a reason to wait before
 chat submission, while stalled indexing remains visible as degradation.
+
+## Administrator Operations Projection
+
+`AdminSystemMonitorService` reuses the same durable control plane for
+`GET /api/admin/system/monitor` and the SSE
+`GET /api/admin/system/stream`. It does not create another queue, worker
+registry, or generation pointer. The administrator projection adds:
+
+- active worker count based on non-degraded, non-stopped heartbeats inside the
+  configured freshness window;
+- current job stages, per-operation priority queue counts, cumulative terminal
+  counts, bounded recent errors, internal queue depths, and last publication;
+- the indexer's actual embedding device/precision, adaptive batch limit,
+  documents/hour, chunks/minute, CPU sample, GPU utilization, and VRAM sample;
+- extraction/OCR configuration and active task counts; and
+- transition events derived from actual durable stages (`pending`, `claimed`,
+  `extracting`, `chunked`, `embedding`, `writing`, and `verifying`), worker
+  state, and published generation changes.
+
+Missing heartbeat or component telemetry is reported as stale/degraded.
+Unavailable GPU samples remain unavailable; CPU operation is never relabelled
+as CUDA. The projection contains identifiers and safe error codes only, never
+source content, credentials, repository paths, or exception text.

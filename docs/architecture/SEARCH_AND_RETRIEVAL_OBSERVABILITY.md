@@ -156,3 +156,27 @@ record only color, chat availability, indexing activity, generation, queue
 depth and duration. Component failures log the component and exception type,
 never URLs with secrets, credentials, document content, prompts, or raw
 exception messages.
+
+## Admin Operations Stream
+
+The authenticated assistant status remains the user-facing availability
+contract. Administrators additionally receive the restricted
+`/api/admin/system/monitor` snapshot and `/api/admin/system/stream` SSE feed.
+Both require `monitor_system` or `manage_settings`; authentication alone is
+insufficient.
+
+The query section reports the number of requests currently inside the actual
+chat route lifecycle and the latest validation, retrieval, reranking,
+generation, and total timings already recorded by the query engine.
+`chat_started`, `chat_completed`, and `retrieval_failed` are emitted at those
+real lifecycle boundaries. No question, prompt, answer, evidence, user id, or
+workspace id is included.
+
+Indexing events are state-transition projections over durable queue and
+publication telemetry. Supported types include `document_detected`,
+`extraction_started`, `extraction_completed`, `chunking_completed`,
+`embedding_started`, `embedding_batch_completed`,
+`qdrant_write_completed`, `generation_published`, `worker_started`, and
+`worker_failed`. `service_failed` identifies a component and exception type
+only. A bounded in-process event buffer supports the live console; PostgreSQL
+job/history tables remain the durable source of truth.

@@ -55,6 +55,11 @@ is mandatory for API-plus-indexer concurrency.
 - `GET /api/system/status`: authenticated real-time assistant dependency,
   published-generation, queue/worker, model, GPU, timestamp, and component
   latency contract with green/blue/yellow/red overall state.
+- `GET /api/admin/system/monitor`: administrator-only combined operational
+  snapshot from dependency probes, durable indexing state, worker CPU/GPU
+  telemetry, model diagnostics, and query timings.
+- `GET /api/admin/system/stream`: administrator-only credentialed SSE stream of
+  the same snapshot plus bounded structured runtime transition events.
 - upload/note routes: return persistence independently from background index
   readiness.
 
@@ -84,6 +89,15 @@ Enter and Send use the same single-flight handler. It refreshes the authenticate
 status before opening the chat stream, permits blue/indexing state, retains
 composer text when preflight or connection initiation fails, and clears the
 draft only after a successful streaming response has been established.
+
+The AI Operations Console lives at `/admin/system-monitor`, outside the normal
+AI Assistant surface. The route and its sidebar link require
+`monitor_system` or `manage_settings`; other authenticated users see a 403
+access-denied page and do not open telemetry requests. The page consumes a
+credentialed snapshot followed by SSE, reconnects with bounded exponential
+backoff, detects stale data, and preserves last-known values during component
+or connection failures. Green, blue, yellow, and red mean healthy, updating,
+degraded, and unavailable respectively.
 
 ## Commands
 
