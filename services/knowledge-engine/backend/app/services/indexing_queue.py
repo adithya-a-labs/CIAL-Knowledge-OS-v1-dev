@@ -552,6 +552,17 @@ class DurableIndexQueue:
                 bm25_metrics=(worker.metrics or {}).get("bm25", {}),
                 gpu_metrics=(worker.metrics or {}).get("gpu", {}),
                 cpu_metrics=(worker.metrics or {}).get("cpu", {}),
+                worker_metrics={
+                    key: (worker.metrics or {}).get(key)
+                    for key in (
+                        "gpu_state",
+                        "active_embedding_jobs",
+                        "chat_priority_active",
+                        "chat_priority_wait_seconds",
+                        "embedding_model_gpu_resident",
+                        "embedding_model_memory",
+                    )
+                },
                 active_batch_limit=int(
                     ((worker.metrics or {}).get("adaptive_batch") or {}).get(
                         "current",

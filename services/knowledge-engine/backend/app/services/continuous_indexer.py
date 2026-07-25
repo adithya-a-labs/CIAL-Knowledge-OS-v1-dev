@@ -26,6 +26,7 @@ from backend.app.models.knowledge import Document, DocumentChunk, DocumentVersio
 from backend.app.models.operations import IndexGeneration, IndexingJob
 from backend.app.models.workspace_content import Note, NoteIndexState, NoteVersion
 from backend.app.services.indexing_queue import DurableIndexQueue, utc_now
+from backend.app.services.gpu_resource_coordinator import GpuResourceCoordinator
 from backend.app.services.knowledge_engine_service import KnowledgeEngineService
 from backend.app.services.managed_workspace_ingestion import ManagedWorkspaceIngestionService
 from backend.app.services.note_indexing_service import (
@@ -213,6 +214,8 @@ class ContinuousIndexer:
         self._last_recovery = 0.0
         self._bm25_dirty_since: float | None = None
         self._started_monotonic = time.monotonic()
+        self._last_embedding_activity = time.monotonic()
+        self._gpu_coordinator = GpuResourceCoordinator()
         self._batch_controller = AdaptiveBatchController(
             minimum=settings.indexer_embed_min_batch_size,
             current=settings.indexer_embed_batch_size,
@@ -228,8 +231,14 @@ class ContinuousIndexer:
                 "chunks_embedded": 0,
                 "chunks_reused": 0,
                 "gpu_batches": 0,
+                "cpu_batches": 0,
             },
             "gpu_policy": settings.indexer_gpu_policy,
+            "gpu_state": "initializing",
+            "active_embedding_jobs": 0,
+            "chat_priority_active": False,
+            "chat_priority_wait_seconds": 0.0,
+            "embedding_model_gpu_resident": False,
             "adaptive_batch": {
                 "current": self._batch_controller.current,
                 "minimum": self._batch_controller.minimum,
@@ -258,6 +267,10 @@ class ContinuousIndexer:
             raise
         self.actual_device = str(runtime.get("embedding_device") or settings.indexer_device)
         self.actual_precision = str(runtime.get("embedding_precision") or settings.indexer_precision)
+        self._metrics["gpu_state"] = (
+            "ready" if self.actual_device.startswith("cuda") else "cpu"
+        )
+        self._metrics["embedding_model_gpu_resident"] = self.actual_device.startswith("cuda")
         logger.info(
             "indexer_model_loaded",
             extra={
@@ -295,6 +308,7 @@ class ContinuousIndexer:
                     # publication is immediate.
                     if not self._write_futures:
                         self._flush_bm25_if_due(force=True)
+                    self._release_idle_gpu_if_due()
                     self.queue.heartbeat(
                         self.worker_id,
                         service_state="active" if self._write_futures else "watching",
@@ -708,13 +722,34 @@ class ContinuousIndexer:
             self._metrics["queue_depths"]["embedding"] = sum(
                 len(item.chunks) for item in assets
             )
+            self._metrics["active_embedding_jobs"] = len(assets)
             for batch in batches:
+                self._yield_to_chat_if_needed()
                 batch_started = time.monotonic()
+                self._metrics["gpu_state"] = (
+                    "embedding" if self.actual_device.startswith("cuda") else "cpu"
+                )
                 vectors = self._embed_with_oom_reduction(batch)
+                self._last_embedding_activity = time.monotonic()
+                self._metrics["embedding_model_gpu_resident"] = bool(
+                    getattr(self.engine, "_indexer_embedding_gpu_resident", False)
+                )
+                self._metrics["gpu_state"] = (
+                    "embedding"
+                    if self._metrics["embedding_model_gpu_resident"]
+                    else "cpu_cooperative"
+                    if settings.indexer_gpu_cooperative_mode
+                    else "cpu"
+                )
                 inference_seconds = max(time.monotonic() - batch_started, 0.000001)
                 for envelope, vector in zip(batch, vectors, strict=True):
                     by_job[envelope.job_id].vectors[envelope.chunk_index] = np.asarray(vector)
-                self._metrics["throughput"]["gpu_batches"] += 1
+                batch_counter = (
+                    "gpu_batches"
+                    if self._metrics["embedding_model_gpu_resident"]
+                    else "cpu_batches"
+                )
+                self._metrics["throughput"][batch_counter] += 1
                 self._metrics["throughput"]["chunks_embedded"] += len(batch)
                 self._metrics["queue_depths"]["embedding"] -= len(batch)
                 gpu = self._metrics.get("gpu") or {}
@@ -751,6 +786,10 @@ class ContinuousIndexer:
             for item in assets:
                 self._handle_failure(item.job_id, exc)
             return
+        finally:
+            self._metrics["active_embedding_jobs"] = 0
+            if self._metrics.get("gpu_state") == "embedding":
+                self._metrics["gpu_state"] = "idle"
 
         for item in assets:
             self.queue.transition(item.job_id, self.worker_id, "writing")
@@ -894,6 +933,56 @@ class ContinuousIndexer:
                 ),
                 axis=0,
             )
+
+    def _yield_to_chat_if_needed(self) -> None:
+        if not settings.indexer_gpu_cooperative_mode:
+            return
+        active = self._gpu_coordinator.chat_active()
+        self._metrics["chat_priority_active"] = active
+        if not active:
+            return
+        self._metrics["gpu_state"] = "yielding_to_chat"
+        try:
+            if self.engine.release_indexer_gpu():
+                self._metrics["embedding_model_gpu_resident"] = False
+        except Exception:
+            logger.warning("indexer_gpu_priority_release_failed", exc_info=True)
+        waited = self._gpu_coordinator.wait_for_chat(self.stop_event)
+        self._metrics["chat_priority_wait_seconds"] = round(
+            float(self._metrics.get("chat_priority_wait_seconds") or 0.0) + waited,
+            3,
+        )
+        self._metrics["chat_priority_active"] = False
+        self._metrics["gpu_state"] = "warming"
+
+    def _release_idle_gpu_if_due(self) -> bool:
+        if (
+            not settings.indexer_release_gpu_when_idle
+            or not self.actual_device.startswith("cuda")
+            or time.monotonic() - self._last_embedding_activity
+            < settings.indexer_gpu_idle_release_seconds
+        ):
+            return False
+        try:
+            released = self.engine.release_indexer_gpu()
+        except Exception:
+            logger.warning("indexer_idle_gpu_release_failed", exc_info=True)
+            return False
+        if released:
+            self._metrics["gpu_state"] = "released_idle"
+            self._metrics["embedding_model_gpu_resident"] = False
+            logger.info(
+                "indexer_embedding_gpu_released",
+                extra={
+                    "event": "gpu_resource_released",
+                    "worker_id": self.worker_id,
+                    "idle_seconds": round(
+                        time.monotonic() - self._last_embedding_activity,
+                        2,
+                    ),
+                },
+            )
+        return released
 
     def _process_non_document_upsert(self, target: ClaimedTarget) -> None:
         try:
@@ -1229,6 +1318,29 @@ class ContinuousIndexer:
 
         if not self.actual_device.casefold().startswith("cuda"):
             return
+        try:
+            import torch
+
+            device_index = (
+                int(self.actual_device.rsplit(":", 1)[1])
+                if ":" in self.actual_device
+                else torch.cuda.current_device()
+            )
+            self._metrics["embedding_model_memory"] = {
+                "allocated_mb": round(
+                    torch.cuda.memory_allocated(device_index) / (1024 * 1024),
+                    2,
+                ),
+                "reserved_mb": round(
+                    torch.cuda.memory_reserved(device_index) / (1024 * 1024),
+                    2,
+                ),
+                "gpu_resident": bool(
+                    getattr(self.engine, "_indexer_embedding_gpu_resident", False)
+                ),
+            }
+        except (ImportError, RuntimeError, ValueError):
+            logger.debug("embedding_model_memory_unavailable", exc_info=True)
         executable = shutil.which("nvidia-smi")
         if not executable:
             return
