@@ -19,14 +19,14 @@ test('note autosave is serialized, revision-safe, conflict-aware, and delete-saf
 });
 
 test('health polling uses one shared adaptive React Query key and same-origin API', () => {
-  const health = read('src/hooks/useBackendHealth.ts');
+  const health = read('src/hooks/useSystemStatus.ts');
   const panel = read('src/components/assistant/ChatPanel.tsx');
   const client = read('src/api/client.ts');
-  assert.match(health, /BACKEND_HEALTH_QUERY_KEY/);
-  assert.match(health, /1_500/);
-  assert.match(health, /20_000/);
+  assert.match(health, /SYSTEM_STATUS_QUERY_KEY/);
+  assert.match(health, /2_000/);
+  assert.match(health, /15_000/);
   assert.match(health, /visibilityState/);
-  assert.match(panel, /useBackendHealth\(\)/);
+  assert.match(panel, /useSystemStatus\(\)/);
   assert.doesNotMatch(panel, /refetchInterval:\s*5000/);
   assert.match(client, /VITE_API_BASE_URL \?\? ''/);
 });

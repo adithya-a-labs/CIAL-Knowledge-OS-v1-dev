@@ -105,7 +105,7 @@ test('composer retains multiline growth, enter submission, loading disablement, 
   assert.match(panel, /resizeComposerTextarea/);
   assert.match(panel, /event\.key === 'Enter' && !event\.shiftKey/);
   assert.match(panel, /max-h-40/);
-  assert.match(panel, /disabled=\{!input\.trim\(\) \|\| isLoading \|\| !chatReady \|\| blockingAttachments\.length > 0\}/);
+  assert.match(panel, /disabled=\{!input\.trim\(\) \|\| isLoading \|\| blockingAttachments\.length > 0\}/);
   assert.match(panel, /min-w-0/);
   assert.match(panel, /overflow-x-auto/);
   assert.match(composerSurface, /min-h-\[108px\]/);

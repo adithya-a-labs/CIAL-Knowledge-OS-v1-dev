@@ -13,8 +13,8 @@ test('chat stream has a bounded watchdog and preserves caller cancellation', () 
 });
 
 test('assistant exposes retrieval and generation progress plus retry', () => {
-  assert.match(timeline, /Retrieving sources/);
-  assert.match(timeline, /Generating answer/);
+  assert.match(timeline, /Loading published generation/);
+  assert.match(timeline, /Generating/);
   assert.match(timeline, /Completed/);
   assert.match(panel, /retryQuestionRef/);
   assert.match(panel, />Retry</);
