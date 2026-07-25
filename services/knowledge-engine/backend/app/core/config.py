@@ -188,19 +188,42 @@ class Settings:
     indexer_heartbeat_stale_seconds: int = _env_int("CIAL_INDEXER_HEARTBEAT_STALE_SECONDS", 45)
     indexer_max_attempts: int = _env_int("CIAL_INDEXER_MAX_ATTEMPTS", 5)
     indexer_retry_backoff_seconds: float = _env_float("CIAL_INDEXER_RETRY_BACKOFF_SECONDS", 5.0)
+    indexer_min_extraction_workers: int = _env_int(
+        "CIAL_INDEXER_MIN_EXTRACTION_WORKERS",
+        _env_int("MIN_EXTRACTION_WORKERS", 1),
+    )
+    indexer_max_extraction_workers: int = _env_int(
+        "CIAL_INDEXER_MAX_EXTRACTION_WORKERS",
+        _env_int("MAX_EXTRACTION_WORKERS", max(8, os.cpu_count() or 8)),
+    )
     indexer_extraction_workers: int = _env_int(
         "CIAL_INDEXER_EXTRACTION_WORKERS",
-        max(1, min(4, (os.cpu_count() or 2) - 1)),
+        _env_int("EXTRACTION_WORKERS", 8),
     )
+    indexer_ocr_workers: int = _env_int("CIAL_INDEXER_OCR_WORKERS", 2)
     indexer_prepared_queue_size: int = _env_int("CIAL_INDEXER_PREPARED_QUEUE_SIZE", 8)
     indexer_embed_queue_size: int = _env_int("CIAL_INDEXER_EMBED_QUEUE_SIZE", 4096)
     indexer_write_queue_size: int = _env_int("CIAL_INDEXER_WRITE_QUEUE_SIZE", 16)
+    indexer_embed_min_batch_size: int = _env_int("CIAL_INDEXER_EMBED_MIN_BATCH_SIZE", 1)
     indexer_embed_batch_size: int = _env_int("CIAL_INDEXER_EMBED_BATCH_SIZE", 64)
+    indexer_embed_max_batch_size: int = _env_int("CIAL_INDEXER_EMBED_MAX_BATCH_SIZE", 256)
+    indexer_embed_growth_latency_tolerance: float = _env_float(
+        "CIAL_INDEXER_EMBED_GROWTH_LATENCY_TOLERANCE",
+        1.15,
+    )
+    indexer_embed_vram_target_ratio: float = _env_float(
+        "CIAL_INDEXER_EMBED_VRAM_TARGET_RATIO",
+        0.70,
+    )
     indexer_embed_max_batch_tokens: int = _env_int("CIAL_INDEXER_EMBED_MAX_BATCH_TOKENS", 32768)
     indexer_embed_max_wait_ms: int = _env_int("CIAL_INDEXER_EMBED_MAX_WAIT_MS", 75)
-    indexer_qdrant_batch_size: int = _env_int("CIAL_INDEXER_QDRANT_BATCH_SIZE", 128)
+    indexer_qdrant_batch_size: int = _env_int("CIAL_INDEXER_QDRANT_BATCH_SIZE", 256)
     indexer_device: str = _env_str("CIAL_INDEXER_DEVICE", default="auto").casefold()
-    indexer_precision: str = _env_str("CIAL_INDEXER_PRECISION", default="auto").casefold()
+    indexer_precision: str = _env_str(
+        "CIAL_INDEXER_PRECISION",
+        "EMBEDDING_PRECISION",
+        default="fp16",
+    ).casefold()
     indexer_gpu_policy: str = _env_str("CIAL_INDEXER_GPU_POLICY", default="balanced").casefold()
     bm25_refresh_debounce_seconds: float = _env_float("CIAL_BM25_REFRESH_DEBOUNCE_SECONDS", 2.0)
     auth_secret_key: str = _env_str(
@@ -236,6 +259,11 @@ class Settings:
     )
 
     def __post_init__(self) -> None:
+        self.indexer_precision = {
+            "fp16": "float16",
+            "fp32": "float32",
+            "bf16": "bfloat16",
+        }.get(self.indexer_precision, self.indexer_precision)
         positive = {
             "CIAL_INDEXER_POLL_SECONDS": self.indexer_poll_seconds,
             "CIAL_INDEXER_LEASE_SECONDS": self.indexer_lease_seconds,
@@ -243,11 +271,18 @@ class Settings:
             "CIAL_INDEXER_HEARTBEAT_STALE_SECONDS": self.indexer_heartbeat_stale_seconds,
             "CIAL_INDEXER_MAX_ATTEMPTS": self.indexer_max_attempts,
             "CIAL_INDEXER_RETRY_BACKOFF_SECONDS": self.indexer_retry_backoff_seconds,
+            "CIAL_INDEXER_MIN_EXTRACTION_WORKERS": self.indexer_min_extraction_workers,
+            "CIAL_INDEXER_MAX_EXTRACTION_WORKERS": self.indexer_max_extraction_workers,
             "CIAL_INDEXER_EXTRACTION_WORKERS": self.indexer_extraction_workers,
+            "CIAL_INDEXER_OCR_WORKERS": self.indexer_ocr_workers,
             "CIAL_INDEXER_PREPARED_QUEUE_SIZE": self.indexer_prepared_queue_size,
             "CIAL_INDEXER_EMBED_QUEUE_SIZE": self.indexer_embed_queue_size,
             "CIAL_INDEXER_WRITE_QUEUE_SIZE": self.indexer_write_queue_size,
+            "CIAL_INDEXER_EMBED_MIN_BATCH_SIZE": self.indexer_embed_min_batch_size,
             "CIAL_INDEXER_EMBED_BATCH_SIZE": self.indexer_embed_batch_size,
+            "CIAL_INDEXER_EMBED_MAX_BATCH_SIZE": self.indexer_embed_max_batch_size,
+            "CIAL_INDEXER_EMBED_GROWTH_LATENCY_TOLERANCE": self.indexer_embed_growth_latency_tolerance,
+            "CIAL_INDEXER_EMBED_VRAM_TARGET_RATIO": self.indexer_embed_vram_target_ratio,
             "CIAL_INDEXER_EMBED_MAX_BATCH_TOKENS": self.indexer_embed_max_batch_tokens,
             "CIAL_INDEXER_EMBED_MAX_WAIT_MS": self.indexer_embed_max_wait_ms,
             "CIAL_INDEXER_QDRANT_BATCH_SIZE": self.indexer_qdrant_batch_size,
@@ -268,6 +303,26 @@ class Settings:
         invalid = [name for name, value in positive.items() if value <= 0]
         if invalid:
             raise ValueError(f"Continuous-indexing settings must be positive: {', '.join(invalid)}")
+        if self.indexer_min_extraction_workers > self.indexer_max_extraction_workers:
+            raise ValueError(
+                "CIAL_INDEXER_MIN_EXTRACTION_WORKERS cannot exceed "
+                "CIAL_INDEXER_MAX_EXTRACTION_WORKERS."
+            )
+        self.indexer_extraction_workers = max(
+            self.indexer_min_extraction_workers,
+            min(self.indexer_extraction_workers, self.indexer_max_extraction_workers),
+        )
+        if not (
+            self.indexer_embed_min_batch_size
+            <= self.indexer_embed_batch_size
+            <= self.indexer_embed_max_batch_size
+        ):
+            raise ValueError(
+                "CIAL_INDEXER_EMBED_BATCH_SIZE must be between the configured "
+                "minimum and maximum batch sizes."
+            )
+        if not 0 < self.indexer_embed_vram_target_ratio <= 1:
+            raise ValueError("CIAL_INDEXER_EMBED_VRAM_TARGET_RATIO must be in (0, 1].")
         if self.indexer_gpu_policy not in {"max_throughput", "balanced"}:
             raise ValueError("CIAL_INDEXER_GPU_POLICY must be max_throughput or balanced.")
         if self.indexer_precision not in {"auto", "float32", "float16", "bfloat16"}:

@@ -28,6 +28,12 @@ class BackendSettingsTests(unittest.TestCase):
         self.assertEqual(settings.qdrant_url, "http://localhost:6335")
         self.assertEqual(settings.data_files_path, settings.corpus_root_path)
         self.assertEqual(settings.repo_path, REPO_ROOT)
+        self.assertEqual(settings.indexer_extraction_workers, 8)
+        self.assertEqual(settings.indexer_ocr_workers, 2)
+        self.assertEqual(settings.indexer_embed_batch_size, 64)
+        self.assertEqual(settings.indexer_embed_max_batch_size, 256)
+        self.assertEqual(settings.indexer_qdrant_batch_size, 256)
+        self.assertEqual(settings.indexer_precision, "float16")
 
     def test_application_config_stores_primary_repository_path(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
