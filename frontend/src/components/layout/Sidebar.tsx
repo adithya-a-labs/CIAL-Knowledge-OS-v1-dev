@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Link, useLocation } from 'wouter';
-import { Bell, ChevronDown, HelpCircle, History, LogOut, MessageSquarePlus, Settings2, Search } from 'lucide-react';
+import { Activity, Bell, ChevronDown, HelpCircle, History, LogOut, MessageSquarePlus, Settings2, Search } from 'lucide-react';
 import { THEME } from '@/config/themeConfig';
 import { useAuth } from '@/auth/AuthContext';
 import { homeNavItems } from '@/data/homePageData';
@@ -19,7 +19,7 @@ const NEW_CONVERSATION_EVENT = 'cial-new-conversation';
 export default function Sidebar() {
   const [location] = useLocation();
   const { setOpen } = useCommandPalette();
-  const { logout, userView } = useAuth();
+  const { logout, userView, user } = useAuth();
   const [assistantHistoryOpen, setAssistantHistoryOpen] = React.useState(readAssistantHistorySidebarOpen);
 
   React.useEffect(() => {
@@ -53,6 +53,11 @@ export default function Sidebar() {
   };
 
   const primaryNavItems = homeNavItems.filter((item) => item.label !== 'Conversations');
+  const canMonitorSystem = Boolean(
+    user?.permission_names.some((permission) =>
+      ['monitor_system', 'manage_settings'].includes(permission),
+    ),
+  );
 
   return (
     <aside
@@ -125,6 +130,16 @@ export default function Sidebar() {
       </nav>
 
       <div className="space-y-1 border-t border-[#e8ece6] p-3">
+        {canMonitorSystem ? (
+          <Link
+            href="/admin/system-monitor"
+            className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-[#285f28] transition hover:bg-[#edf6e9]"
+            data-testid="nav-system-monitor"
+          >
+            <Activity size={18} />
+            <span>System Monitor</span>
+          </Link>
+        ) : null}
         <Link
           href="/assistant"
           onClick={startNewConversation}

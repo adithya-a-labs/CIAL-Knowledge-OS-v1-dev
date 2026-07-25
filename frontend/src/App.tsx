@@ -23,6 +23,7 @@ import KnowledgeGapsPage from "@/pages/KnowledgeGapsPage";
 import DepartmentsPage from "@/pages/DepartmentsPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import AdminSettingsPage from "@/pages/AdminSettingsPage";
+import AdminSystemMonitorPage from "@/pages/AdminSystemMonitorPage";
 import LoginPage from "@/pages/LoginPage";
 import SignupPage from "@/pages/SignupPage";
 import NotFound from "@/pages/not-found";
@@ -82,6 +83,7 @@ function ProtectedRouter() {
           <Route path="/knowledge-gaps" component={KnowledgeGapsPage} />
           <Route path="/departments" component={DepartmentsPage} />
           <Route path="/analytics" component={AnalyticsPage} />
+          <Route path="/admin/system-monitor" component={AdminSystemMonitorPage} />
           <Route path="/admin" component={AdminSettingsPage} />
           <Route path="/admin/:sub" component={AdminSettingsPage} />
           <Route path="/workspace" component={WorkspacePage} />
