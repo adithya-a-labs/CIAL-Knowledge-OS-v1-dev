@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+import time
+from typing import Any, Iterator, Protocol
 
 from httpx import HTTPError
-from langchain_ollama import OllamaLLM
 from ollama import Client, ResponseError
 
 from .config import KnowledgeOSConfig
@@ -41,7 +41,111 @@ class LocalLLM(Protocol):
     def invoke(self, prompt: str) -> Any: ...
 
 
-def create_local_llm(config: KnowledgeOSConfig) -> OllamaLLM:
+class OllamaGenerationAdapter:
+    """Ollama adapter that retains native generation performance metrics."""
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        timeout: float,
+        keep_alive: str,
+        num_gpu: int = -1,
+        client: Client | None = None,
+    ) -> None:
+        self.model = model
+        self.keep_alive = keep_alive
+        self.num_gpu = num_gpu
+        self.client = client or Client(timeout=timeout)
+        self.last_generation_metrics: dict[str, Any] = {}
+
+    @staticmethod
+    def _milliseconds(value: Any) -> float | None:
+        if value is None:
+            return None
+        return round(float(value) / 1_000_000, 3)
+
+    def _complete_metrics(
+        self,
+        response: Any,
+        *,
+        started: float,
+        first_token_seconds: float | None,
+    ) -> None:
+        output_tokens = int(getattr(response, "eval_count", 0) or 0)
+        eval_duration = int(getattr(response, "eval_duration", 0) or 0)
+        self.last_generation_metrics = {
+            "model": self.model,
+            "keep_alive": self.keep_alive,
+            "gpu_layers_requested": self.num_gpu,
+            "wall_duration_ms": round((time.perf_counter() - started) * 1000, 3),
+            "model_load_ms": self._milliseconds(
+                getattr(response, "load_duration", None)
+            ),
+            "prompt_eval_ms": self._milliseconds(
+                getattr(response, "prompt_eval_duration", None)
+            ),
+            "ollama_total_ms": self._milliseconds(
+                getattr(response, "total_duration", None)
+            ),
+            "first_token_ms": (
+                round(first_token_seconds * 1000, 3)
+                if first_token_seconds is not None
+                else None
+            ),
+            "prompt_tokens": int(getattr(response, "prompt_eval_count", 0) or 0),
+            "output_tokens": output_tokens,
+            "tokens_per_second": (
+                round(output_tokens / (eval_duration / 1_000_000_000), 3)
+                if output_tokens and eval_duration > 0
+                else None
+            ),
+            "done_reason": getattr(response, "done_reason", None),
+        }
+
+    def stream(self, prompt: str) -> Iterator[str]:
+        started = time.perf_counter()
+        first_token_seconds: float | None = None
+        final_response: Any | None = None
+        responses = self.client.generate(
+            model=self.model,
+            prompt=prompt,
+            stream=True,
+            options={"temperature": 0, "num_gpu": self.num_gpu},
+            keep_alive=self.keep_alive,
+        )
+        for response in responses:
+            final_response = response
+            value = str(getattr(response, "response", "") or "")
+            if value and first_token_seconds is None:
+                first_token_seconds = time.perf_counter() - started
+            if value:
+                yield value
+        if final_response is not None:
+            self._complete_metrics(
+                final_response,
+                started=started,
+                first_token_seconds=first_token_seconds,
+            )
+
+    def invoke(self, prompt: str) -> str:
+        started = time.perf_counter()
+        response = self.client.generate(
+            model=self.model,
+            prompt=prompt,
+            stream=False,
+            options={"temperature": 0, "num_gpu": self.num_gpu},
+            keep_alive=self.keep_alive,
+        )
+        self._complete_metrics(
+            response,
+            started=started,
+            first_token_seconds=None,
+        )
+        return str(getattr(response, "response", "") or "")
+
+
+def create_local_llm(config: KnowledgeOSConfig) -> OllamaGenerationAdapter:
     """Validate and create a deterministic local Ollama model interface."""
 
     try:
@@ -65,11 +169,11 @@ def create_local_llm(config: KnowledgeOSConfig) -> OllamaLLM:
             "KnowledgeOSConfig.ollama_model_name. No model was downloaded."
         )
 
-    return OllamaLLM(
+    return OllamaGenerationAdapter(
         model=config.ollama_model_name,
-        temperature=0,
-        client_kwargs={"timeout": timeout},
-        sync_client_kwargs={"timeout": timeout},
+        timeout=timeout,
+        keep_alive=str(getattr(config, "ollama_keep_alive", "30m")),
+        num_gpu=int(getattr(config, "ollama_num_gpu", -1)),
     )
 
 
