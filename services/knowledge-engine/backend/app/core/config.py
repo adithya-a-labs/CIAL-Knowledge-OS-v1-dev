@@ -140,7 +140,8 @@ class Settings:
     qdrant_retry_attempts: int = _env_int("QDRANT_RETRY_ATTEMPTS", 3)
     qdrant_retry_backoff_seconds: float = _env_float("QDRANT_RETRY_BACKOFF_SECONDS", 2.0)
     qdrant_health_timeout_seconds: float = _env_float("QDRANT_HEALTH_TIMEOUT_SECONDS", 5.0)
-    qdrant_query_timeout_seconds: float = _env_float("QDRANT_QUERY_TIMEOUT_SECONDS", 30.0)
+    qdrant_query_timeout_seconds: float = _env_float("QDRANT_QUERY_TIMEOUT_SECONDS", 3.0)
+    qdrant_query_retry_attempts: int = _env_int("QDRANT_QUERY_RETRY_ATTEMPTS", 2)
     qdrant_upsert_timeout_seconds: float = _env_float("QDRANT_UPSERT_TIMEOUT_SECONDS", 60.0)
     qdrant_delete_timeout_seconds: float = _env_float("QDRANT_DELETE_TIMEOUT_SECONDS", 60.0)
     qdrant_collection_timeout_seconds: float = _env_float("QDRANT_COLLECTION_TIMEOUT_SECONDS", 120.0)
@@ -160,6 +161,10 @@ class Settings:
     max_answer_words: int = _env_int("CIAL_MAX_ANSWER_WORDS", 1200)
     generation_retries: int = _env_int("CIAL_GENERATION_RETRIES", 2)
     retry_cooldown_seconds: float = _env_float("CIAL_RETRY_COOLDOWN_SECONDS", 20.0)
+    reranker_timeout_seconds: float = _env_float("CIAL_RERANKER_TIMEOUT_SECONDS", 10.0)
+    generation_timeout_seconds: float = _env_float("CIAL_GENERATION_TIMEOUT_SECONDS", 120.0)
+    chat_lock_timeout_seconds: float = _env_float("CIAL_CHAT_LOCK_TIMEOUT_SECONDS", 5.0)
+    chat_request_timeout_seconds: float = _env_float("CIAL_CHAT_REQUEST_TIMEOUT_SECONDS", 150.0)
     summary_context_window_tokens: int = _env_int("CIAL_SUMMARY_CONTEXT_WINDOW_TOKENS", 8192)
     summary_map_input_tokens: int = _env_int("CIAL_SUMMARY_MAP_INPUT_TOKENS", 4000)
     summary_map_output_tokens: int = _env_int("CIAL_SUMMARY_MAP_OUTPUT_TOKENS", 700)
@@ -296,9 +301,14 @@ class Settings:
             "QDRANT_RETRY_BACKOFF_SECONDS": self.qdrant_retry_backoff_seconds,
             "QDRANT_HEALTH_TIMEOUT_SECONDS": self.qdrant_health_timeout_seconds,
             "QDRANT_QUERY_TIMEOUT_SECONDS": self.qdrant_query_timeout_seconds,
+            "QDRANT_QUERY_RETRY_ATTEMPTS": self.qdrant_query_retry_attempts,
             "QDRANT_UPSERT_TIMEOUT_SECONDS": self.qdrant_upsert_timeout_seconds,
             "QDRANT_DELETE_TIMEOUT_SECONDS": self.qdrant_delete_timeout_seconds,
             "QDRANT_COLLECTION_TIMEOUT_SECONDS": self.qdrant_collection_timeout_seconds,
+            "CIAL_RERANKER_TIMEOUT_SECONDS": self.reranker_timeout_seconds,
+            "CIAL_GENERATION_TIMEOUT_SECONDS": self.generation_timeout_seconds,
+            "CIAL_CHAT_LOCK_TIMEOUT_SECONDS": self.chat_lock_timeout_seconds,
+            "CIAL_CHAT_REQUEST_TIMEOUT_SECONDS": self.chat_request_timeout_seconds,
         }
         invalid = [name for name, value in positive.items() if value <= 0]
         if invalid:

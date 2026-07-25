@@ -73,7 +73,10 @@ class KnowledgeOSConfig:
         default_factory=lambda: _env_float("QDRANT_HEALTH_TIMEOUT_SECONDS", 5.0)
     )
     qdrant_query_timeout_seconds: float = field(
-        default_factory=lambda: _env_float("QDRANT_QUERY_TIMEOUT_SECONDS", 30.0)
+        default_factory=lambda: _env_float("QDRANT_QUERY_TIMEOUT_SECONDS", 3.0)
+    )
+    qdrant_query_retry_attempts: int = field(
+        default_factory=lambda: _env_int("QDRANT_QUERY_RETRY_ATTEMPTS", 2)
     )
     qdrant_upsert_timeout_seconds: float = field(
         default_factory=lambda: _env_float("QDRANT_UPSERT_TIMEOUT_SECONDS", 60.0)
@@ -93,6 +96,7 @@ class KnowledgeOSConfig:
     embedding_device: str = "auto"
     embedding_batch_size: int = 8
     ollama_model_name: str = "gemma3:12b"
+    generation_timeout_seconds: float = 120.0
     tokenizer_encoding_name: str = DEFAULT_TIKTOKEN_ENCODING
     chunk_size: int = 700
     chunk_overlap: int = 120
@@ -191,6 +195,7 @@ class KnowledgeOSConfig:
             "qdrant_upsert_timeout_seconds",
             "qdrant_delete_timeout_seconds",
             "qdrant_collection_timeout_seconds",
+            "generation_timeout_seconds",
         ):
             value = getattr(self, name)
             if not isfinite(value) or value <= 0:
@@ -201,6 +206,12 @@ class KnowledgeOSConfig:
             or self.qdrant_retry_attempts <= 0
         ):
             raise ValueError("qdrant_retry_attempts must be a positive integer.")
+        if (
+            isinstance(self.qdrant_query_retry_attempts, bool)
+            or not isinstance(self.qdrant_query_retry_attempts, int)
+            or self.qdrant_query_retry_attempts <= 0
+        ):
+            raise ValueError("qdrant_query_retry_attempts must be a positive integer.")
         if not self.tokenizer_encoding_name.strip():
             raise ValueError("tokenizer_encoding_name must not be blank.")
         self.tokenizer_encoding_name = self.tokenizer_encoding_name.strip()
@@ -443,6 +454,7 @@ class Phase4Config(Phase3Config):
     # Enterprise deployments set this to True to prohibit all network access.
     reranker_local_files_only: bool = False
     reranker_candidate_top_k: int = 30
+    reranker_timeout_seconds: float = 10.0
 
     evidence_selection_strategies: tuple[str, ...] = (
         "top_k",
