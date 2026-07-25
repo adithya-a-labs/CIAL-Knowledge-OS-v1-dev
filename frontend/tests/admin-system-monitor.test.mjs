@@ -44,6 +44,9 @@ test('dashboard renders every required live operations section', () => {
   for (const component of ['Backend', 'Database', 'Qdrant', 'Indexer', 'GPU', 'Models']) {
     assert.match(page, new RegExp(`name="${component}"`));
   }
+  assert.match(page, /Current stage/);
+  assert.match(page, /Failed stage:/);
+  assert.match(page, /timeout_reason/);
 });
 
 test('monitor uses authenticated SSE with reconnect and stale detection', () => {

@@ -14,11 +14,21 @@ test('chat stream has a bounded watchdog and preserves caller cancellation', () 
 
 test('assistant exposes retrieval and generation progress plus retry', () => {
   assert.match(timeline, /Loading published generation/);
-  assert.match(timeline, /Generating/);
+  assert.match(timeline, /Searching knowledge/);
+  assert.match(timeline, /Reranking sources/);
+  assert.match(timeline, /Generating answer/);
   assert.match(timeline, /Completed/);
   assert.match(panel, /retryQuestionRef/);
+  assert.match(panel, /degradedStageRef/);
+  assert.match(panel, /Retrieval degraded at/);
   assert.match(panel, />Retry</);
   assert.match(panel, /onStop=\{stopGenerating\}/);
+});
+
+test('stream errors expose the backend failed stage and retry reason', () => {
+  assert.match(client, /failed_stage/);
+  assert.match(client, /Failed stage:/);
+  assert.match(client, /failure\.reason/);
 });
 
 test('terminal failures clear the loading state', () => {
