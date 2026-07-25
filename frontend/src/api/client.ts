@@ -34,6 +34,7 @@ import { ApiError } from './types';
 
 const CONFIGURED_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 export const AUTH_INVALIDATED_EVENT = 'cial-auth-invalidated';
+const CHAT_REQUEST_TIMEOUT_MS = 150_000;
 let authInvalidationDispatched = false;
 
 type AuthInvalidationMode = 'none' | 'protected';
@@ -265,34 +266,53 @@ export function listRecentSearches(){return request<RecentSearchList>('/api/sear
 export async function clearRecentSearches(id?:string){const response=await fetch(apiUrl(id?`/api/search/recent/${encodeURIComponent(id)}`:'/api/search/recent'),{method:'DELETE',credentials:'include'});if(!response.ok)throw new ApiError('Could not clear search history.',response.status,null);}
 
 export function askQuestion(payload: ChatRequest, signal?: AbortSignal) {
-  // Chat generation deliberately has no deadline. The caller supplies a
-  // per-request signal solely for an explicit user Stop action.
+  const boundedSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(CHAT_REQUEST_TIMEOUT_MS)])
+    : AbortSignal.timeout(CHAT_REQUEST_TIMEOUT_MS);
   return request<ChatResponse>('/api/chat', {
     method: 'POST',
     body: JSON.stringify(payload),
-    signal,
+    signal: boundedSignal,
   });
 }
 
 export async function streamQuestion(payload: ChatRequest, onEvent: (event: import('./types').GenerationEvent) => void, signal?: AbortSignal) {
-  const response = await fetch(apiUrl('/api/chat/stream'), { method: 'POST', credentials: 'include', signal,
-    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-  if (!response.ok || !response.body) throw new ApiError(`Request failed with status ${response.status}`, response.status, null);
-  const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let result: import('./types').ChatResponse | null = null;
-  while (true) {
-    const { value, done } = await reader.read(); buffer += decoder.decode(value, { stream: !done });
-    const lines = buffer.split('\n'); buffer = lines.pop() ?? '';
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      const event = JSON.parse(line) as import('./types').GenerationEvent; onEvent(event);
-      if (event.type === 'result') result = event.payload as import('./types').ChatResponse;
-      if (event.type === 'error') throw new Error((event.payload as { message?: string })?.message || 'Generation failed.');
-      if (event.type === 'cancelled') throw new DOMException('Generation stopped', 'AbortError');
+  const timeoutMs = CHAT_REQUEST_TIMEOUT_MS;
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abortFromCaller(); else signal?.addEventListener('abort', abortFromCaller, { once: true });
+  const timer = window.setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  try {
+    const response = await fetch(apiUrl('/api/chat/stream'), { method: 'POST', credentials: 'include', signal: controller.signal,
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (!response.ok || !response.body) throw new ApiError(`Request failed with status ${response.status}`, response.status, null);
+    const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let result: import('./types').ChatResponse | null = null;
+    while (true) {
+      const { value, done } = await reader.read(); buffer += decoder.decode(value, { stream: !done });
+      const lines = buffer.split('\n'); buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line) as import('./types').GenerationEvent; onEvent(event);
+        if (event.type === 'result') result = event.payload as import('./types').ChatResponse;
+        if (event.type === 'error') throw new Error((event.payload as { message?: string })?.message || 'Generation failed.');
+        if (event.type === 'cancelled') throw new DOMException('Generation stopped', 'AbortError');
+      }
+      if (done) break;
     }
-    if (done) break;
+    if (!result) throw new Error('The generation stream ended before a result was received.');
+    return result;
+  } catch (error) {
+    if (timedOut) {
+      const timeout = new Error('The assistant request timed out. Please retry.');
+      timeout.name = 'TimeoutError';
+      throw timeout;
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+    signal?.removeEventListener('abort', abortFromCaller);
   }
-  if (!result) throw new Error('The generation stream ended before a result was received.');
-  return result;
 }
 
 export function listChatSessions(signal?: AbortSignal) {
@@ -300,7 +320,10 @@ export function listChatSessions(signal?: AbortSignal) {
 }
 
 export function regenerateMessage(messageId: string, signal?: AbortSignal) {
-  return request<ChatResponse>(`/api/chat/messages/${encodeURIComponent(messageId)}/regenerate`, { method: 'POST', signal });
+  const boundedSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(CHAT_REQUEST_TIMEOUT_MS)])
+    : AbortSignal.timeout(CHAT_REQUEST_TIMEOUT_MS);
+  return request<ChatResponse>(`/api/chat/messages/${encodeURIComponent(messageId)}/regenerate`, { method: 'POST', signal: boundedSignal });
 }
 
 export function transformMessage(messageId: string, operation: 'explain_simpler' | 'create_checklist') {
