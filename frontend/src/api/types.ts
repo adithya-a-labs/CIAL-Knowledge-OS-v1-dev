@@ -60,6 +60,60 @@ export interface HealthResponse {
   message: string;
 }
 
+export type SystemHealthColor = 'green' | 'blue' | 'yellow' | 'red';
+
+export interface SystemStatusComponent {
+  status: 'available' | 'degraded' | 'unavailable' | 'unknown';
+  available: boolean | null;
+  detail: string;
+  checked_at: string;
+  latency_ms: number;
+}
+
+export interface SystemStatusResponse {
+  status: SystemHealthColor;
+  label: 'System ready' | 'Updating knowledge' | 'Degraded' | 'Unavailable';
+  chat_available: boolean;
+  indexing_active: boolean;
+  components: Record<string, SystemStatusComponent>;
+  index: {
+    generation: number;
+    bm25_generation: number;
+    published_at: string | null;
+    point_count: number;
+  };
+  indexing: {
+    worker_state: string;
+    worker_seen: boolean;
+    worker_heartbeat_at: string | null;
+    queue_depth: number;
+    queue_counts: Record<string, number>;
+    active_jobs: Array<Record<string, unknown>>;
+    last_successful_index_at: string | null;
+  };
+  models: {
+    ollama: string;
+    embedding: string;
+    embedding_device: string;
+    embedding_ready: boolean;
+  };
+  gpu: {
+    available: boolean | null;
+    requested: boolean;
+    device: string;
+    utilization_percent: number | null;
+    memory_used_mb: number | null;
+    memory_total_mb: number | null;
+  };
+  timestamps: {
+    generated_at: string;
+    worker_heartbeat_at: string | null;
+    generation_published_at: string | null;
+    last_successful_index_at: string | null;
+  };
+  latency_ms: Record<string, number>;
+}
+
 export interface ChatRequest {
   session_id?: string;
   question: string;

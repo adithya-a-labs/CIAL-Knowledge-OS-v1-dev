@@ -13,6 +13,7 @@ import type {
   EvaluationRunsResponse,
   ExportListResponse,
   HealthResponse,
+  SystemStatusResponse,
   IndexStatusResponse,
   EnterpriseRepositoryRequest,
   EnterpriseRepositorySettings,
@@ -35,6 +36,7 @@ import { ApiError } from './types';
 const CONFIGURED_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 export const AUTH_INVALIDATED_EVENT = 'cial-auth-invalidated';
 const CHAT_REQUEST_TIMEOUT_MS = 150_000;
+const SYSTEM_STATUS_TIMEOUT_MS = 8_000;
 let authInvalidationDispatched = false;
 
 type AuthInvalidationMode = 'none' | 'protected';
@@ -125,6 +127,16 @@ async function request<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
 
 export function getHealth() {
   return request<HealthResponse>('/api/health', { cache: 'no-store', authInvalidation: 'none' });
+}
+
+export function getSystemStatus(signal?: AbortSignal) {
+  const boundedSignal = signal
+    ? AbortSignal.any([signal, AbortSignal.timeout(SYSTEM_STATUS_TIMEOUT_MS)])
+    : AbortSignal.timeout(SYSTEM_STATUS_TIMEOUT_MS);
+  return request<SystemStatusResponse>('/api/system/status', {
+    cache: 'no-store',
+    signal: boundedSignal,
+  });
 }
 
 export function signUp(payload: SignupRequest) {
@@ -276,7 +288,12 @@ export function askQuestion(payload: ChatRequest, signal?: AbortSignal) {
   });
 }
 
-export async function streamQuestion(payload: ChatRequest, onEvent: (event: import('./types').GenerationEvent) => void, signal?: AbortSignal) {
+export async function streamQuestion(
+  payload: ChatRequest,
+  onEvent: (event: import('./types').GenerationEvent) => void,
+  signal?: AbortSignal,
+  onConnected?: () => void,
+) {
   const timeoutMs = CHAT_REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
   let timedOut = false;
@@ -286,7 +303,12 @@ export async function streamQuestion(payload: ChatRequest, onEvent: (event: impo
   try {
     const response = await fetch(apiUrl('/api/chat/stream'), { method: 'POST', credentials: 'include', signal: controller.signal,
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    if (!response.ok || !response.body) throw new ApiError(`Request failed with status ${response.status}`, response.status, null);
+    if (!response.ok || !response.body) {
+      let detail: unknown = null;
+      try { detail = await response.json(); } catch { detail = await response.text(); }
+      throw new ApiError(`Request failed with status ${response.status}`, response.status, detail);
+    }
+    onConnected?.();
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let result: import('./types').ChatResponse | null = null;
     while (true) {
       const { value, done } = await reader.read(); buffer += decoder.decode(value, { stream: !done });
