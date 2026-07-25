@@ -146,7 +146,24 @@ class Settings:
     qdrant_delete_timeout_seconds: float = _env_float("QDRANT_DELETE_TIMEOUT_SECONDS", 60.0)
     qdrant_collection_timeout_seconds: float = _env_float("QDRANT_COLLECTION_TIMEOUT_SECONDS", 120.0)
     ollama_model_name: str = _env_str("CIAL_OLLAMA_MODEL_NAME", "OLLAMA_MODEL_NAME", default="gemma3:12b")
+    ollama_keep_alive: str = _env_str(
+        "CIAL_OLLAMA_KEEP_ALIVE", "OLLAMA_KEEP_ALIVE", default="30m"
+    )
+    ollama_num_gpu: int = _env_int(
+        "CIAL_OLLAMA_NUM_GPU", _env_int("OLLAMA_NUM_GPU", -1)
+    )
+    ollama_gpu_priority_enabled: bool = _env_bool(
+        "CIAL_OLLAMA_GPU_PRIORITY_ENABLED",
+        _env_bool("OLLAMA_GPU_PRIORITY_ENABLED", True),
+    )
     embedding_model_name: str = _env_str("CIAL_EMBEDDING_MODEL_NAME", "EMBEDDING_MODEL_NAME", default="BAAI/bge-m3")
+    query_embedding_device: str = _env_str(
+        "CIAL_QUERY_EMBEDDING_DEVICE", default="cpu"
+    ).casefold()
+    indexer_gpu_cooperative_mode: bool = _env_bool(
+        "CIAL_INDEXER_GPU_COOPERATIVE_MODE",
+        _env_bool("INDEXER_GPU_COOPERATIVE_MODE", True),
+    )
     reranker_model_name: str = _env_str(
         "CIAL_RERANKER_MODEL_NAME",
         "RERANKER_MODEL_NAME",
@@ -233,6 +250,15 @@ class Settings:
         default="fp16",
     ).casefold()
     indexer_gpu_policy: str = _env_str("CIAL_INDEXER_GPU_POLICY", default="balanced").casefold()
+    indexer_release_gpu_when_idle: bool = _env_bool(
+        "CIAL_INDEXER_RELEASE_GPU_WHEN_IDLE", True
+    )
+    indexer_gpu_idle_release_seconds: float = _env_float(
+        "CIAL_INDEXER_GPU_IDLE_RELEASE_SECONDS", 30.0
+    )
+    gpu_priority_poll_seconds: float = _env_float(
+        "CIAL_GPU_PRIORITY_POLL_SECONDS", 0.1
+    )
     bm25_refresh_debounce_seconds: float = _env_float("CIAL_BM25_REFRESH_DEBOUNCE_SECONDS", 2.0)
     auth_secret_key: str = _env_str(
         "CIAL_AUTH_SECRET_KEY",
@@ -294,6 +320,8 @@ class Settings:
             "CIAL_INDEXER_EMBED_MAX_BATCH_TOKENS": self.indexer_embed_max_batch_tokens,
             "CIAL_INDEXER_EMBED_MAX_WAIT_MS": self.indexer_embed_max_wait_ms,
             "CIAL_INDEXER_QDRANT_BATCH_SIZE": self.indexer_qdrant_batch_size,
+            "CIAL_INDEXER_GPU_IDLE_RELEASE_SECONDS": self.indexer_gpu_idle_release_seconds,
+            "CIAL_GPU_PRIORITY_POLL_SECONDS": self.gpu_priority_poll_seconds,
             "CIAL_CORPUS_RECONCILE_INTERVAL_SECONDS": self.corpus_reconcile_interval_seconds,
             "CIAL_CORPUS_WATCH_DEBOUNCE_MS": self.corpus_watch_debounce_ms,
             "CIAL_CORPUS_FILE_STABILITY_INTERVAL_MS": self.corpus_file_stability_interval_ms,
@@ -345,6 +373,10 @@ class Settings:
         if not re.fullmatch(r"(?:auto|cpu|cuda(?::\d+)?)", self.indexer_device):
             raise ValueError(
                 "CIAL_INDEXER_DEVICE must be auto, cpu, cuda, or cuda:<index>."
+            )
+        if not re.fullmatch(r"(?:auto|cpu|cuda(?::\d+)?)", self.query_embedding_device):
+            raise ValueError(
+                "CIAL_QUERY_EMBEDDING_DEVICE must be auto, cpu, cuda, or cuda:<index>."
             )
         if self.indexer_lease_seconds <= self.indexer_heartbeat_seconds:
             raise ValueError(

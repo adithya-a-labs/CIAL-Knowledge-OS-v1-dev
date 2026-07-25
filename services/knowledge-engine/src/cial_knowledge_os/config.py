@@ -96,6 +96,8 @@ class KnowledgeOSConfig:
     embedding_device: str = "auto"
     embedding_batch_size: int = 8
     ollama_model_name: str = "gemma3:12b"
+    ollama_keep_alive: str = "30m"
+    ollama_num_gpu: int = -1
     generation_timeout_seconds: float = 120.0
     tokenizer_encoding_name: str = DEFAULT_TIKTOKEN_ENCODING
     chunk_size: int = 700
