@@ -218,6 +218,26 @@ class KnowledgeEngineService:
             and getattr(pipeline, "is_ready_for_answering", False)
         )
 
+    def runtime_diagnostics(self) -> dict[str, Any]:
+        """Return non-sensitive model/runtime facts for health telemetry."""
+
+        with self._lock:
+            pipeline = self._pipeline
+        embedding_model = getattr(pipeline, "embedding_model", None) if pipeline is not None else None
+        return {
+            "embedding_ready": embedding_model is not None,
+            "embedding_device": (
+                str(getattr(embedding_model, "device", "unknown"))
+                if embedding_model is not None
+                else None
+            ),
+            "reranker_ready": bool(
+                pipeline is not None and getattr(pipeline, "reranker", None) is not None
+            ),
+            "loaded_generation": self._loaded_generation,
+            "loaded_bm25_generation": self._loaded_bm25_generation,
+        }
+
     @staticmethod
     def _published_generation_valid(
         generation: IndexGeneration | None,
@@ -1105,6 +1125,10 @@ class KnowledgeEngineService:
             if progress_callback is not None:
                 progress_callback(stage_id, status, metrics)
 
+        logger.info(
+            "chat_request_started",
+            extra={"event": "chat_request_started", "request_id": chat_request_id},
+        )
         logger.info(
             "request_received",
             extra={"event": "request_received", "request_id": chat_request_id},
