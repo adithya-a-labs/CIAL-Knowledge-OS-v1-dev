@@ -114,19 +114,24 @@ events for:
 - `bm25_started/completed`
 - `hybrid_fusion_started/completed`
 - `reranking_started/completed`
+- `evidence_selection_started/completed`
 - `generation_started/completed`
 - `chat_completed` or `chat_failed`
 
-Completed and failed events include `duration_ms`. Dense/BM25/fusion events
-include candidate counts; reranking includes the resolved device, bounded
-candidate count, and latency. Logs exclude questions, prompts, evidence bodies,
-document paths, credentials, and unrestricted exception content.
+Every stage event carries request id, optional conversation id, stage, status,
+UTC timestamp, `duration_ms`, `candidate_count`, `error_state`, and
+`timeout_state`. A timed-out stage completes with its timeout error state so a
+successful partial response remains observable. Reranking also includes the
+resolved device and bounded candidate count. Logs exclude questions, prompts,
+evidence bodies, document paths, credentials, and unrestricted exception
+content.
 
 Authenticated `GET /api/chat/debug` exposes the loaded dense/BM25 generation,
 whether a publication refresh or index update is running, the safe queue
-summary, and the last request's retrieval, Qdrant, BM25, fusion, reranker,
-generation, and total latencies. It is an operational snapshot, not a query log,
-and never includes prompt or document content.
+summary, current stage and elapsed stage time, exact failed stage/timeout
+reason, and the last request's retrieval, Qdrant, BM25, fusion, reranker,
+generation, and total latencies. It is an operational snapshot, not a query
+log, and never includes prompt or document content.
 
 Normal performance objectives are permission validation below 100 ms, Qdrant
 below 500 ms, fusion below 200 ms, reranking below 2 seconds, and retrieval
@@ -138,6 +143,40 @@ resolution projects only indexed documents' relative paths through the existing
 PostgreSQL RBAC predicates instead of hydrating complete document rows. Dense
 filters also include the document versions and note revisions in the loaded
 publication, preventing in-progress Qdrant points from leaking into results.
+Large authorized path and published-version sets use Qdrant `MatchAny` filters;
+all live filter keys retain payload indexes. Authorization-scoped candidate
+depth and any selected-scope reranker expansion are bounded at 250.
+BM25 reuses published corpus tokens and a lock-protected bounded authorized
+sub-index cache rather than retokenizing or rebuilding the corpus per query.
+
+Hard failure ceilings are dense/Qdrant 30 seconds, BM25 10 seconds, fusion
+5 seconds, reranking 15 seconds, and evidence selection 5 seconds. Dense/BM25
+timeouts preserve the surviving authorized branch; fusion uses stable
+available-branch order; reranker uses the fused order; evidence timeout
+selects no evidence. The response trace, NDJSON stream, chat debug endpoint,
+and administrator monitor all expose the failed component.
+
+### Retrieval debugging workflow
+
+1. Follow one opaque request id from `request_received` through
+   `retrieval_started` and the component start/completion pairs.
+2. If no component start follows retrieval entry, verify that the live service
+   calls the loaded pipeline's `answer()` method, never the batch `run()`
+   lifecycle.
+3. Compare `/api/chat/debug` current stage and duration with the administrator
+   monitor's current/failed stage and timeout reason.
+4. For dense failures, inspect the bounded Qdrant call and indexed filter keys;
+   for lexical failures, verify that the active published BM25 generation is
+   loaded and no query-time build was attempted.
+5. Confirm the NDJSON terminal result/error identifies the same failed stage
+   and that a degraded success contains only the documented safe fallback.
+
+The regression fixed on 2026-07-25 occurred at step 2: the service entered
+batch `run()` before the instrumented retrieval call. Because the production
+pipeline intentionally does not retain source `documents` or corpus
+`embeddings`, `run()` began corpus loading and whole-snapshot embedding. The
+query-only call boundary removes that work from chat without changing the
+retrieval, authorization, indexing, citation, or prompt algorithms.
 
 ## Live System Status
 
@@ -166,11 +205,13 @@ Both require `monitor_system` or `manage_settings`; authentication alone is
 insufficient.
 
 The query section reports the number of requests currently inside the actual
-chat route lifecycle and the latest validation, retrieval, reranking,
+chat route lifecycle, current stage and live stage duration, the exact failed
+stage/timeout reason, and the latest validation, retrieval, reranking,
 generation, and total timings already recorded by the query engine.
-`chat_started`, `chat_completed`, and `retrieval_failed` are emitted at those
-real lifecycle boundaries. No question, prompt, answer, evidence, user id, or
-workspace id is included.
+`chat_started`, `chat_completed`, `retrieval_stage_failed`, and
+`retrieval_failed` are emitted at those real lifecycle boundaries. A later
+chat-level error does not overwrite the component that failed. No question,
+prompt, answer, evidence, user id, or workspace id is included.
 
 Indexing events are state-transition projections over durable queue and
 publication telemetry. Supported types include `document_detected`,

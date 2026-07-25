@@ -214,6 +214,22 @@ queryable. If an old dense version has already been retired during the short
 publication window, the old BM25 snapshot continues serving that asset until
 the atomic pointer advances.
 
+The FastAPI request path is strictly query-only:
+
+```text
+POST /api/chat/stream
+  -> KnowledgeEngineService.answer_question
+  -> loaded pipeline.answer
+  -> dense retrieval + published BM25 retrieval
+  -> fusion -> reranking -> evidence selection -> generation
+```
+
+It does not call the batch pipeline `run()` method. That method owns corpus
+load/chunk/embed/index orchestration and is limited to notebooks and explicit
+batch workflows. The live runtime similarly refuses to build a missing BM25
+index from chunks during a request; it reports the published generation as
+unavailable instead.
+
 BM25 publication is debounced during a sustained job burst and forced before
 the worker enters its queue-empty watching state. If the API started before the
 first collection existed, the first published generation activates the cached
@@ -293,7 +309,8 @@ explicit confirmation.
 | `QDRANT_UPSERT_TIMEOUT_SECONDS` | `60` |
 | `QDRANT_DELETE_TIMEOUT_SECONDS` | `60` |
 | `QDRANT_COLLECTION_TIMEOUT_SECONDS` | `120` |
-| `CIAL_RERANKER_TIMEOUT_SECONDS` | `10` |
+| `CIAL_RERANKER_TIMEOUT_SECONDS` | `15` |
+| `CIAL_EVIDENCE_SELECTION_TIMEOUT_SECONDS` | `5` |
 | `CIAL_GENERATION_TIMEOUT_SECONDS` | `120` |
 | `CIAL_CHAT_LOCK_TIMEOUT_SECONDS` | `5` |
 | `CIAL_CHAT_REQUEST_TIMEOUT_SECONDS` | `150` |
@@ -308,6 +325,13 @@ The server stream and browser use matching 150-second terminal watchdogs; the
 shorter component limits normally fail first. The reranker is loaded once at
 runtime initialization, keeps its resolved device, receives at most the
 configured candidate cap, and has a hard per-turn deadline.
+Dense/Qdrant has an absolute 30-second outer ceiling even when retry
+configuration would otherwise run longer. BM25, fusion, reranking, and
+evidence selection have absolute ceilings of 10, 5, 15, and 5 seconds
+respectively; the first two are the hard upper bounds of the corresponding
+`Phase3Config` fields. Dense or lexical timeout uses the other authorized branch when
+available, fusion failure uses stable available-branch ordering,
+reranker timeout uses fused order, and evidence timeout selects nothing.
 
 The legacy `CIAL_AUTO_INDEX_ON_STARTUP` and
 `CIAL_FORCE_REBUILD_ON_STARTUP` values are parsed for compatibility but logged

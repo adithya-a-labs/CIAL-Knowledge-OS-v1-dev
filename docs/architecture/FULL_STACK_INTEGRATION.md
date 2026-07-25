@@ -77,13 +77,23 @@ Saving/Saved state remains database persistence; note `indexing_status` is a
 separate AI-index state.
 
 Streaming assistant requests expose Connected, Validating request, Loading
-published generation, Searching, Reranking, Generating, Completed, and Failed
-states. Stop aborts the browser stream
+published generation, Searching knowledge, Reranking sources, Generating
+answer, Completed, and Failed states. Stage details show only safe duration,
+candidate count, and error state. A partial response identifies the degraded
+stage, explains that available safe results were used, and retains Retry. Stop
+aborts the browser stream
 and propagates cancellation to the local generation loop. Both server and
 browser terminate a request after 150 seconds, component failures provide safe
 messages, loading state clears in `finally`, and failed requests retain an
 explicit Retry action. The background banner means “Knowledge updating in
 background”; assistant answers continue from the latest published index.
+
+The live backend query path never executes corpus load, chunking, embedding,
+index construction, or published BM25 rebuilding. Retrieval component ceilings
+are dense/Qdrant 30 seconds, BM25 10 seconds, fusion 5 seconds, reranking
+15 seconds, and evidence selection 5 seconds. The stream exposes the exact
+failed stage and timeout state while preserving partial authorized results
+where a safe fallback exists.
 
 Enter and Send use the same single-flight handler. It refreshes the authenticated
 status before opening the chat stream, permits blue/indexing state, retains

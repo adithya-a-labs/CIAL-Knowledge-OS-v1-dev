@@ -740,6 +740,13 @@ status preflight, blue-state submission, request cancellation, terminal Retry,
 and draft-clearing boundary: text is cleared only from the stream's successful
 connection callback, never before fetch initiation succeeds.
 
+The retrieval timeline consumes backend stage events and maps Connected,
+Validating request, Loading published generation, Searching knowledge,
+Reranking sources, Generating answer, Completed, and Failed. Its optional
+details are limited to duration, candidate count, and safe error state. Stream
+errors surface `failed_stage`, `reason`, and `timeout_state`; a completed
+partial answer keeps Retry visible and explains which retrieval stage degraded.
+
 ### Admin AI Operations Console contract
 
 The integrated frontend must retain these production files:
@@ -758,7 +765,9 @@ accept only `monitor_system` or `manage_settings`; the backend repeats the
 authorization and is authoritative. Normal users must not receive the
 navigation entry or initialize the monitor hook.
 
-The monitor is backend-driven. Do not migrate mock metrics, random chart data,
+The monitor is backend-driven. Its query panel includes active request count,
+the current stage with live elapsed time, latest component latencies, and the
+exact failed stage/timeout reason. Do not migrate mock metrics, random chart data,
 or simulated service states into this route. The hook must preserve
 credentialed SSE, snapshot preflight, bounded reconnect, authentication-failure
 state, and seven-second stale detection. The console must preserve the CIAL
