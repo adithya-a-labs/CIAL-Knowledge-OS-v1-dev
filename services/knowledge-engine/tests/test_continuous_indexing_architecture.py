@@ -8,9 +8,13 @@ import uuid
 
 import numpy as np
 
+from backend.app.api.routes.indexing import router as indexing_router
 from backend.app.core.runtime_state import RuntimeState
+from backend.app.models.knowledge import DocumentChunk
 from backend.app.models.operations import IndexGeneration, IndexerWorker, IndexingJob
 from backend.app.services.continuous_indexer import (
+    AdaptiveBatchController,
+    ClaimedTarget,
     ChunkEnvelope,
     ContinuousIndexer,
     CrossDocumentBatcher,
@@ -19,6 +23,7 @@ from backend.app.services.indexing_queue import (
     ACTIVE_JOB_STATUSES,
     STAGE_TRANSITIONS,
 )
+from backend.app.services.knowledge_engine_service import KnowledgeEngineService
 from backend.app.services.startup_service import StartupService
 from cial_knowledge_os.bm25_snapshot import load_bm25_snapshot, write_bm25_snapshot
 from cial_knowledge_os.retrievers import BM25Retriever
@@ -59,6 +64,60 @@ def test_batch_time_deadline_is_observable() -> None:
     batcher.add(envelope(uuid.uuid4(), "text"), now=5.0)
     assert not batcher.due(now=5.005)
     assert batcher.due(now=5.011)
+
+
+def test_adaptive_batch_grows_on_healthy_full_batches_and_shrinks_on_oom() -> None:
+    controller = AdaptiveBatchController(
+        minimum=64,
+        current=64,
+        maximum=256,
+        latency_tolerance=1.15,
+        vram_target_ratio=0.85,
+    )
+    assert controller.record_success(
+        batch_size=64,
+        duration_seconds=1,
+        vram_ratio=0.5,
+    ) == 128
+    assert controller.record_success(
+        batch_size=128,
+        duration_seconds=2,
+        vram_ratio=0.7,
+    ) == 256
+    assert controller.record_oom(attempted_batch_size=256) == 128
+    assert controller.oom_count == 1
+
+
+def test_qdrant_writer_is_a_dedicated_bounded_stage() -> None:
+    indexer = ContinuousIndexer(engine=MagicMock())
+    try:
+        assert indexer._writer_pool._max_workers == 1
+        assert indexer._write_futures == set()
+    finally:
+        indexer._writer_pool.shutdown(wait=True)
+
+
+def test_ocr_assets_are_routed_away_from_the_normal_extraction_pool() -> None:
+    base = {
+        "job_id": uuid.uuid4(),
+        "asset_type": "document",
+        "operation": "upsert_version",
+        "document_id": uuid.uuid4(),
+        "document_version_id": uuid.uuid4(),
+        "note_id": None,
+        "note_version_id": None,
+    }
+    assert ContinuousIndexer._is_ocr_target(
+        ClaimedTarget(**base, metadata={"relative_path": "scans/page.TIFF"})
+    )
+    assert not ContinuousIndexer._is_ocr_target(
+        ClaimedTarget(**base, metadata={"relative_path": "manuals/runbook.pdf"})
+    )
+
+
+def test_indexer_status_service_alias_preserves_existing_endpoint() -> None:
+    paths = {route.path for route in indexing_router.routes}
+    assert {"/index/status", "/indexer/status"}.issubset(paths)
 
 
 def test_atomic_bm25_snapshot_round_trip(tmp_path: Path) -> None:
@@ -142,6 +201,8 @@ def test_indexer_entrypoint_exists_and_is_separate() -> None:
     source = Path("backend/indexer_main.py").read_text(encoding="utf-8")
     assert "ContinuousIndexer" in source
     assert "uvicorn" not in source
+    launcher = Path("../../scripts/launch_all.bat").read_text(encoding="utf-8")
+    assert "Launch-CIAL-Knowledge-OS.bat" in launcher
 
 
 def test_migration_extends_actual_head() -> None:
@@ -152,6 +213,24 @@ def test_migration_extends_actual_head() -> None:
     assert "uq_indexing_jobs_active_note_operation" in source
     assert "indexer_workers" in source
     assert "index_generations" in source
+
+
+def test_chunk_reuse_migration_is_the_new_head() -> None:
+    source = Path(
+        "alembic/versions/20260725_0017_chunk_incremental_reuse.py"
+    ).read_text(encoding="utf-8")
+    assert 'down_revision = "20260724_0016"' in source
+    assert {
+        "chunk_hash",
+        "embedding_model_version",
+        "chunking_version",
+    }.issubset(DocumentChunk.__table__.columns.keys())
+
+
+def test_chunk_hash_changes_only_when_chunk_text_changes() -> None:
+    first = KnowledgeEngineService.chunk_hash("stable chunk")
+    assert first == KnowledgeEngineService.chunk_hash("stable chunk")
+    assert first != KnowledgeEngineService.chunk_hash("changed chunk")
 
 
 def test_cuda_oom_reduces_batch_recursively() -> None:
@@ -170,6 +249,25 @@ def test_cuda_oom_reduces_batch_recursively() -> None:
     assert vectors.shape == (5, 3)
     assert calls[0] == 5
     assert max(calls[1:]) < 5
+
+
+def test_embedding_call_uses_the_live_adaptive_batch_limit() -> None:
+    observed: list[int] = []
+
+    def embed(chunks, *, batch_size):
+        observed.append(batch_size)
+        return np.ones((len(chunks), 3), dtype=np.float32)
+
+    indexer = ContinuousIndexer.__new__(ContinuousIndexer)
+    indexer.engine = SimpleNamespace(embed_chunk_batch=embed)
+    indexer._batch_controller = AdaptiveBatchController(
+        minimum=1,
+        current=128,
+        maximum=256,
+    )
+    batch = [envelope(uuid.uuid4(), f"chunk-{index}") for index in range(100)]
+    assert indexer._embed_with_oom_reduction(batch).shape == (100, 3)
+    assert observed == [100]
 
 
 def test_bm25_debounce_flushes_before_idle(monkeypatch) -> None:
