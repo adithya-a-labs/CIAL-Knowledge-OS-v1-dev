@@ -2,12 +2,33 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
 from backend.app.core.config import settings
 from backend.app.db.health import check_database_health
+from backend.app.security.access import (
+    AccessPrincipal,
+    RequestAccessContext,
+    require_authenticated_access_context,
+    session_user_id_from_request,
+)
 
 router = APIRouter()
+
+
+def require_system_status_access(request: Request) -> RequestAccessContext:
+    """Authenticate status without requiring a healthy metadata database."""
+
+    session_user_id = session_user_id_from_request(request)
+    if session_user_id is not None:
+        return RequestAccessContext(
+            principal=AccessPrincipal(
+                user_id=session_user_id,
+                is_authenticated=True,
+            ),
+            scope="enterprise",
+        )
+    return require_authenticated_access_context(request)
 
 
 @router.get("/health")
@@ -44,3 +65,13 @@ def health(request: Request) -> dict[str, object]:
         **indexing,
         **database,
     }
+
+
+@router.get("/system/status")
+def system_status(
+    request: Request,
+    _access_context: object = Depends(require_system_status_access),
+) -> dict[str, object]:
+    """Return the authenticated AI Assistant health contract."""
+
+    return request.app.state.system_status_service.snapshot()

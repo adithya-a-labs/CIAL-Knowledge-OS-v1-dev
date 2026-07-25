@@ -28,6 +28,7 @@ from backend.app.services.knowledge_engine_service import KnowledgeEngineService
 from backend.app.services.message_transformation_service import OllamaTransformationGenerator
 from backend.app.services.startup_service import StartupService
 from backend.app.services.summary_worker import SummaryWorker
+from backend.app.services.system_status_service import SystemStatusService
 from cial_knowledge_os.corpus.service import CorpusService
 
 logger = logging.getLogger(__name__)
@@ -84,6 +85,11 @@ def create_app() -> FastAPI:
     app.state.startup_service = startup_service
     app.state.document_service = DocumentService(root=settings.corpus_root_path)
     app.state.indexing_service = IndexingService(engine, runtime_state)
+    app.state.system_status_service = SystemStatusService(
+        runtime_state=runtime_state,
+        engine=engine,
+        indexing_service=app.state.indexing_service,
+    )
     app.state.evaluation_service = EvaluationService()
     app.state.export_service = ExportService()
     transformation_generator = OllamaTransformationGenerator()
