@@ -3,9 +3,13 @@ import { useState } from 'react';
 import type { GenerationEvent } from '@/api/types';
 
 const labels: Record<string, string> = {
-  'request.validating': 'Validating request', 'context.building': 'Applying access boundary',
-  'retrieval.searching': 'Searching selected knowledge', 'evidence.selecting': 'Selecting strongest evidence',
-  'citations.linking': 'Linking citations', 'persistence.saving': 'Saving response',
+  'request.validating': 'Searching knowledge', 'context.building': 'Searching knowledge',
+  'index_generation.loaded': 'Searching knowledge', dense_retrieval: 'Retrieving sources',
+  bm25: 'Retrieving sources', hybrid_fusion: 'Retrieving sources',
+  'retrieval.searching': 'Retrieving sources', reranking: 'Retrieving sources',
+  'evidence.selecting': 'Retrieving sources', generation: 'Generating answer',
+  'citations.linking': 'Completing answer', 'persistence.saving': 'Completing answer',
+  chat: 'Completed',
 };
 
 export default function RetrievalTimeline({ events, elapsedSeconds, onStop }: { events: GenerationEvent[]; elapsedSeconds: number; onStop: () => void }) {

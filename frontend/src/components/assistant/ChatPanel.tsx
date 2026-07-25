@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Bot, Paperclip, Send } from 'lucide-react';
+import { Bot, Paperclip, RefreshCw, Send } from 'lucide-react';
 import { ApiError } from '@/api/types';
 import { useAssistantSessions } from './AssistantSessionContext';
 import ChatControlBar from './ChatControlBar';
@@ -112,6 +112,7 @@ export default function ChatPanel() {
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const activeRequestControllerRef = useRef<AbortController | null>(null);
   const activeRequestIdRef = useRef<string | null>(null);
+  const retryQuestionRef = useRef<string | null>(null);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const [chatMessagesWidth, setChatMessagesWidth] = useState<number>(0);
   const messages = activeSession.messages as ChatMessageData[];
@@ -180,6 +181,7 @@ export default function ChatPanel() {
   useEffect(() => {
     setInput('');
     setErrorMessage(null);
+    retryQuestionRef.current = null;
     setSelectedSource(null);
     setSourceViewerOpen(false);
   }, [activeSession.id]);
@@ -387,16 +389,22 @@ export default function ChatPanel() {
       updateSession(requestSessionId, {
         messages: [...messages, persistedUserMsg, aiMsg],
       });
+      retryQuestionRef.current = null;
     } catch (error) {
       const cancelled = controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
       const message = cancelled
         ? 'Generation stopped.'
+        : error instanceof Error && error.name === 'TimeoutError'
+          ? 'The assistant timed out. Your current index is still available; retry the request.'
         : error instanceof ApiError && error.status === 503
-          ? 'The knowledge engine is still preparing.'
+          ? 'The assistant is temporarily unavailable. Please retry.'
           : error instanceof TypeError
             ? 'The connection to the local knowledge service was interrupted.'
-            : 'The assistant could not complete this request.';
+            : error instanceof Error && error.message
+              ? error.message
+              : 'The assistant could not complete this request.';
       setErrorMessage(message);
+      if (!cancelled) retryQuestionRef.current = question;
       toast({
         title: cancelled ? 'Generation stopped' : 'Assistant request failed',
         description: message,
@@ -598,8 +606,9 @@ export default function ChatPanel() {
             {streamingText && <ChatMessage key="streaming-response" message={{ id: 'streaming-response', role: 'assistant', content: streamingText, timestamp: 'Generating…' }} chatWidth={chatMessagesWidth} onCitationClick={openSource} onSourceOpen={openSource} onRelatedQuestionClick={setInput} onCopy={copyResponse} onAction={handleResponseAction} loadingAction={undefined} onFeedback={handleFeedback} includeSourceExcerpts={includeSourceExcerpts} showRetrievalDetails={showRetrievalDetails}/>}
 
             {errorMessage && (
-              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" data-testid="assistant-error">
-                {errorMessage}
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" data-testid="assistant-error" role="alert">
+                <span>{errorMessage}</span>
+                {retryQuestionRef.current ? <button type="button" className="inline-flex shrink-0 items-center gap-1 rounded px-2 py-1 font-semibold hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500" onClick={() => void handleSend(retryQuestionRef.current ?? undefined)}><RefreshCw size={14}/>Retry</button> : null}
               </div>
             )}
           </div>
