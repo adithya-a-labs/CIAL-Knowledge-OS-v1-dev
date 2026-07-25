@@ -290,6 +290,9 @@ class PersonalWorkspaceService:
             self.session.add(version)
             self.session.flush()
             document.current_version_id = version.id
+            is_ocr = Path(relative_path).suffix.casefold() in {
+                ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"
+            }
             job = IndexingJob(
                 document_id=document.id, document_version_id=version.id, content_hash=document.content_hash,
                 asset_type="document", operation="upsert_version",
@@ -300,7 +303,9 @@ class PersonalWorkspaceService:
                     "content_hash": document.content_hash, "repository_id": document.repository_id,
                     "storage_scope": "personal", "workspace_id": str(workspace.id),
                     "owner_user_id": str(user_id), "department_id": str(document.department_id),
-                    "folder_id": str(folder.id), "visibility": "private", "lifecycle_status": "pending"},
+                    "folder_id": str(folder.id), "visibility": "private",
+                    "lifecycle_status": "pending",
+                    "workload_queue": "ocr" if is_ocr else "normal"},
             )
             self.session.add(job)
             folder.document_count = int(folder.document_count or 0) + 1

@@ -175,19 +175,23 @@ class ManagedWorkspaceIngestionService:
                 }
             logger.info("index_job_deduplicated", extra={"event": "index_job_deduplicated", "job_id": str(existing.id)})
             return False
+        is_ocr = Path(str(document.relative_path or "")).suffix.casefold() in {
+            ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"
+        }
         job = IndexingJob(
             document_id=document.id, document_version_id=version_id,
             asset_type="document",
             operation="delete_asset" if action == "deleted" else "upsert_version",
             content_hash=document.content_hash, repository_id=document.repository_id,
-            status="pending", priority=120 if action == "deleted" else 60,
+            status="pending", priority=120 if action == "deleted" else 55 if is_ocr else 60,
             max_attempts=settings.indexer_max_attempts, force_rebuild=False, attempts=0,
             message=f"Managed personal document {action}.",
             metadata_={"source": "workspace_watcher", "action": action,
                        "document_id": str(document.id), "document_version_id": str(version_id) if version_id else None,
                        "relative_path": document.relative_path, "workspace_id": str(document.workspace_id),
                        "owner_user_id": str(document.owner_user_id), "storage_scope": "personal",
-                       "visibility": "private", "repository_id": document.repository_id},
+                       "visibility": "private", "repository_id": document.repository_id,
+                       "workload_queue": "ocr" if is_ocr else "normal"},
         )
         session.add(job)
         logger.info("index_job_enqueued", extra={"event": "index_job_enqueued", "job_id": str(job.id), "document_id": str(document.id)})

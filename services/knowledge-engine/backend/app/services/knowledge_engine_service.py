@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import hashlib
 import logging
 from pathlib import Path
 import sys
@@ -11,6 +12,8 @@ from threading import Lock, RLock
 import time
 from typing import Any, Callable
 import uuid
+
+import numpy as np
 
 from backend.app.core.config import settings
 from backend.app.core.paths import KNOWLEDGE_ENGINE_SRC, REPO_ROOT
@@ -245,6 +248,17 @@ class KnowledgeEngineService:
         precision = settings.indexer_precision
         if precision == "auto":
             precision = "float16" if device.startswith("cuda") else "float32"
+        elif not device.startswith("cuda") and precision in {"float16", "bfloat16"}:
+            logger.warning(
+                "embedding_precision_cpu_fallback",
+                extra={
+                    "event": "embedding_precision_fallback",
+                    "requested_precision": precision,
+                    "actual_precision": "float32",
+                    "device": device,
+                },
+            )
+            precision = "float32"
         if precision == "float16":
             half = getattr(pipeline.embedding_model, "half", None)
             if callable(half):
@@ -650,6 +664,86 @@ class KnowledgeEngineService:
                 batch_size=batch_size,
             )
 
+    @staticmethod
+    def chunk_hash(text_value: str) -> str:
+        return hashlib.sha256(text_value.encode("utf-8")).hexdigest()
+
+    def _chunk_reuse_contract(self) -> tuple[str, str]:
+        pipeline = self._ready_pipeline("standard")
+        chunking_version = (
+            "recursive-character-v1:"
+            f"{int(pipeline.config.chunk_size)}:"
+            f"{int(pipeline.config.chunk_overlap)}"
+        )
+        return settings.embedding_model_name, chunking_version
+
+    def reusable_document_chunk_embeddings(
+        self,
+        document_id: uuid.UUID,
+        chunks: list[Any],
+    ) -> dict[int, np.ndarray]:
+        """Load unchanged chunk vectors from the last indexed document version."""
+
+        if SessionLocal is None or not chunks:
+            return {}
+        pipeline = self._ready_pipeline("standard")
+        embedding_version, chunking_version = self._chunk_reuse_contract()
+        hashes = [self.chunk_hash(chunk.page_content) for chunk in chunks]
+        with SessionLocal() as session:
+            rows = list(
+                session.scalars(
+                    select(DocumentChunk)
+                    .where(
+                        DocumentChunk.document_id == document_id,
+                        DocumentChunk.chunk_hash.in_(set(hashes)),
+                        DocumentChunk.embedding_model_version == embedding_version,
+                        DocumentChunk.chunking_version == chunking_version,
+                        DocumentChunk.qdrant_point_id.is_not(None),
+                    )
+                    .order_by(DocumentChunk.created_at.desc())
+                )
+            )
+        point_by_hash: dict[str, str] = {}
+        for row in rows:
+            if row.chunk_hash and row.qdrant_point_id:
+                point_by_hash.setdefault(row.chunk_hash, row.qdrant_point_id)
+        requested = list(dict.fromkeys(point_by_hash.values()))
+        if not requested:
+            return {}
+
+        from cial_knowledge_os.vectorstore import execute_qdrant_operation
+
+        vectors_by_point: dict[str, np.ndarray] = {}
+        batch_size = max(1, settings.indexer_qdrant_batch_size)
+        for offset in range(0, len(requested), batch_size):
+            point_ids = requested[offset : offset + batch_size]
+            records = execute_qdrant_operation(
+                pipeline.config,
+                "retrieve",
+                lambda timeout, ids=point_ids: pipeline.client.retrieve(
+                    collection_name=pipeline.config.qdrant_collection_name,
+                    ids=ids,
+                    with_payload=False,
+                    with_vectors=True,
+                    timeout=timeout,
+                ),
+                affected_count=len(point_ids),
+            )
+            for record in records:
+                value = record.vector
+                if isinstance(value, dict):
+                    value = next(iter(value.values()), None)
+                if value is not None:
+                    vectors_by_point[str(record.id)] = np.asarray(value, dtype=np.float32)
+
+        reusable: dict[int, np.ndarray] = {}
+        for index, chunk_hash in enumerate(hashes):
+            point_id = point_by_hash.get(chunk_hash)
+            vector = vectors_by_point.get(str(point_id)) if point_id else None
+            if vector is not None:
+                reusable[index] = vector
+        return reusable
+
     def write_document_version(
         self,
         document_id: uuid.UUID,
@@ -660,6 +754,7 @@ class KnowledgeEngineService:
         """Write, verify, then remove stale versions and commit chunk metadata."""
 
         pipeline = self._ready_pipeline("standard")
+        embedding_version, chunking_version = self._chunk_reuse_contract()
         from cial_knowledge_os.vectorstore import (
             _stable_point_id,
             delete_document_version,
@@ -724,6 +819,9 @@ class KnowledgeEngineService:
                         document_id=document_id,
                         document_version_id=document_version_id,
                         chunk_id=str(item.get("chunk_id") or f"{document_id}:{index}"),
+                        chunk_hash=self.chunk_hash(chunk.page_content),
+                        embedding_model_version=embedding_version,
+                        chunking_version=chunking_version,
                         chunk_index=index,
                         qdrant_point_id=_stable_point_id(chunk),
                         page=item.get("page_number"),
