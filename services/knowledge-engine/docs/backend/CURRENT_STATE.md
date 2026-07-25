@@ -604,3 +604,14 @@ Qdrant server mode is the concurrent runtime requirement. Embedded mode remains
 for isolated tests/notebooks. Multi-GPU scheduling beyond one worker per
 explicitly assigned device remains deferred. The canonical description is
 `docs/architecture/CONTINUOUS_INDEXING_ARCHITECTURE.md`.
+
+The continuous worker defaults to eight bounded extraction workers, starts GPU
+embedding at 64 chunks, adaptively grows healthy batches through 128 to 256,
+and reduces the live limit on CUDA OOM. FP16 is the operational default and
+falls back to FP32 on CPU. The durable status surface is available at both
+`/api/index/status` and `/api/indexer/status` and includes safe CPU/GPU,
+documents/hour, chunks/minute, and active-batch telemetry.
+Document revisions are chunk-incremental: SHA-256 chunk hashes plus
+embedding-model and chunking contract versions allow unchanged chunks to reuse
+verified Qdrant vectors. A complete new version is still written and verified
+before stale points are removed.
