@@ -134,13 +134,24 @@ unavailability. Dense retrieval is pinned to document versions and note
 revisions present in the loaded publication, so in-place Qdrant writes cannot
 expose a partially prepared generation.
 
-Qdrant queries have a 3-second per-attempt limit and two transient-only
-attempts. Reranking is capped by `reranker_candidate_top_k` and protected by a
-10-second deadline; local Ollama availability/streaming is bounded by the
-120-second generation timeout. Chat lock acquisition is limited to 5 seconds,
-and streaming has a 150-second terminal watchdog. Structured stage telemetry
-and authenticated `GET /api/chat/debug` expose safe timings without query,
-prompt, or document content.
+The live service invokes the loaded pipeline's query-only `answer()` path.
+It must never invoke the batch `run()` lifecycle: that lifecycle interprets
+the intentionally absent production `documents` and `embeddings` fields as
+work to perform and would load source files and embed the published BM25
+snapshot before retrieval. Query-time BM25 rebuilding is also rejected in the
+production authorization-aware runtime.
+
+Hard stage ceilings are Qdrant/dense retrieval 30 seconds, BM25 10 seconds,
+fusion 5 seconds, reranking 15 seconds, and evidence selection 5 seconds.
+Configured lower Qdrant limits and transient-only retries still apply inside
+the 30-second dense ceiling. Retrieval timeouts return authorization-filtered
+results from the surviving branch where possible; reranker timeout preserves
+the bounded fused order; evidence-selection timeout returns no evidence rather
+than generating from unselected material. Local Ollama streaming remains
+bounded by the 120-second generation timeout. Chat lock acquisition is limited
+to 5 seconds, and streaming has a 150-second terminal watchdog. Structured
+stage telemetry and authenticated `GET /api/chat/debug` expose safe timings and
+the exact failed stage without query, prompt, or document content.
 
 The current LLM adapter uses Ollama. The surrounding pipeline accepts replaceable
 local model objects, but adapters for other local runtimes such as vLLM and
@@ -663,13 +674,15 @@ embedding-model and chunking contract versions allow unchanged chunks to reuse
 verified Qdrant vectors. A complete new version is still written and verified
 before stale points are removed.
 
-Validation on 2026-07-25 passed 476 backend tests plus 50 subtests, 53 frontend
+Validation on 2026-07-25 passed 495 backend tests plus 50 subtests, 59 frontend
 contract tests, TypeScript checking, and the Vite production build. The existing
 running frontend held `dist` open on Windows, so the identical production build
 was verified in an isolated temporary output directory.
 
-The assistant frontend now presents Searching knowledge, Retrieving sources,
-Generating answer, Completed, and Failed lifecycle states. User Stop,
+The assistant frontend now presents Connected, Validating request, Loading
+published generation, Searching knowledge, Reranking sources, Generating
+answer, Completed, and Failed lifecycle states. A successful partial result
+identifies its degraded retrieval stage and retains Retry. User Stop,
 150-second client timeout, safe terminal errors, and Retry prevent an abandoned
 stream from leaving the UI in an infinite loading state.
 
