@@ -1,6 +1,6 @@
 # CIAL Knowledge OS: Current State through Phase 5
 
-Last audited: 2026-07-06
+Last audited: 2026-07-25
 
 This document describes the implemented repository state. `PROJECT_REQUIREMENTS.md`
 defines the binding requirements, while this file distinguishes completed
@@ -94,6 +94,24 @@ version before deleting stale points, and atomically publishes generation-tagged
 BM25 snapshots. The legacy manifest-driven `index()` path, including
 `incremental_indexing_enabled` and `force_rebuild_index`, remains available only
 to frozen notebooks and explicit batch experiments.
+
+Production chat is isolated from continuous indexing. A request uses the
+already-loaded, verified `index_generations.name='active'` publication and
+triggers pointer discovery asynchronously. It never polls indexing jobs, waits
+for queue drain, reads worker heartbeat state, or joins extraction/embedding
+work. A pending or failed update leaves the previous generation serving; a
+first deployment without a valid published generation returns controlled
+unavailability. Dense retrieval is pinned to document versions and note
+revisions present in the loaded publication, so in-place Qdrant writes cannot
+expose a partially prepared generation.
+
+Qdrant queries have a 3-second per-attempt limit and two transient-only
+attempts. Reranking is capped by `reranker_candidate_top_k` and protected by a
+10-second deadline; local Ollama availability/streaming is bounded by the
+120-second generation timeout. Chat lock acquisition is limited to 5 seconds,
+and streaming has a 150-second terminal watchdog. Structured stage telemetry
+and authenticated `GET /api/chat/debug` expose safe timings without query,
+prompt, or document content.
 
 The current LLM adapter uses Ollama. The surrounding pipeline accepts replaceable
 local model objects, but adapters for other local runtimes such as vLLM and
@@ -615,3 +633,13 @@ Document revisions are chunk-incremental: SHA-256 chunk hashes plus
 embedding-model and chunking contract versions allow unchanged chunks to reuse
 verified Qdrant vectors. A complete new version is still written and verified
 before stale points are removed.
+
+Validation on 2026-07-25 passed 466 backend tests plus 50 subtests, 46 frontend
+contract tests, TypeScript checking, and the Vite production build. The existing
+running frontend held `dist` open on Windows, so the identical production build
+was verified in an isolated temporary output directory.
+
+The assistant frontend now presents Searching knowledge, Retrieving sources,
+Generating answer, Completed, and Failed lifecycle states. User Stop,
+150-second client timeout, safe terminal errors, and Retry prevent an abandoned
+stream from leaving the UI in an infinite loading state.
