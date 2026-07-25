@@ -15,7 +15,7 @@ from backend.app.core.paths import KNOWLEDGE_ENGINE_SRC
 if str(KNOWLEDGE_ENGINE_SRC) not in sys.path:
     sys.path.insert(0, str(KNOWLEDGE_ENGINE_SRC))
 
-from backend.app.api.routes import auth, chat, corpus, documents, evaluation, exports, health, indexing, notes, saved_knowledge, search, summaries, settings as settings_routes, workspaces
+from backend.app.api.routes import admin_system, auth, chat, corpus, documents, evaluation, exports, health, indexing, notes, saved_knowledge, search, summaries, settings as settings_routes, workspaces
 from backend.app.core.config import settings
 from backend.app.core.logging import configure_logging
 from backend.app.core.runtime_state import RuntimeState
@@ -29,6 +29,7 @@ from backend.app.services.message_transformation_service import OllamaTransforma
 from backend.app.services.startup_service import StartupService
 from backend.app.services.summary_worker import SummaryWorker
 from backend.app.services.system_status_service import SystemStatusService
+from backend.app.services.admin_system_monitor_service import AdminSystemMonitorService
 from cial_knowledge_os.corpus.service import CorpusService
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,12 @@ def create_app() -> FastAPI:
         engine=engine,
         indexing_service=app.state.indexing_service,
     )
+    app.state.admin_system_monitor_service = AdminSystemMonitorService(
+        system_status_service=app.state.system_status_service,
+        runtime_state=runtime_state,
+        engine=engine,
+        indexing_service=app.state.indexing_service,
+    )
     app.state.evaluation_service = EvaluationService()
     app.state.export_service = ExportService()
     transformation_generator = OllamaTransformationGenerator()
@@ -97,6 +104,7 @@ def create_app() -> FastAPI:
     app.state.summary_worker = SummaryWorker(transformation_generator)
 
     app.include_router(health.router, prefix="/api", tags=["health"])
+    app.include_router(admin_system.router, prefix="/api", tags=["admin-system"])
     app.include_router(auth.router, prefix="/api", tags=["auth"])
     app.include_router(corpus.router, prefix="/api", tags=["corpus"])
     app.include_router(chat.router, prefix="/api", tags=["chat"])

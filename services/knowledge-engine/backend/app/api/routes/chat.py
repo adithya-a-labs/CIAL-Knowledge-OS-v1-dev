@@ -121,6 +121,9 @@ def stream_chat(payload: ChatRequest, request: Request):
         raise HTTPException(503,detail=runtime_state.chat_unavailable_detail())
     access=require_authenticated_access_context(request); user_id=access.principal.user_id
     request_id=str(uuid.uuid4()); events:queue.Queue=queue.Queue(); cancelled=threading.Event(); started=time.monotonic()
+    monitor = getattr(request.app.state, "admin_system_monitor_service", None)
+    if monitor is not None:
+        monitor.chat_started(request_id)
     def progress(stage_id,status_value,metrics):
         if cancelled.is_set(): raise _StreamCancelled()
         events.put({"request_id":request_id,"type":"stage","stage_id":stage_id,"status":status_value,"elapsed_ms":int((time.monotonic()-started)*1000),"metrics":metrics})
@@ -128,6 +131,8 @@ def stream_chat(payload: ChatRequest, request: Request):
         if cancelled.is_set(): raise _StreamCancelled()
         events.put({"request_id":request_id,"type":"token","stage_id":"generation","status":"started","elapsed_ms":int((time.monotonic()-started)*1000),"delta":delta})
     def run():
+        succeeded = False
+        error_type = None
         with SessionLocal() as db:
             repository=ChatRepository(db)
             try:
@@ -143,16 +148,28 @@ def stream_chat(payload: ChatRequest, request: Request):
                 assistant_message=repository.add_message(ChatMessage(session_id=chat_session.id,user_id=user_id,role="assistant",content=response.answer,citations=[item.model_dump(mode="json") for item in response.citations],sources=[item.model_dump(mode="json") for item in response.sources],metadata_={**response.metadata.model_dump(mode="json"),"generation_request":bound_payload.model_dump(mode="json",exclude={"question","session_id","include_debug"}),"user_message_id":str(user_message.id),"evidence_snapshot":response.evidence_snapshot}))
                 chat_session.updated_at=datetime.now(timezone.utc); db.commit(); response.session_id=chat_session.id; response.user_message_id=user_message.id; response.assistant_message_id=assistant_message.id
                 progress("persistence.saving","completed",{}); events.put({"request_id":request_id,"type":"result","stage_id":"complete","status":"completed","elapsed_ms":response.metadata.latency_ms,"payload":jsonable_encoder(response)})
+                succeeded = True
             except _StreamCancelled:
+                error_type = "cancelled"
                 db.rollback(); events.put({"request_id":request_id,"type":"cancelled","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"metrics":{}})
             except (WorkspaceNotFound, KnowledgeEngineUnavailable) as exc:
+                error_type = type(exc).__name__
                 db.rollback(); events.put({"request_id":request_id,"type":"error","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"payload":{"message":str(exc)}})
-            except Exception:
+            except Exception as exc:
+                error_type = type(exc).__name__
                 if cancelled.is_set():
                     db.rollback(); events.put({"request_id":request_id,"type":"cancelled","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"metrics":{}}); return
                 logger.exception("chat_stream_failed", extra={"request_id": request_id})
                 db.rollback(); events.put({"request_id":request_id,"type":"error","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"payload":{"message":"The assistant could not complete this request."}})
-            finally: events.put(None)
+            finally:
+                if monitor is not None:
+                    monitor.chat_completed(
+                        request_id,
+                        succeeded=succeeded,
+                        latency_ms=int((time.monotonic()-started)*1000),
+                        error_type=error_type,
+                    )
+                events.put(None)
     threading.Thread(target=run,name=f"chat-{request_id}",daemon=True).start()
     def body():
         try:
@@ -254,6 +271,11 @@ def chat(payload: ChatRequest, request: Request, db: Session = Depends(get_db_se
     if chat_session is None:
         chat_session = repository.add_session(ChatSession(id=payload.session_id or uuid.uuid4(), user_id=user_id, title=payload.question.strip()[:72]))
     payload = ConversationService.enforce(chat_session, payload)
+    monitor = getattr(request.app.state, "admin_system_monitor_service", None)
+    monitor_request_id = str(uuid.uuid4())
+    monitor_started = time.monotonic()
+    if monitor is not None:
+        monitor.chat_started(monitor_request_id)
     try:
         response = request.app.state.knowledge_engine.answer_question(
             payload,
@@ -279,17 +301,44 @@ def chat(payload: ChatRequest, request: Request, db: Session = Depends(get_db_se
         response.session_id = chat_session.id
         response.user_message_id = user_message.id
         response.assistant_message_id = assistant_message.id
+        if monitor is not None:
+            monitor.chat_completed(
+                monitor_request_id,
+                succeeded=True,
+                latency_ms=int((time.monotonic() - monitor_started) * 1000),
+            )
         return response
     except KnowledgeEngineDocumentsNotReady as exc:
+        if monitor is not None:
+            monitor.chat_completed(
+                monitor_request_id,
+                succeeded=False,
+                latency_ms=int((time.monotonic() - monitor_started) * 1000),
+                error_type=type(exc).__name__,
+            )
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={
             "code": "documents_not_ready", "message": str(exc), "documents": exc.documents,
         }) from exc
     except KnowledgeEngineInvalidRequest as exc:
+        if monitor is not None:
+            monitor.chat_completed(
+                monitor_request_id,
+                succeeded=False,
+                latency_ms=int((time.monotonic() - monitor_started) * 1000),
+                error_type=type(exc).__name__,
+            )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
         ) from exc
     except KnowledgeEngineUnavailable as exc:
+        if monitor is not None:
+            monitor.chat_completed(
+                monitor_request_id,
+                succeeded=False,
+                latency_ms=int((time.monotonic() - monitor_started) * 1000),
+                error_type=type(exc).__name__,
+            )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
@@ -297,6 +346,15 @@ def chat(payload: ChatRequest, request: Request, db: Session = Depends(get_db_se
                 "message": str(exc),
             },
         ) from exc
+    except Exception as exc:
+        if monitor is not None:
+            monitor.chat_completed(
+                monitor_request_id,
+                succeeded=False,
+                latency_ms=int((time.monotonic() - monitor_started) * 1000),
+                error_type=type(exc).__name__,
+            )
+        raise
 
 
 def _actions(request: Request, db: Session) -> ChatActionService:
