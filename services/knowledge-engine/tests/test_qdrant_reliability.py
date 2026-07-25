@@ -13,6 +13,7 @@ from qdrant_client.models import Distance, VectorParams
 from backend.app.services.indexing_worker import IndexingWorker
 from cial_knowledge_os.config import KnowledgeOSConfig
 from cial_knowledge_os.vectorstore import (
+    ensure_query_payload_indexes,
     execute_qdrant_operation,
     replace_document_chunks,
 )
@@ -151,14 +152,14 @@ def test_transient_timeout_retries_with_exponential_backoff(tmp_path, caplog):
 
     with caplog.at_level(logging.INFO):
         result = execute_qdrant_operation(
-            config(tmp_path),
+            config(tmp_path, qdrant_query_retry_attempts=3),
             "query_points",
             operation,
             sleep_fn=delays.append,
         )
 
     assert result == "recovered"
-    assert attempts == [30, 30, 30]
+    assert attempts == [3, 3, 3]
     assert delays == [2, 4]
     retries = [
         record
@@ -184,6 +185,25 @@ def test_permanent_failure_is_not_retried(tmp_path):
         )
     assert attempts == [60]
     assert delays == []
+
+
+def test_query_authorization_fields_receive_keyword_payload_indexes(tmp_path):
+    calls = []
+    client = SimpleNamespace(
+        get_collection=lambda *args, **kwargs: SimpleNamespace(
+            payload_schema={"metadata.document_id": object()}
+        ),
+        create_payload_index=lambda **kwargs: calls.append(kwargs),
+    )
+
+    ensure_query_payload_indexes(client, config(tmp_path))
+
+    fields = {call["field_name"] for call in calls}
+    assert "metadata.relative_path" in fields
+    assert "metadata.repository_id" in fields
+    assert "metadata.owner_user_id" in fields
+    assert "metadata.document_id" not in fields
+    assert all(call["timeout"] == 120 for call in calls)
 
 
 def test_timeout_and_retry_configuration_comes_from_environment(
