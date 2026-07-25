@@ -158,6 +158,43 @@ def test_monitor_records_real_chat_activity_and_completion():
     assert "chat_started" in event_types
 
 
+def test_monitor_projects_live_retrieval_stage_and_timeout_reason():
+    service = _service()
+    service.chat_started("request-1")
+    service.chat_stage(
+        "request-1",
+        "dense_retrieval",
+        "started",
+        {
+            "error_state": None,
+            "timeout_state": "not_timed_out",
+            "duration_ms": 0,
+            "candidate_count": 0,
+        },
+    )
+    active = service.snapshot()["query"]
+
+    assert active["current_stage"] == "dense_retrieval"
+    assert active["current_stage_duration_ms"] >= 0
+
+    service.chat_stage(
+        "request-1",
+        "dense_retrieval",
+        "completed",
+        {
+            "error_state": "timeout",
+            "timeout_state": "timed_out",
+            "duration_ms": 30_000,
+            "candidate_count": 0,
+        },
+    )
+    failed = service.snapshot()
+
+    assert failed["query"]["failed_stage"] == "dense_retrieval"
+    assert failed["query"]["timeout_reason"] == "timeout"
+    assert failed["events"][0]["type"] == "retrieval_stage_failed"
+
+
 def test_stale_worker_heartbeat_is_reported_without_fabricating_health():
     payload = _service(stale=True).snapshot()
 
