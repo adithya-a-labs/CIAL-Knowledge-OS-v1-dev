@@ -358,8 +358,7 @@ class AdminSystemMonitorService:
                 "utilization_percent": gpu_metrics.get("utilization_percent"),
                 "memory_used_mb": gpu_metrics.get("memory_used_mb"),
                 "memory_total_mb": gpu_metrics.get("memory_total_mb"),
-                "embedding_device": diagnostics.get("embedding_device")
-                or queue.get("embedding_device")
+                "embedding_device": queue.get("embedding_device")
                 or settings.indexer_device,
                 "precision": queue.get("embedding_precision")
                 or settings.indexer_precision,
@@ -370,6 +369,31 @@ class AdminSystemMonitorService:
                 "embedding_throughput_chunks_per_minute": throughput.get(
                     "chunks_per_minute"
                 ),
+                "state": (queue.get("worker_metrics") or {}).get("gpu_state")
+                or queue.get("gpu_state"),
+                "embedding_model_gpu_resident": (
+                    (queue.get("worker_metrics") or {}).get(
+                        "embedding_model_gpu_resident"
+                    )
+                ),
+                "active_embedding_jobs": (
+                    (queue.get("worker_metrics") or {}).get(
+                        "active_embedding_jobs"
+                    )
+                ),
+                "embedding_model_memory": (
+                    (queue.get("worker_metrics") or {}).get(
+                        "embedding_model_memory"
+                    )
+                    or {}
+                ),
+                "chat_priority_active": (
+                    (queue.get("worker_metrics") or {}).get(
+                        "chat_priority_active"
+                    )
+                ),
+                "generation_start": query.get("generation_gpu_start") or {},
+                "generation_end": query.get("generation_gpu_end") or {},
             },
             "cpu": {
                 **self._sample_backend_cpu(),
@@ -388,6 +412,11 @@ class AdminSystemMonitorService:
                 "embedding_model_ready": bool(
                     diagnostics.get("embedding_ready")
                 ),
+                "query_embedding_device": diagnostics.get(
+                    "query_embedding_device"
+                )
+                or diagnostics.get("embedding_device")
+                or settings.query_embedding_device,
                 "reranker_model": settings.reranker_model_name,
                 "reranker_ready": bool(diagnostics.get("reranker_ready")),
             },
@@ -426,6 +455,7 @@ class AdminSystemMonitorService:
                 "retrieval_latency_ms": query.get("retrieval_latency"),
                 "reranker_latency_ms": query.get("reranker_latency"),
                 "generation_latency_ms": query.get("generation_latency"),
+                "generation_metrics": query.get("generation_metrics") or {},
                 "total_latency_ms": query.get("total_latency"),
                 "last_error": query.get("last_error"),
             },
