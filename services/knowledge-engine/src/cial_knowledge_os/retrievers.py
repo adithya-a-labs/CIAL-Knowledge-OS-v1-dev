@@ -8,6 +8,7 @@ import pickle
 import re
 import threading
 import time
+from array import array
 from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from langchain_core.documents import Document
+import numpy as np
 
 from .fusion import ReciprocalRankFusion
 from .metadata import normalize_result
@@ -97,12 +99,14 @@ class BM25Retriever:
         self._index: Any | None = None
         self._fingerprint: str | None = None
         self.allowed_relative_paths: frozenset[str] | None = None
-        self._authorized_indexes: OrderedDict[
-            str,
-            tuple[list[dict[str, Any]], list[list[str]], Any],
-        ] = OrderedDict()
+        self._authorized_indexes: OrderedDict[str, np.ndarray] = OrderedDict()
         self._authorized_cache_limit = 16
         self._authorized_lock = threading.RLock()
+        self._relative_path_indexes: dict[str, np.ndarray] = {}
+        self._term_postings: dict[str, tuple[array, array]] = {}
+        self._document_lengths = np.empty(0, dtype=np.float64)
+        self.document_count = 0
+        self.last_search_metrics: dict[str, Any] = {}
 
     @property
     def is_indexed(self) -> bool:
@@ -239,6 +243,10 @@ class BM25Retriever:
             self._tokenized_corpus = []
             self._index = []
             self._fingerprint = self._corpus_fingerprint([])
+            self._relative_path_indexes = {}
+            self._term_postings = {}
+            self._document_lengths = np.empty(0, dtype=np.float64)
+            self.document_count = 0
             logger.info(
                 "bm25_index_ready",
                 extra={
@@ -273,6 +281,40 @@ class BM25Retriever:
         self._tokenized_corpus = tokenized
         self._index = BM25Okapi(tokenized, k1=self.k1, b=self.b)
         self._fingerprint = fingerprint
+        path_indexes: dict[str, list[int]] = {}
+        document_ids: set[str] = set()
+        for index, chunk in enumerate(normalized):
+            metadata = chunk.get("metadata")
+            metadata = metadata if isinstance(metadata, Mapping) else {}
+            relative_path = self._normalize_relative_path(
+                chunk.get("relative_path") or metadata.get("relative_path")
+            )
+            if relative_path:
+                path_indexes.setdefault(relative_path, []).append(index)
+            document_id = str(
+                chunk.get("document_id") or metadata.get("document_id") or ""
+            ).strip()
+            if document_id:
+                document_ids.add(document_id)
+        self._relative_path_indexes = {
+            path: np.asarray(indexes, dtype=np.int64)
+            for path, indexes in path_indexes.items()
+        }
+        term_postings: dict[str, tuple[array, array]] = {}
+        for index, frequencies in enumerate(self._index.doc_freqs):
+            for token, frequency in frequencies.items():
+                indexes, counts = term_postings.setdefault(
+                    token,
+                    (array("I"), array("I")),
+                )
+                indexes.append(index)
+                counts.append(frequency)
+        self._term_postings = term_postings
+        self._document_lengths = np.asarray(
+            self._index.doc_len,
+            dtype=np.float64,
+        )
+        self.document_count = len(document_ids)
         with self._authorized_lock:
             self._authorized_indexes.clear()
         logger.info(
@@ -286,6 +328,7 @@ class BM25Retriever:
         return True
 
     def retrieve(self, query: str, *, top_k: int) -> list[dict[str, Any]]:
+        started = time.perf_counter()
         if top_k <= 0:
             raise ValueError("top_k must be greater than zero.")
         if self._index is None:
@@ -294,75 +337,135 @@ class BM25Retriever:
                 "retrieve()."
             )
         if not self._chunks:
+            self.last_search_metrics = {
+                "bm25_search_duration_ms": round(
+                    (time.perf_counter() - started) * 1000, 3
+                ),
+                "bm25_candidate_count": 0,
+                "document_count": self.document_count,
+                "chunk_count": 0,
+            }
             return []
         tokens = self.tokenizer(query)
         if not tokens:
+            self.last_search_metrics = {
+                "bm25_search_duration_ms": round(
+                    (time.perf_counter() - started) * 1000, 3
+                ),
+                "bm25_candidate_count": 0,
+                "document_count": self.document_count,
+                "chunk_count": len(self._chunks),
+            }
             return []
-        chunks = self._chunks
-        active_corpus_tokens = self._tokenized_corpus
-        active_index = self._index
         with self._authorized_lock:
             allowed_relative_paths = self.allowed_relative_paths
+        allowed_indexes: np.ndarray | None = None
         if allowed_relative_paths is not None:
-            cache_key = hashlib.sha256((self._fingerprint or "").encode() + b"\0" + "\0".join(sorted(allowed_relative_paths)).encode()).hexdigest()
+            cache_key = hashlib.sha256(
+                (self._fingerprint or "").encode()
+                + b"\0"
+                + "\0".join(sorted(allowed_relative_paths)).encode()
+            ).hexdigest()
             with self._authorized_lock:
                 cached = self._authorized_indexes.get(cache_key)
             if cached is None:
-                authorized = [
-                    (chunk, tokens)
-                    for chunk, tokens in zip(
-                        self._chunks,
-                        self._tokenized_corpus,
-                        strict=True,
-                    )
-                    if self._is_allowed(chunk, allowed_relative_paths)
+                arrays = [
+                    self._relative_path_indexes[path]
+                    for path in allowed_relative_paths
+                    if path in self._relative_path_indexes
                 ]
-                chunks = [chunk for chunk, _ in authorized]
-                active_corpus_tokens = [
-                    chunk_tokens for _, chunk_tokens in authorized
-                ]
-                if not chunks:
-                    return []
-                try:
-                    from rank_bm25 import BM25Okapi
-                except ImportError as exc:
-                    raise RuntimeError("BM25 retrieval requires rank-bm25.") from exc
-                active_index = BM25Okapi(
-                    active_corpus_tokens,
-                    k1=self.k1,
-                    b=self.b,
+                allowed_indexes = (
+                    np.sort(np.concatenate(arrays))
+                    if arrays
+                    else np.empty(0, dtype=np.int64)
                 )
                 with self._authorized_lock:
-                    self._authorized_indexes[cache_key] = (
-                        chunks,
-                        active_corpus_tokens,
-                        active_index,
-                    )
+                    self._authorized_indexes[cache_key] = allowed_indexes
                     self._authorized_indexes.move_to_end(cache_key)
                     while len(self._authorized_indexes) > self._authorized_cache_limit:
                         self._authorized_indexes.popitem(last=False)
             else:
-                chunks, active_corpus_tokens, active_index = cached
+                allowed_indexes = cached
                 with self._authorized_lock:
                     self._authorized_indexes.move_to_end(cache_key)
-        scores = active_index.get_scores(tokens)
-        ranked_indexes = sorted(
-            range(len(scores)),
-            key=lambda index: (-float(scores[index]), index),
+            if allowed_indexes.size == 0:
+                self.last_search_metrics = {
+                    "bm25_search_duration_ms": round(
+                        (time.perf_counter() - started) * 1000, 3
+                    ),
+                    "bm25_candidate_count": 0,
+                    "document_count": self.document_count,
+                    "chunk_count": len(self._chunks),
+                }
+                return []
+        scores = np.zeros(len(self._chunks), dtype=np.float64)
+        average_document_length = float(self._index.avgdl)
+        for token in tokens:
+            posting = self._term_postings.get(token)
+            if posting is None:
+                continue
+            posting_indexes = np.frombuffer(posting[0], dtype=np.uint32)
+            frequencies = np.frombuffer(posting[1], dtype=np.uint32)
+            idf = float(self._index.idf.get(token) or 0.0)
+            denominator = frequencies + self.k1 * (
+                1.0
+                - self.b
+                + self.b
+                * self._document_lengths[posting_indexes]
+                / average_document_length
+            )
+            scores[posting_indexes] += (
+                idf * frequencies * (self.k1 + 1.0) / denominator
+            )
+        candidate_indexes = (
+            np.flatnonzero(scores != 0)
+            if allowed_indexes is None
+            else allowed_indexes[scores[allowed_indexes] != 0]
         )
+        effective_scores = scores[candidate_indexes].copy()
+        for offset in np.flatnonzero(effective_scores <= 0):
+            index = int(candidate_indexes[offset])
+            overlap = len(
+                set(tokens).intersection(self._tokenized_corpus[index])
+            )
+            effective_scores[offset] = (
+                overlap / max(len(set(tokens)), 1) * 1e-6
+                if overlap > 0
+                else 0
+            )
+        positive = effective_scores > 0
+        candidate_indexes = candidate_indexes[positive]
+        effective_scores = effective_scores[positive]
+        if (
+            candidate_indexes.size == 0
+            and allowed_indexes is not None
+            and allowed_indexes.size <= 10_000
+        ):
+            fallback_indexes: list[int] = []
+            fallback_scores: list[float] = []
+            query_tokens = set(tokens)
+            for value in allowed_indexes:
+                index = int(value)
+                overlap = len(query_tokens.intersection(self._tokenized_corpus[index]))
+                if overlap > 0:
+                    fallback_indexes.append(index)
+                    fallback_scores.append(
+                        overlap / max(len(query_tokens), 1) * 1e-6
+                    )
+            candidate_indexes = np.asarray(fallback_indexes, dtype=np.int64)
+            effective_scores = np.asarray(fallback_scores, dtype=np.float64)
+        if candidate_indexes.size > top_k:
+            threshold = np.partition(effective_scores, -top_k)[-top_k]
+            selected = effective_scores >= threshold
+            candidate_indexes = candidate_indexes[selected]
+            effective_scores = effective_scores[selected]
+        order = np.lexsort((candidate_indexes, -effective_scores))
+        ranked_indexes = candidate_indexes[order][:top_k]
+        ranked_scores = effective_scores[order][:top_k]
         results: list[dict[str, Any]] = []
-        for index in ranked_indexes:
-            score = float(scores[index])
-            if score <= 0:
-                if allowed_relative_paths is None:
-                    continue
-                overlap = len(
-                    set(tokens).intersection(active_corpus_tokens[index])
-                )
-                if overlap <= 0:
-                    continue
-                score = overlap / max(len(set(tokens)), 1) * 1e-6
-            result = dict(chunks[index])
+        for index, score_value in zip(ranked_indexes, ranked_scores, strict=True):
+            score = float(score_value)
+            result = dict(self._chunks[int(index)])
             result.update(
                 {
                     "score": score,
@@ -372,11 +475,20 @@ class BM25Retriever:
                 }
             )
             results.append(result)
-            if len(results) >= top_k:
-                break
+        duration_ms = round((time.perf_counter() - started) * 1000, 3)
+        self.last_search_metrics = {
+            "bm25_search_duration_ms": duration_ms,
+            "bm25_candidate_count": len(results),
+            "document_count": self.document_count,
+            "chunk_count": len(self._chunks),
+        }
         logger.info(
             "bm25_retrieval_complete",
-            extra={"event": "bm25_retrieval", "result_count": len(results)},
+            extra={
+                "event": "bm25_retrieval",
+                "result_count": len(results),
+                **self.last_search_metrics,
+            },
         )
         return results
 
@@ -439,6 +551,7 @@ class HybridRetriever:
         duration_ms: int = 0,
         candidate_count: int = 0,
         error_state: str | None = None,
+        extra_metrics: Mapping[str, Any] | None = None,
     ) -> None:
         metrics = {
             "stage_started": True,
@@ -446,6 +559,7 @@ class HybridRetriever:
             "duration_ms": duration_ms,
             "candidate_count": candidate_count,
             "error_state": error_state,
+            **dict(extra_metrics or {}),
         }
         self.last_stage_telemetry[stage] = dict(metrics)
         logger.info(
@@ -595,7 +709,7 @@ class HybridRetriever:
         ],
         rankings: dict[str, list[dict[str, Any]]],
     ) -> BaseException | None:
-        _, started, completed, result_box = operations[retriever_name]
+        retriever, started, completed, result_box = operations[retriever_name]
         remaining = max(
             0.0,
             self.stage_timeouts[retriever_name]
@@ -621,6 +735,11 @@ class HybridRetriever:
             duration_ms=int((time.perf_counter() - started) * 1000),
             candidate_count=len(results),
             error_state=error_state,
+            extra_metrics=(
+                getattr(retriever, "last_search_metrics", {})
+                if retriever_name == "bm25"
+                else None
+            ),
         )
         if error_state is not None:
             logger.warning(

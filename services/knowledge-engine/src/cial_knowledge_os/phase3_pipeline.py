@@ -422,6 +422,11 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
             duration_ms=int((time.perf_counter() - started) * 1000),
             candidate_count=len(results),
             error_state=error_state,
+            extra_metrics=(
+                getattr(retriever, "last_search_metrics", {})
+                if mode == "bm25"
+                else None
+            ),
         )
         return results
 
@@ -433,6 +438,7 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
         duration_ms: int = 0,
         candidate_count: int = 0,
         error_state: str | None = None,
+        extra_metrics: Mapping[str, Any] | None = None,
     ) -> None:
         metrics = {
             "stage_started": True,
@@ -440,6 +446,7 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
             "duration_ms": duration_ms,
             "candidate_count": candidate_count,
             "error_state": error_state,
+            **dict(extra_metrics or {}),
         }
         self.last_retrieval_telemetry[stage] = dict(metrics)
         if status == "completed":
