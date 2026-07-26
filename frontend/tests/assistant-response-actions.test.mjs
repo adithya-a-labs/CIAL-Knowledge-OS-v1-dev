@@ -119,7 +119,8 @@ test('workspace automatically polls only while files are pending or indexing', (
 });
 
 test('chat attachments use the persistent managed upload and final document id', () => {
-  assert.match(panel, /uploadChatAttachment\(file, activeSession\.id\)/);
+  assert.match(panel, /attachmentSessionId = isAssistantDraftId\(activeSession\.id\) \? undefined : activeSession\.id/);
+  assert.match(panel, /uploadChatAttachment\(file, attachmentSessionId\)/);
   assert.match(panel, /backendDocumentId: result\.value\.document_id/);
   assert.match(panel, /backendDocumentVersionId: result\.value\.document_version_id/);
   assert.doesNotMatch(panel, /uploadDocument\(file/);
