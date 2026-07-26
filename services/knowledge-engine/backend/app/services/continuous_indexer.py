@@ -239,6 +239,10 @@ class ContinuousIndexer:
             "chat_priority_active": False,
             "chat_priority_wait_seconds": 0.0,
             "embedding_model_gpu_resident": False,
+            "embedding_device_configured": settings.indexer_device,
+            "embedding_device_actual": "unknown",
+            "embedding_model_status": "initializing",
+            "embedding_batch": {},
             "adaptive_batch": {
                 "current": self._batch_controller.current,
                 "minimum": self._batch_controller.minimum,
@@ -267,6 +271,19 @@ class ContinuousIndexer:
             raise
         self.actual_device = str(runtime.get("embedding_device") or settings.indexer_device)
         self.actual_precision = str(runtime.get("embedding_precision") or settings.indexer_precision)
+        embedding_runtime = dict(runtime.get("embedding_runtime") or {})
+        self._metrics["embedding_device_configured"] = embedding_runtime.get(
+            "embedding_device_configured", settings.indexer_device
+        )
+        self._metrics["embedding_device_actual"] = embedding_runtime.get(
+            "embedding_device_actual", self.actual_device
+        )
+        self._metrics["embedding_model_status"] = (
+            "ready_gpu"
+            if str(self._metrics["embedding_device_actual"]).startswith("cuda")
+            else "ready_cpu"
+        )
+        self._metrics["embedding_runtime"] = embedding_runtime
         self._metrics["gpu_state"] = (
             "ready" if self.actual_device.startswith("cuda") else "cpu"
         )
@@ -731,8 +748,20 @@ class ContinuousIndexer:
                 )
                 vectors = self._embed_with_oom_reduction(batch)
                 self._last_embedding_activity = time.monotonic()
+                batch_metrics = dict(
+                    getattr(self.engine, "_last_embedding_batch_metrics", {}) or {}
+                )
+                self._metrics["embedding_batch"] = batch_metrics
+                self._metrics["embedding_device_actual"] = batch_metrics.get(
+                    "device", self._metrics.get("embedding_device_actual")
+                )
                 self._metrics["embedding_model_gpu_resident"] = bool(
                     getattr(self.engine, "_indexer_embedding_gpu_resident", False)
+                )
+                self._metrics["embedding_model_status"] = (
+                    "embedding_gpu"
+                    if self._metrics["embedding_model_gpu_resident"]
+                    else "embedding_cpu"
                 )
                 self._metrics["gpu_state"] = (
                     "embedding"
@@ -776,7 +805,7 @@ class ContinuousIndexer:
                         "chunks": len(batch),
                         "assets": len({item.asset_id for item in batch}),
                         "tokens": sum(item.token_count for item in batch),
-                        "device": self.actual_device,
+                        "device": self._metrics["embedding_device_actual"],
                         "next_batch_limit": active_limit,
                         "inference_ms": round(inference_seconds * 1000, 2),
                         "chunks_per_second": round(len(batch) / inference_seconds, 2),
@@ -945,6 +974,8 @@ class ContinuousIndexer:
         try:
             if self.engine.release_indexer_gpu():
                 self._metrics["embedding_model_gpu_resident"] = False
+                self._metrics["embedding_device_actual"] = "cpu"
+                self._metrics["embedding_model_status"] = "yielding_to_chat"
         except Exception:
             logger.warning("indexer_gpu_priority_release_failed", exc_info=True)
         waited = self._gpu_coordinator.wait_for_chat(self.stop_event)
@@ -971,6 +1002,8 @@ class ContinuousIndexer:
         if released:
             self._metrics["gpu_state"] = "released_idle"
             self._metrics["embedding_model_gpu_resident"] = False
+            self._metrics["embedding_device_actual"] = "cpu"
+            self._metrics["embedding_model_status"] = "released_idle"
             logger.info(
                 "indexer_embedding_gpu_released",
                 extra={
