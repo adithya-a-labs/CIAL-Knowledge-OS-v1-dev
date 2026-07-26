@@ -561,6 +561,11 @@ class DurableIndexQueue:
                         "chat_priority_wait_seconds",
                         "embedding_model_gpu_resident",
                         "embedding_model_memory",
+                        "embedding_device_configured",
+                        "embedding_device_actual",
+                        "embedding_model_status",
+                        "embedding_runtime",
+                        "embedding_batch",
                     )
                 },
                 active_batch_limit=int(
