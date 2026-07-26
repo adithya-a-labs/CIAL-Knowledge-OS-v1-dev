@@ -232,7 +232,12 @@ def release_ollama_runtime(model_name: str) -> bool:
         )
     except Exception:
         return False
-    return not inspect_ollama_runtime(model_name).get("model_loaded", True)
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if not inspect_ollama_runtime(model_name).get("model_loaded", True):
+            return True
+        time.sleep(0.1)
+    return False
 
 
 class GenerationGpuSampler:
