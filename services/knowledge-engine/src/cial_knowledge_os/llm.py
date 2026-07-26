@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from typing import Any, Iterator, Protocol
 
@@ -14,6 +15,68 @@ from .prompts import DEFAULT_PROMPT_MANAGER
 PHASE1_NO_EVIDENCE_RESPONSE = DEFAULT_PROMPT_MANAGER.get(
     "evaluation.phase1_no_evidence"
 ).text
+
+
+def valid_milliseconds(
+    value: Any,
+    *,
+    maximum: float | None = None,
+) -> float | None:
+    """Return a finite, non-negative millisecond duration within its boundary."""
+
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed) or parsed < 0:
+        return None
+    if maximum is not None and parsed > maximum:
+        return None
+    return round(parsed, 3)
+
+
+def sanitize_generation_metrics(
+    metrics: dict[str, Any],
+    *,
+    generation_duration_ms: float,
+    request_duration_ms: float | None = None,
+) -> dict[str, Any]:
+    """Reject impossible generation timings without manufacturing replacements."""
+
+    sanitized = dict(metrics)
+    generation_maximum = valid_milliseconds(generation_duration_ms)
+    request_maximum = valid_milliseconds(request_duration_ms)
+    if generation_maximum is None:
+        generation_maximum = 0.0
+    maximum = (
+        min(generation_maximum, request_maximum)
+        if request_maximum is not None
+        else generation_maximum
+    )
+    for key in (
+        "first_token_ms",
+        "model_load_ms",
+        "prompt_eval_ms",
+        "ollama_total_ms",
+        "wall_duration_ms",
+    ):
+        sanitized[key] = valid_milliseconds(
+            sanitized.get(key),
+            maximum=maximum,
+        )
+    tokens_per_second = sanitized.get("tokens_per_second")
+    try:
+        parsed_rate = float(tokens_per_second)
+    except (TypeError, ValueError):
+        parsed_rate = 0.0
+    sanitized["tokens_per_second"] = (
+        round(parsed_rate, 3)
+        if math.isfinite(parsed_rate) and parsed_rate > 0
+        else None
+    )
+    return sanitized
 
 
 class GenerationFailedError(RuntimeError):
@@ -63,22 +126,28 @@ class OllamaGenerationAdapter:
     def _milliseconds(value: Any) -> float | None:
         if value is None:
             return None
-        return round(float(value) / 1_000_000, 3)
+        try:
+            milliseconds = float(value) / 1_000_000
+        except (TypeError, ValueError):
+            return None
+        return valid_milliseconds(milliseconds)
 
     def _complete_metrics(
         self,
         response: Any,
         *,
         started: float,
-        first_token_seconds: float | None,
+        first_token_at: float | None,
     ) -> None:
+        completed_at = time.perf_counter()
+        wall_duration_ms = round((completed_at - started) * 1000, 3)
         output_tokens = int(getattr(response, "eval_count", 0) or 0)
         eval_duration = int(getattr(response, "eval_duration", 0) or 0)
-        self.last_generation_metrics = {
+        metrics = {
             "model": self.model,
             "keep_alive": self.keep_alive,
             "gpu_layers_requested": self.num_gpu,
-            "wall_duration_ms": round((time.perf_counter() - started) * 1000, 3),
+            "wall_duration_ms": wall_duration_ms,
             "model_load_ms": self._milliseconds(
                 getattr(response, "load_duration", None)
             ),
@@ -89,8 +158,8 @@ class OllamaGenerationAdapter:
                 getattr(response, "total_duration", None)
             ),
             "first_token_ms": (
-                round(first_token_seconds * 1000, 3)
-                if first_token_seconds is not None
+                round((first_token_at - started) * 1000, 3)
+                if first_token_at is not None
                 else None
             ),
             "prompt_tokens": int(getattr(response, "prompt_eval_count", 0) or 0),
@@ -102,11 +171,16 @@ class OllamaGenerationAdapter:
             ),
             "done_reason": getattr(response, "done_reason", None),
         }
+        self.last_generation_metrics = sanitize_generation_metrics(
+            metrics,
+            generation_duration_ms=wall_duration_ms,
+        )
 
     def stream(self, prompt: str) -> Iterator[str]:
         started = time.perf_counter()
-        first_token_seconds: float | None = None
+        first_token_at: float | None = None
         final_response: Any | None = None
+        self.last_generation_metrics = {}
         responses = self.client.generate(
             model=self.model,
             prompt=prompt,
@@ -117,19 +191,20 @@ class OllamaGenerationAdapter:
         for response in responses:
             final_response = response
             value = str(getattr(response, "response", "") or "")
-            if value and first_token_seconds is None:
-                first_token_seconds = time.perf_counter() - started
+            if value and first_token_at is None:
+                first_token_at = time.perf_counter()
             if value:
                 yield value
         if final_response is not None:
             self._complete_metrics(
                 final_response,
                 started=started,
-                first_token_seconds=first_token_seconds,
+                first_token_at=first_token_at,
             )
 
     def invoke(self, prompt: str) -> str:
         started = time.perf_counter()
+        self.last_generation_metrics = {}
         response = self.client.generate(
             model=self.model,
             prompt=prompt,
@@ -140,7 +215,7 @@ class OllamaGenerationAdapter:
         self._complete_metrics(
             response,
             started=started,
-            first_token_seconds=None,
+            first_token_at=None,
         )
         return str(getattr(response, "response", "") or "")
 
