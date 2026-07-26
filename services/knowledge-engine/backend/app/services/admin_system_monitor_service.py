@@ -350,6 +350,27 @@ class AdminSystemMonitorService:
                 "internal_queue_depths": internal_depths,
             },
             "gpu": {
+                "embedding_device_configured": (
+                    (queue.get("worker_metrics") or {}).get(
+                        "embedding_device_configured"
+                    )
+                    or settings.indexer_device
+                ),
+                "embedding_device_actual": (
+                    (queue.get("worker_metrics") or {}).get(
+                        "embedding_device_actual"
+                    )
+                    or queue.get("embedding_device")
+                ),
+                "embedding_model_status": (
+                    (queue.get("worker_metrics") or {}).get(
+                        "embedding_model_status"
+                    )
+                ),
+                "embedding_batch": (
+                    (queue.get("worker_metrics") or {}).get("embedding_batch")
+                    or {}
+                ),
                 "cuda_available": bool(
                     queue.get("indexer_seen")
                     and str(queue.get("embedding_device") or "").startswith("cuda")
@@ -358,8 +379,13 @@ class AdminSystemMonitorService:
                 "utilization_percent": gpu_metrics.get("utilization_percent"),
                 "memory_used_mb": gpu_metrics.get("memory_used_mb"),
                 "memory_total_mb": gpu_metrics.get("memory_total_mb"),
-                "embedding_device": queue.get("embedding_device")
-                or settings.indexer_device,
+                "embedding_device": (
+                    (queue.get("worker_metrics") or {}).get(
+                        "embedding_device_actual"
+                    )
+                    or queue.get("embedding_device")
+                    or settings.indexer_device
+                ),
                 "precision": queue.get("embedding_precision")
                 or settings.indexer_precision,
                 "batch_size": int(

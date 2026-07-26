@@ -105,6 +105,18 @@ class _Queue:
                 "memory_used_mb": 4096.0,
                 "memory_total_mb": 8192.0,
             },
+            "worker_metrics": {
+                "embedding_device_configured": "auto",
+                "embedding_device_actual": "cuda:0",
+                "embedding_model_status": "embedding_gpu",
+                "embedding_batch": {
+                    "batch_size": 64,
+                    "device": "cuda:0",
+                    "gpu_memory_before": 1024,
+                    "gpu_memory_after": 2048,
+                    "duration_ms": 45.5,
+                },
+            },
             "cpu_metrics": {"utilization_percent": 33.0},
         }
 
@@ -139,6 +151,9 @@ def test_admin_monitor_snapshot_reuses_live_runtime_telemetry():
     assert payload["indexing"]["active_published_generation"] == 12
     assert payload["gpu"]["utilization_percent"] == 75.0
     assert payload["gpu"]["embedding_throughput_chunks_per_minute"] == 900.0
+    assert payload["gpu"]["embedding_device_actual"] == "cuda:0"
+    assert payload["gpu"]["embedding_model_status"] == "embedding_gpu"
+    assert payload["gpu"]["embedding_batch"]["duration_ms"] == 45.5
     assert payload["query"]["retrieval_latency_ms"] == 20
     assert payload["models"]["loaded_models"] == ["llama3.1:8b"]
 
