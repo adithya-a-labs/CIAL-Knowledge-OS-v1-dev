@@ -15,6 +15,7 @@ import {
 } from '@/api/client';
 import type { CorpusDocument } from '@/api/types';
 import { cn } from '@/lib/utils';
+import { assistantConversationPath } from '@/lib/assistantNavigation';
 
 const TERMINAL=new Set(['completed','failed','cancelled','stale']);
 export function analysisPollInterval(startedAt:number,hidden:boolean,status?:string){
@@ -63,10 +64,7 @@ export default function DocumentAnalysisCard({document,onAsk,onCitation,onSugges
   const generate=useMutation({mutationFn:(value:{type:DocumentAnalysisType;length:DocumentAnalysisLength;force:boolean})=>createDocumentAnalysis(document.id,{summary_type:value.type,length:value.length,force_regenerate:value.force}),onSuccess:(result,variables)=>{setType(variables.type);setLength(variables.length);setDialog(false);queryClient.setQueryData(['document-analysis',document.id,document.current_version_id??document.content_hash,variables.type,variables.length],{document_id:document.id,current_version_id:result.summary.document_version_id??'',summary_type:variables.type,length:variables.length,current:result.summary,previous:[]})}});
   const save=useMutation({mutationFn:(id:string)=>saveSummaryToSavedKnowledge(id)});
   const follow=useMutation({mutationFn:(id:string)=>askSummaryFollowUp(id,'original_versions'),onSuccess:(result)=>{
-    const context=result.sources.filter((source)=>source.source_id&&(source.source_type==='document'||source.source_type==='note')).map((source)=>({id:source.source_id!,type:source.source_type as 'document'|'note',title:source.title,relative_path:source.source_type==='note'?`notes/${source.source_id}`:document.relative_path,file_type:source.source_type==='document'?document.file_type:undefined}));
-    window.localStorage.setItem('cial-assistant-selected-context',JSON.stringify(context));
-    window.localStorage.setItem('cial-assistant-context-intent',String(Date.now()));
-    window.location.assign(result.url);
+    window.location.assign(assistantConversationPath(result.chat_session_id));
   }});
   const current=analysis.data?.current??null;const previous=analysis.data?.previous?.[0]??null;const shown=current??previous;const active=current&&['queued','running'].includes(current.status);const failed=current?.status==='failed';const ready=shown&&['completed','stale'].includes(shown.status)&&shown.structured_payload;
   const doGenerate=(nextType:DocumentAnalysisType,nextLength:DocumentAnalysisLength,force=false)=>{if(generate.isPending||active)return;generate.mutate({type:nextType,length:nextLength,force})};

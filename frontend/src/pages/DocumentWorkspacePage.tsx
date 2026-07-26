@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useParams } from 'wouter';
@@ -35,6 +35,9 @@ import DocumentAssistantPanel from '@/components/knowledge-center/DocumentAssist
 import { useCommandPalette } from '@/components/common/CommandPalette';
 import { createConversationHandoff } from '@/lib/conversationHandoff';
 import { cn } from '@/lib/utils';
+
+const CORPUS_TREE_PERSISTENT_QUERY = '(min-width: 1280px)';
+const DOCUMENT_ASSISTANT_PERSISTENT_QUERY = '(min-width: 1024px)';
 
 function formatBytes(value?: number | null) {
   if (!value) return 'Unknown size';
@@ -81,8 +84,22 @@ export default function DocumentWorkspacePage() {
   const [, navigate] = useLocation();
   const documentId = params.documentId;
   const {setOpen:setSearchOpen}=useCommandPalette();
-  const[leftOpen,setLeftOpen]=useState(()=>window.innerWidth>=1024&&localStorage.getItem('cial-kc-left-open')!=='false');
-  const[rightOpen,setRightOpen]=useState(()=>window.innerWidth>=1280&&localStorage.getItem('cial-kc-right-open')!=='false');
+  const[leftOpen,setLeftOpen]=useState(
+    ()=>window.matchMedia(CORPUS_TREE_PERSISTENT_QUERY).matches
+      && localStorage.getItem('cial-kc-left-open')!=='false',
+  );
+  const[rightOpen,setRightOpen]=useState(
+    ()=>window.matchMedia(DOCUMENT_ASSISTANT_PERSISTENT_QUERY).matches
+      && localStorage.getItem('cial-kc-right-open')!=='false',
+  );
+  const[corpusTreePersistent,setCorpusTreePersistent]=useState(
+    ()=>window.matchMedia(CORPUS_TREE_PERSISTENT_QUERY).matches,
+  );
+  const[documentAssistantPersistent,setDocumentAssistantPersistent]=useState(
+    ()=>window.matchMedia(DOCUMENT_ASSISTANT_PERSISTENT_QUERY).matches,
+  );
+  const leftPanelRef=useRef<HTMLElement>(null);
+  const rightPanelRef=useRef<HTMLElement>(null);
   const [leftWidth,setLeftWidth]=useState(()=>readPanelWidth('cial-kc-left-width',280));
   const [rightWidth,setRightWidth]=useState(()=>readPanelWidth('cial-kc-right-width',384));
 
@@ -182,16 +199,84 @@ export default function DocumentWorkspacePage() {
 
   const useInAssistant = async (question?:string) => {
     if (!document) return;
-    const session=await createConversationHandoff({title:`${document.name} · document chat`,origin:'knowledge_center',created_from_document:document.id,context_scope:'selected_documents',selected_document_ids:[document.id],question,contextItems:[corpusDocumentToContext(document)]});
-    navigate(`/assistant?session=${session.id}`);
+    createConversationHandoff(navigate,{title:`${document.name} · document chat`,origin:'knowledge_center',created_from_document:document.id,context_scope:'selected_documents',selected_document_ids:[document.id],question,autoSubmit:Boolean(question?.trim()),contextItems:[{...corpusDocumentToContext(document),page_number:activePage,chunk_id:requestedChunkId??undefined}]});
   };
 
-  useEffect(()=>{localStorage.setItem('cial-kc-left-open',String(leftOpen));},[leftOpen]);
-  useEffect(()=>{localStorage.setItem('cial-kc-right-open',String(rightOpen));},[rightOpen]);
+  useEffect(()=>{
+    const corpusTreeMedia=window.matchMedia(CORPUS_TREE_PERSISTENT_QUERY);
+    const documentAssistantMedia=window.matchMedia(DOCUMENT_ASSISTANT_PERSISTENT_QUERY);
+    const syncCorpusTree=(matches:boolean)=>{
+      setCorpusTreePersistent(matches);
+      setLeftOpen(matches && localStorage.getItem('cial-kc-left-open')!=='false');
+    };
+    const syncDocumentAssistant=(matches:boolean)=>{
+      setDocumentAssistantPersistent(matches);
+      setRightOpen(matches && localStorage.getItem('cial-kc-right-open')!=='false');
+    };
+    const handleCorpusTreeChange=(event:MediaQueryListEvent)=>syncCorpusTree(event.matches);
+    const handleDocumentAssistantChange=(event:MediaQueryListEvent)=>syncDocumentAssistant(event.matches);
+    syncCorpusTree(corpusTreeMedia.matches);
+    syncDocumentAssistant(documentAssistantMedia.matches);
+    corpusTreeMedia.addEventListener('change',handleCorpusTreeChange);
+    documentAssistantMedia.addEventListener('change',handleDocumentAssistantChange);
+    return ()=>{
+      corpusTreeMedia.removeEventListener('change',handleCorpusTreeChange);
+      documentAssistantMedia.removeEventListener('change',handleDocumentAssistantChange);
+    };
+  },[]);
+  const toggleCorpusTree=()=>{
+    setLeftOpen((current)=>{
+      const next=!current;
+      localStorage.setItem('cial-kc-left-open',String(next));
+      if(next&&!window.matchMedia(CORPUS_TREE_PERSISTENT_QUERY).matches)setRightOpen(false);
+      return next;
+    });
+  };
+  const toggleDocumentAssistant=()=>{
+    setRightOpen((current)=>{
+      const next=!current;
+      localStorage.setItem('cial-kc-right-open',String(next));
+      if(next&&!window.matchMedia(DOCUMENT_ASSISTANT_PERSISTENT_QUERY).matches)setLeftOpen(false);
+      return next;
+    });
+  };
+  const closeCorpusTree=()=>{localStorage.setItem('cial-kc-left-open','false');setLeftOpen(false);};
+  const closeDocumentAssistant=()=>{localStorage.setItem('cial-kc-right-open','false');setRightOpen(false);};
+  useEffect(()=>{
+    const panel=leftOpen&&!corpusTreePersistent
+      ? leftPanelRef.current
+      : rightOpen&&!documentAssistantPersistent
+        ? rightPanelRef.current
+        : null;
+    if(!panel)return;
+    const previousFocus=window.document.activeElement instanceof HTMLElement
+      ? window.document.activeElement
+      : null;
+    window.requestAnimationFrame(()=>panel.querySelector<HTMLButtonElement>('button[aria-label^="Close"]')?.focus());
+    const handleKeyDown=(event:KeyboardEvent)=>{
+      if(event.key==='Escape'){
+        event.preventDefault();
+        if(leftOpen&&!corpusTreePersistent)closeCorpusTree();else closeDocumentAssistant();
+        return;
+      }
+      if(event.key!=='Tab')return;
+      const focusable=Array.from(panel.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter((element)=>element.getClientRects().length>0);
+      const first=focusable[0];
+      const last=focusable.at(-1);
+      if(!first||!last)return;
+      if(event.shiftKey&&window.document.activeElement===first){event.preventDefault();last.focus();}
+      else if(!event.shiftKey&&window.document.activeElement===last){event.preventDefault();first.focus();}
+    };
+    window.document.addEventListener('keydown',handleKeyDown);
+    return()=>{window.document.removeEventListener('keydown',handleKeyDown);previousFocus?.focus();};
+  },[corpusTreePersistent,documentAssistantPersistent,leftOpen,rightOpen]);
   useEffect(()=>{localStorage.setItem('cial-kc-left-width',String(leftWidth));},[leftWidth]);
   useEffect(()=>{localStorage.setItem('cial-kc-right-width',String(rightWidth));},[rightWidth]);
   const beginResize=(side:'left'|'right')=>(event:React.PointerEvent)=>{
-    if(window.innerWidth<1024)return;
+    if(
+      (side==='left'&&!window.matchMedia(CORPUS_TREE_PERSISTENT_QUERY).matches)
+      ||(side==='right'&&!window.matchMedia(DOCUMENT_ASSISTANT_PERSISTENT_QUERY).matches)
+    )return;
     event.preventDefault();
     const startX=event.clientX;
     const startWidth=side==='left'?leftWidth:rightWidth;
@@ -237,9 +322,10 @@ export default function DocumentWorkspacePage() {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden" data-testid="document-workspace-page">
-      <header className="mb-2 flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-3"><Link href="/" className="hidden shrink-0 items-center gap-2 sm:flex"><img src="/cial-logo.png" alt="CIAL" className="h-7 w-auto"/><span className="text-sm font-semibold">CIAL Knowledge OS</span></Link><button onClick={()=>setLeftOpen((value)=>!value)} className="ce-icon-button" aria-label="Toggle corpus tree"><PanelLeftClose size={17}/></button><button onClick={()=>setSearchOpen(true)} className="flex h-10 min-w-0 max-w-xl flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500"><Search size={16}/><span className="truncate">Search Corpus…</span><span className="ml-auto hidden rounded border bg-white px-1.5 py-0.5 text-[10px] sm:inline">Ctrl + K</span></button><button onClick={()=>navigate('/knowledge-center')} className="ce-icon-button hidden sm:inline-flex" aria-label="Upload documents"><Upload size={17}/></button><button onClick={()=>void Promise.all([treeQuery.refetch(),documentQuery.refetch(),previewQuery.refetch()])} className="ce-icon-button hidden sm:inline-flex" aria-label="Refresh workspace"><RefreshCw size={17}/></button><button onClick={()=>setRightOpen((value)=>!value)} className="ce-icon-button" aria-label="Toggle document assistant"><PanelRightClose size={17}/></button></header>
+      <header className="mb-2 flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white pl-14 pr-3 sm:px-3"><button onClick={toggleCorpusTree} className="ce-icon-button" aria-label="Toggle corpus tree" aria-expanded={leftOpen}><PanelLeftClose size={17}/></button><button onClick={()=>setSearchOpen(true)} className="flex h-10 min-w-0 max-w-xl flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500"><Search size={16}/><span className="truncate">Search Corpus…</span><span className="ml-auto hidden rounded border bg-white px-1.5 py-0.5 text-[10px] sm:inline">Ctrl + K</span></button><button onClick={()=>navigate('/knowledge-center')} className="ce-icon-button hidden sm:inline-flex" aria-label="Upload documents"><Upload size={17}/></button><button onClick={()=>void Promise.all([treeQuery.refetch(),documentQuery.refetch(),previewQuery.refetch()])} className="ce-icon-button hidden sm:inline-flex" aria-label="Refresh workspace"><RefreshCw size={17}/></button><button onClick={toggleDocumentAssistant} className="ce-icon-button" aria-label="Toggle document assistant" aria-expanded={rightOpen}><PanelRightClose size={17}/></button></header>
       <div className="flex min-h-0 flex-1 overflow-hidden">
-      {leftOpen&&treeQuery.data?.root?<aside className="fixed inset-y-0 left-0 z-50 h-full max-w-[85vw] shrink-0 border-r border-slate-200 bg-white shadow-xl lg:relative lg:inset-auto lg:z-auto lg:shadow-none" style={{width:leftWidth}} data-testid="corpus-tree-panel"><button onClick={()=>setLeftOpen(false)} className="absolute right-2 top-2 ce-icon-button lg:hidden" aria-label="Close corpus tree"><PanelLeftClose size={16}/></button><CorpusTreePanel root={treeQuery.data.root} selectedDocumentId={documentId}/><div role="separator" aria-label="Resize corpus tree" onPointerDown={beginResize('left')} className="absolute inset-y-0 right-0 hidden w-1 cursor-col-resize bg-transparent hover:bg-primary/25 lg:block"/></aside>:null}
+      {leftOpen&&!corpusTreePersistent?<div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px]" aria-hidden="true" onClick={closeCorpusTree} data-testid="corpus-tree-overlay"/>:null}
+      {leftOpen&&treeQuery.data?.root?<aside ref={leftPanelRef} className="fixed inset-y-0 left-0 z-50 h-full max-w-[85vw] shrink-0 border-r border-slate-200 bg-white shadow-xl xl:relative xl:inset-auto xl:z-auto xl:shadow-none" style={{width:leftWidth}} data-testid="corpus-tree-panel" role={corpusTreePersistent?undefined:'dialog'} aria-modal={corpusTreePersistent?undefined:true} aria-label={corpusTreePersistent?undefined:'Corpus Tree'}><button onClick={closeCorpusTree} className="absolute right-2 top-2 ce-icon-button xl:hidden" aria-label="Close corpus tree"><PanelLeftClose size={16}/></button><CorpusTreePanel root={treeQuery.data.root} selectedDocumentId={documentId}/><div role="separator" aria-label="Resize corpus tree" onPointerDown={beginResize('left')} className="absolute inset-y-0 right-0 hidden w-1 cursor-col-resize bg-transparent hover:bg-primary/25 xl:block"/></aside>:null}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <div className="mb-2 flex shrink-0 flex-col gap-2 border-b border-slate-200 bg-white px-3 py-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-start gap-3">
@@ -342,7 +428,8 @@ export default function DocumentWorkspacePage() {
         </div>
       )}
       </div>
-      {rightOpen&&document?<aside className="fixed inset-y-0 right-0 z-50 h-full max-w-[94vw] shrink-0 border-l border-slate-200 bg-white shadow-xl xl:relative xl:inset-auto xl:z-auto xl:shadow-none" style={{width:rightWidth}} data-testid="document-assistant-panel"><div role="separator" aria-label="Resize document assistant" onPointerDown={beginResize('right')} className="absolute inset-y-0 left-0 hidden w-1 cursor-col-resize bg-transparent hover:bg-primary/25 xl:block"/><button onClick={()=>setRightOpen(false)} className="absolute right-2 top-2 z-10 ce-icon-button xl:hidden" aria-label="Close document assistant"><PanelRightClose size={16}/></button><DocumentAssistantPanel document={document} preview={preview} onAsk={useInAssistant} onCitation={navigateCitation}/></aside>:null}
+      {rightOpen&&!documentAssistantPersistent?<div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px]" aria-hidden="true" onClick={closeDocumentAssistant} data-testid="document-assistant-overlay"/>:null}
+      {rightOpen&&document?<aside ref={rightPanelRef} className="fixed inset-y-0 right-0 z-50 h-full max-w-[94vw] shrink-0 border-l border-slate-200 bg-white shadow-xl lg:relative lg:inset-auto lg:z-auto lg:shadow-none" style={{width:rightWidth}} data-testid="document-assistant-panel" role={documentAssistantPersistent?undefined:'dialog'} aria-modal={documentAssistantPersistent?undefined:true} aria-label={documentAssistantPersistent?undefined:'Document AI Assistant'}><div role="separator" aria-label="Resize document assistant" onPointerDown={beginResize('right')} className="absolute inset-y-0 left-0 hidden w-1 cursor-col-resize bg-transparent hover:bg-primary/25 lg:block"/><button onClick={closeDocumentAssistant} className="absolute right-2 top-2 z-10 ce-icon-button lg:hidden" aria-label="Close document assistant"><PanelRightClose size={16}/></button><DocumentAssistantPanel document={document} preview={preview} onAsk={useInAssistant} onCitation={navigateCitation}/></aside>:null}
       </div>
     </div>
   );

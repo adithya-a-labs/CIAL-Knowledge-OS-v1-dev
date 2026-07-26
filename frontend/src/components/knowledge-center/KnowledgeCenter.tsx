@@ -10,8 +10,7 @@ export function KnowledgeCenterPage() {
 
   const useInAssistant = async (items: SelectedContextItem[]) => {
     const documents=items.filter((item)=>item.type==='document').map((item)=>item.id);const notes=items.filter((item)=>item.type==='note').map((item)=>item.id);
-    const session=await createConversationHandoff({title:items.length===1?items[0].title:`${items.length} selected knowledge sources`,origin:'knowledge_center',context_scope:'selected_context',selected_document_ids:documents,selected_note_ids:notes,contextItems:items.filter((item)=>item.type==='document'||item.type==='note')});
-    navigate(`/assistant?session=${session.id}`);
+    createConversationHandoff(navigate,{title:items.length===1?items[0].title:`${items.length} selected knowledge sources`,origin:'knowledge_center',context_scope:'selected_context',selected_document_ids:documents,selected_note_ids:notes,contextItems:items});
   };
 
   return (
