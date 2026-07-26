@@ -133,12 +133,30 @@ reason, and the last request's retrieval, Qdrant, BM25, fusion, reranker,
 generation, and total latencies. It is an operational snapshot, not a query
 log, and never includes prompt or document content.
 
+BM25 lifecycle and query telemetry is sourced from the loaded publication:
+
+- `bm25_snapshot_loaded_at`: UTC activation timestamp;
+- `bm25_snapshot_size`: actual published snapshot size in bytes;
+- `bm25_snapshot_load_duration_ms`: measured JSON snapshot load time;
+- `bm25_index_activation_duration_ms`: measured in-memory index/posting
+  activation time;
+- `bm25_document_count` and `bm25_chunk_count`: counts from the active snapshot;
+- `bm25_search_duration_ms`: measured lexical request duration; and
+- `bm25_candidate_count`: candidates actually returned by lexical retrieval.
+
+The same search metrics are attached to the `bm25_retrieval` completion event
+and projected by the administrator monitor. Missing measurements remain null;
+the monitor does not synthesize values.
+
 Normal performance objectives are permission validation below 100 ms, Qdrant
 below 500 ms, fusion below 200 ms, reranking below 2 seconds, and retrieval
 before generation below 3 seconds. Component deadlines are failure ceilings,
-not performance targets. Qdrant authorization keys are keyword-indexed, BM25
-uses the in-memory published snapshot plus a bounded authorization-index cache,
-and neither retrieval branch reads or scans source corpus files. Permission
+not performance targets. The BM25 search objective is below 100 ms. Qdrant
+authorization keys are keyword-indexed, while BM25 uses the in-memory published
+snapshot, a published posting map, and a bounded cache of authorization-to-chunk
+index mappings. Neither retrieval branch reads source corpus files. BM25 query
+terms access only their posting lists and therefore do not scan the full
+published chunk corpus. Permission
 resolution projects only indexed documents' relative paths through the existing
 PostgreSQL RBAC predicates instead of hydrating complete document rows. Dense
 filters also include the document versions and note revisions in the loaded
@@ -146,8 +164,9 @@ publication, preventing in-progress Qdrant points from leaking into results.
 Large authorized path and published-version sets use Qdrant `MatchAny` filters;
 all live filter keys retain payload indexes. Authorization-scoped candidate
 depth and any selected-scope reranker expansion are bounded at 250.
-BM25 reuses published corpus tokens and a lock-protected bounded authorized
-sub-index cache rather than retokenizing or rebuilding the corpus per query.
+BM25 reuses the single published BM25 model and its posting lists. The bounded
+authorization cache stores only integer chunk-index arrays; it never contains
+or constructs another BM25 model.
 
 Hard failure ceilings are dense/Qdrant 30 seconds, BM25 10 seconds, fusion
 5 seconds, reranking 15 seconds, and evidence selection 5 seconds. Dense/BM25
@@ -167,7 +186,8 @@ and administrator monitor all expose the failed component.
    monitor's current/failed stage and timeout reason.
 4. For dense failures, inspect the bounded Qdrant call and indexed filter keys;
    for lexical failures, verify that the active published BM25 generation is
-   loaded and no query-time build was attempted.
+   loaded, compare snapshot load/activation telemetry separately from search
+   duration, and verify that no query-time build was attempted.
 5. Confirm the NDJSON terminal result/error identifies the same failed stage
    and that a degraded success contains only the documented safe fallback.
 
@@ -177,6 +197,17 @@ pipeline intentionally does not retain source `documents` or corpus
 `embeddings`, `run()` began corpus loading and whole-snapshot embedding. The
 query-only call boundary removes that work from chat without changing the
 retrieval, authorization, indexing, citation, or prompt algorithms.
+
+The BM25 regression investigated on 2026-07-26 had two measured query-path
+causes. An unseen authorization scope built a new `BM25Okapi` over authorized
+chunks (15,626 ms for the generation-29 broad scope), and subsequent searches
+called the library's full-corpus score loop plus full result sort (roughly
+828-911 ms after removing only the rebuild). The corrected request path scores
+only prebuilt query-term postings from the already-loaded publication, applies
+authorized chunk indexes, and partially selects top candidates. On the same
+459,715-chunk snapshot, measured searches were 2.48-11.15 ms. Snapshot load
+(17,194 ms) and activation (35,725 ms) remain observable startup/background
+refresh work rather than search latency.
 
 ## Live System Status
 
@@ -230,6 +261,29 @@ counts; first-token latency; tokens per second; Ollama model-load,
 prompt-evaluation and total duration; retry count; and effective keep-alive.
 Generation deadlines retain `error_state=generation_timeout` rather than being
 collapsed to the outer wrapper failure.
+
+Generation timing uses one unit and explicit clock boundaries:
+
+- the adapter and API use monotonic `perf_counter()` timestamps for local
+  elapsed time;
+- `first_token_ms` is the first non-empty streamed-token timestamp minus the
+  generation-start timestamp;
+- `generation_latency_ms` is the API generation-completion timestamp minus its
+  matching generation-start timestamp;
+- `model_load_ms`, `prompt_eval_ms`, and `ollama_total_ms` are Ollama's native
+  nanosecond durations converted once to milliseconds; Ollama's
+  `load_duration` is the runtime's model-ready minus model-load-start interval;
+- `tokens_per_second` is Ollama's output-token count divided by its positive
+  evaluation duration in seconds.
+
+The adapter clears prior metrics before every request. Completion telemetry is
+accepted only when finite and non-negative. First-token, model-load,
+prompt-evaluation, and Ollama-total durations cannot exceed the API-measured
+generation or request duration. Invalid, stale, missing, negative, non-finite,
+or unit-inconsistent values are omitted and rendered as `Unavailable`; no
+fallback timestamp or fabricated zero is displayed. The 1,758,803 ms
+first-token observation was rejected because it exceeded the corresponding
+24,179 ms generation boundary.
 
 GPU samples run asynchronously at generation boundaries so telemetry cannot
 delay the answer path. Samples include total utilization and VRAM plus bounded

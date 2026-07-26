@@ -109,6 +109,16 @@ backoff, detects stale data, and preserves last-known values during component
 or connection failures. Green, blue, yellow, and red mean healthy, updating,
 degraded, and unavailable respectively.
 
+The console does not derive generation timings in the browser. FastAPI
+publishes millisecond values measured at real generation events. First-token
+latency is the monotonic first-token timestamp minus generation start;
+generation latency is the matching completion timestamp minus generation
+start. Ollama-native load, prompt-evaluation, and total durations are converted
+once from nanoseconds to milliseconds. Backend guards discard negative,
+non-finite, stale, or component timings larger than the measured generation or
+request. The frontend repeats the boundary check for display and renders
+missing/rejected values as `Unavailable`.
+
 ## Commands
 
 ```powershell

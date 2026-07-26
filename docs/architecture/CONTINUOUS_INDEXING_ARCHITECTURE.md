@@ -207,6 +207,9 @@ builds the replacement BM25 index away from the query lock and performs only a
 short opportunistic activation; an active chat wins the race and refresh retries
 later. A failed, partial, missing, unpublished, zero-valued, or
 collection-mismatched generation never replaces the last valid generation.
+Snapshot JSON loading, chunk materialization, token-cache loading, BM25 model
+construction, relative-path maps, and lexical posting maps all happen during
+startup or this asynchronous refresh. They never happen inside retrieval.
 Dense search is additionally constrained to document-version and note-revision
 identities recorded in that published BM25 snapshot. Qdrant's in-place writer
 may therefore prepare or verify new points without making a partial version
@@ -237,7 +240,23 @@ query runtime without an API restart.
 
 Document/note privacy fields come only from PostgreSQL. Personal content uses
 `storage_scope=personal`, `visibility=private`, an owner, and its personal
-workspace. BM25 authorization filtering happens before candidate scoring.
+workspace. The loaded BM25 runtime maps authorized relative paths to published
+chunk indexes. Query terms access only their prebuilt posting lists; authorization
+filters those matches before top-candidate ranking. The query path does not
+construct an authorization-specific BM25 model, retokenize chunks, read the
+snapshot file, or iterate the full chunk corpus.
+
+### BM25 latency regression verification (2026-07-26)
+
+Generation 29 contained 459,715 chunks across 488 document identifiers. Its
+published JSON snapshot was 1,049,687,710 bytes. An isolated runtime measurement
+found snapshot loading at 17,194 ms and published-index activation at 35,725 ms;
+these costs are intentionally outside the request path. Before the correction,
+a cold broad authorization scope constructed a second BM25 model during chat
+and took 15,626 ms. Removing that rebuild alone still left full-corpus scoring
+at 828-911 ms. The published posting lookup measured 2.48-11.15 ms for
+unrestricted, cold/reused broad-scope, and cold/reused single-path searches on
+the same snapshot. The operational objective is BM25 search below 100 ms.
 
 ## Readiness and Status APIs
 
