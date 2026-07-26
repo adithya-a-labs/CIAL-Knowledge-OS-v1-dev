@@ -77,6 +77,11 @@ class _SlowFuser:
         return []
 
 
+class _FailingRetriever(_StaticRetriever):
+    def retrieve(self, query: str, *, top_k: int) -> list[dict[str, Any]]:
+        raise AssertionError("retrievers must not run on a cache hit")
+
+
 class _CitingLLM:
     def invoke(self, prompt: str) -> str:
         self.prompt = prompt
@@ -188,6 +193,12 @@ class BM25AndFusionTests(unittest.TestCase):
                     "query-time full-corpus scoring is prohibited"
                 ),
             ),
+            patch(
+                "cial_knowledge_os.bm25_snapshot.load_bm25_snapshot",
+                side_effect=AssertionError(
+                    "query-time snapshot loading is prohibited"
+                ),
+            ),
         ):
             results = retriever.retrieve("published beacon", top_k=5)
 
@@ -236,16 +247,53 @@ class BM25AndFusionTests(unittest.TestCase):
             ["started", "completed"],
         )
         for metrics in retriever.last_stage_telemetry.values():
-            self.assertEqual(
-                set(metrics),
+            self.assertTrue(
                 {
                     "stage_started",
                     "stage_completed",
                     "duration_ms",
                     "candidate_count",
                     "error_state",
-                },
+                }.issubset(metrics)
             )
+        parallel = retriever.last_stage_telemetry["parallel_retrieval"]
+        self.assertTrue(parallel["dense_started"])
+        self.assertTrue(parallel["dense_completed"])
+        self.assertTrue(parallel["bm25_started"])
+        self.assertFalse(parallel["bm25_completed"])
+
+    def test_dense_and_bm25_execute_in_parallel_without_candidate_changes(
+        self,
+    ) -> None:
+        dense = [_result(110, "dense")]
+        bm25 = [_result(111, "lexical")]
+        retriever = HybridRetriever(
+            [
+                _SlowRetriever("dense", dense, 0.05),
+                _SlowRetriever("bm25", bm25, 0.05),
+            ],
+            fuser=ReciprocalRankFusion(),
+            candidate_limits={"dense": 5, "bm25": 5},
+            stage_timeouts={
+                "dense": 0.2,
+                "bm25": 0.2,
+                "hybrid_fusion": 0.1,
+            },
+        )
+
+        started = time.perf_counter()
+        results = retriever.retrieve("question", top_k=5)
+        elapsed = time.perf_counter() - started
+
+        self.assertLess(elapsed, 0.09)
+        self.assertEqual(
+            set(item["chunk_id"] for item in results),
+            {"chunk-110", "chunk-111"},
+        )
+        parallel = retriever.last_stage_telemetry["parallel_retrieval"]
+        self.assertTrue(parallel["dense_completed"])
+        self.assertTrue(parallel["bm25_completed"])
+        self.assertLess(parallel["parallel_retrieval_duration_ms"], 90)
 
     def test_fusion_timeout_returns_an_available_ranking(self) -> None:
         dense_result = _result(101, "Dense evidence.", score=0.9)
@@ -476,6 +524,41 @@ class TokenBudgetAndPipelineTests(unittest.TestCase):
         self.assertEqual(
             set(trace["citations"][0]["retrieval_sources"]),
             {"dense", "bm25"},
+        )
+
+    def test_retrieval_cache_hit_preserves_candidate_order_and_skips_search(
+        self,
+    ) -> None:
+        cached = [_result(1, "first"), _result(2, "second")]
+        with tempfile.TemporaryDirectory() as directory:
+            pipeline = Phase3RAGPipeline(
+                Phase3Config(project_root=Path(directory)),
+                retrievers={
+                    "dense": _FailingRetriever("dense", []),
+                    "bm25": _FailingRetriever("bm25", []),
+                },
+            )
+            pipeline.retrieval_cache_getter = lambda: {
+                "hit": True,
+                "results": cached,
+                "rankings": {
+                    "dense": cached,
+                    "bm25": cached,
+                    "fused": cached,
+                },
+                "cache_size": 1,
+            }
+
+            results = pipeline.retrieve("cached question")
+
+        self.assertEqual(
+            [item["chunk_id"] for item in results],
+            ["chunk-1", "chunk-2"],
+        )
+        self.assertTrue(
+            pipeline.last_retrieval_telemetry["retrieval_cache"][
+                "retrieval_cache_hit"
+            ]
         )
 
     def test_pipeline_trace_exposes_the_exact_failed_retrieval_stage(

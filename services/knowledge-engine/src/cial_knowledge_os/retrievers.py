@@ -588,6 +588,7 @@ class HybridRetriever:
             except BaseException as exc:
                 result_box["error"] = exc
             finally:
+                result_box["completed_at"] = time.perf_counter()
                 completed.set()
 
         threading.Thread(target=run, name=name, daemon=True).start()
@@ -617,6 +618,19 @@ class HybridRetriever:
 
         rankings: dict[str, list[dict[str, Any]]] = {}
         if self.parallel and len(self.retrievers) > 1:
+            parallel_started = time.perf_counter()
+            branch_names = {retriever.name for retriever in self.retrievers}
+            self._emit_stage(
+                "parallel_retrieval",
+                "started",
+                extra_metrics={
+                    "dense_started": "dense" in branch_names,
+                    "dense_completed": False,
+                    "bm25_started": "bm25" in branch_names,
+                    "bm25_completed": False,
+                    "parallel_retrieval_duration_ms": 0,
+                },
+            )
             for retriever in self.retrievers:
                 start_search(retriever)
             pending_names = [retriever.name for retriever in self.retrievers]
@@ -640,6 +654,29 @@ class HybridRetriever:
                 fatal_errors.append(fatal_error)
         if fatal_errors:
             raise fatal_errors[0]
+        if self.parallel and len(self.retrievers) > 1:
+            parallel_duration_ms = int(
+                (time.perf_counter() - parallel_started) * 1000
+            )
+            self._emit_stage(
+                "parallel_retrieval",
+                "completed",
+                duration_ms=parallel_duration_ms,
+                candidate_count=sum(len(values) for values in rankings.values()),
+                extra_metrics={
+                    "dense_started": "dense" in branch_names,
+                    "dense_completed": (
+                        "dense" not in branch_names
+                        or operations["dense"][2].is_set()
+                    ),
+                    "bm25_started": "bm25" in branch_names,
+                    "bm25_completed": (
+                        "bm25" not in branch_names
+                        or operations["bm25"][2].is_set()
+                    ),
+                    "parallel_retrieval_duration_ms": parallel_duration_ms,
+                },
+            )
 
         fusion_started = time.perf_counter()
         self._emit_stage("hybrid_fusion", "started")
@@ -732,7 +769,13 @@ class HybridRetriever:
         self._emit_stage(
             stage,
             "completed",
-            duration_ms=int((time.perf_counter() - started) * 1000),
+            duration_ms=int(
+                (
+                    float(result_box.get("completed_at") or time.perf_counter())
+                    - started
+                )
+                * 1000
+            ),
             candidate_count=len(results),
             error_state=error_state,
             extra_metrics=(

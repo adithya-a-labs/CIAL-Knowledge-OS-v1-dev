@@ -801,12 +801,38 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
         reranker_duration_ms = int(
             (time.perf_counter() - reranker_started) * 1000
         )
+        reranker_diagnostics = getattr(
+            self.reranker,
+            "runtime_diagnostics",
+            None,
+        )
+        reranker_runtime_metrics = (
+            dict(reranker_diagnostics())
+            if callable(reranker_diagnostics)
+            else {}
+        )
         self._emit_retrieval_stage(
             "reranking",
             "completed",
             duration_ms=reranker_duration_ms,
             candidate_count=len(self.last_reranked_candidates),
             error_state=reranker_error_state,
+            extra_metrics=(
+                {
+                    **reranker_runtime_metrics,
+                    "reranker_batch_size": int(
+                        getattr(
+                            self.reranker,
+                            "batch_size",
+                            self.config.reranker_batch_size,
+                        )
+                    ),
+                    "reranker_candidate_count": len(self.last_candidate_pool),
+                    "reranker_latency_ms": reranker_duration_ms,
+                }
+                if self.config.reranker_enabled
+                else None
+            ),
         )
         self.execution_manager.complete_stage(
             "reranking",
@@ -936,6 +962,7 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
         duration_ms: int = 0,
         candidate_count: int = 0,
         error_state: str | None = None,
+        extra_metrics: Mapping[str, Any] | None = None,
     ) -> None:
         metrics = {
             "stage_started": True,
@@ -943,6 +970,7 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
             "duration_ms": duration_ms,
             "candidate_count": candidate_count,
             "error_state": error_state,
+            **dict(extra_metrics or {}),
         }
         self.last_retrieval_telemetry[stage] = dict(metrics)
         if status == "completed":
