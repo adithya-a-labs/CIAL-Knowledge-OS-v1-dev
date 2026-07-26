@@ -79,6 +79,18 @@ def test_published_query_runtime_never_enters_batch_bootstrap():
     assert calls == [("answer", "question")]
 
 
+def test_query_runtime_warms_reranker_before_serving_queries():
+    calls = []
+    pipeline = SimpleNamespace(
+        config=SimpleNamespace(reranker_enabled=True),
+        reranker=SimpleNamespace(load=lambda: calls.append("load")),
+    )
+
+    KnowledgeEngineService._load_reranker(pipeline)
+
+    assert calls == ["load"]
+
+
 def test_production_query_never_rebuilds_missing_bm25_snapshot(tmp_path):
     class Retriever:
         def __init__(self, name, *, indexed=True):

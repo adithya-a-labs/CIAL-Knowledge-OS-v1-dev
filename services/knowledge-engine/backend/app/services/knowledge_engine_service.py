@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import json
 import logging
 import math
 from pathlib import Path
@@ -197,6 +198,11 @@ class KnowledgeEngineService:
             "retrieval_latency": None,
             "qdrant_latency": None,
             "reranker_latency": None,
+            "parallel_retrieval_duration_ms": None,
+            "query_embedding_metrics": {},
+            "qdrant_metrics": {},
+            "retrieval_cache_metrics": {},
+            "reranker_metrics": {},
             "generation_latency": None,
             "generation_metrics": {},
             "generation_gpu_start": {},
@@ -205,7 +211,13 @@ class KnowledgeEngineService:
         }
         self._loaded_generation = 0
         self._loaded_bm25_generation = 0
+        self._query_embedding_warmed = False
+        self._query_embedding_warm_duration_ms: float | None = None
         self._bm25_snapshot_metrics: dict[str, Any] = {
+            "bm25_runtime_state": "unavailable",
+            "bm25_snapshot_version": None,
+            "bm25_loaded_at": None,
+            "bm25_load_duration_ms": None,
             "bm25_snapshot_loaded_at": None,
             "bm25_snapshot_size": None,
             "bm25_snapshot_load_duration_ms": None,
@@ -213,11 +225,21 @@ class KnowledgeEngineService:
             "bm25_document_count": 0,
             "bm25_chunk_count": 0,
         }
+        self._qdrant_index_metrics: dict[str, Any] = {
+            "qdrant_index_status": "unavailable",
+            "qdrant_payload_index_fields": [],
+            "qdrant_payload_indexes_created": [],
+        }
         self._cached_embedding_model: Any | None = None
         self._indexer_embedding_target_device: str | None = None
         self._indexer_embedding_gpu_resident = False
         self._gpu_coordinator = GpuResourceCoordinator()
         self._load_engine_symbols()
+        from cial_knowledge_os.retrieval_cache import RetrievalResultCache
+
+        self._retrieval_cache = RetrievalResultCache(
+            max_entries=settings.retrieval_cache_max_entries
+        )
 
     @property
     def engine_available(self) -> bool:
@@ -246,6 +268,73 @@ class KnowledgeEngineService:
             pipeline is not None
             and getattr(pipeline, "is_ready_for_answering", False)
         )
+
+    @staticmethod
+    def _stable_fingerprint(payload: Mapping[str, Any]) -> str:
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @classmethod
+    def _retrieval_cache_identity(
+        cls,
+        question: str,
+        *,
+        generation: int,
+        access_context: RequestAccessContext,
+        selected_scope: SelectedContextScope,
+        effective_relative_paths: frozenset[str] | None,
+    ) -> tuple[str, str, str]:
+        """Build a key that cannot cross a resolved authorization boundary."""
+
+        principal = access_context.principal
+        principal_id = (
+            str(principal.user_id)
+            if principal.user_id is not None
+            else "anonymous"
+        )
+        permission_boundary = cls._stable_fingerprint(
+            {
+                "principal_id": principal_id,
+                "organization_id": principal.organization_id,
+                "department_ids": sorted(map(str, principal.department_ids)),
+                "role_ids": sorted(map(str, principal.role_ids)),
+                "permission_names": sorted(principal.permission_names),
+                "group_ids": sorted(map(str, principal.group_ids)),
+                "authenticated": principal.is_authenticated,
+            }
+        )
+        workspace_scope = cls._stable_fingerprint(
+            {
+                "access_scope": access_context.scope,
+                "effective_relative_paths": (
+                    sorted(effective_relative_paths)
+                    if effective_relative_paths is not None
+                    else None
+                ),
+                "selected_context_applied": selected_scope.applied,
+                "selected_document_ids": selected_scope.selected_document_ids,
+                "selected_folder_ids": selected_scope.selected_folder_ids,
+                "selected_note_ids": selected_scope.selected_note_ids,
+            }
+        )
+        normalized_query = " ".join(question.casefold().split())
+        normalized_query_hash = hashlib.sha256(
+            normalized_query.encode("utf-8")
+        ).hexdigest()
+        cache_key = cls._stable_fingerprint(
+            {
+                "normalized_query_hash": normalized_query_hash,
+                "published_generation": int(generation),
+                "workspace_scope": workspace_scope,
+                "permission_boundary": permission_boundary,
+            }
+        )
+        return cache_key, principal_id, permission_boundary
 
     @staticmethod
     def _sanitize_generation_telemetry(
@@ -299,16 +388,64 @@ class KnowledgeEngineService:
         with self._lock:
             pipeline = self._pipeline
         embedding_model = getattr(pipeline, "embedding_model", None) if pipeline is not None else None
+        reranker = getattr(pipeline, "reranker", None) if pipeline is not None else None
+        reranker_diagnostics = getattr(reranker, "runtime_diagnostics", None)
+        reranker_runtime = (
+            dict(reranker_diagnostics())
+            if callable(reranker_diagnostics)
+            else {}
+        )
+        bm25_retriever = (
+            getattr(pipeline, "bm25_retriever", None)
+            if pipeline is not None
+            else None
+        )
+        bm25_ready = bool(getattr(bm25_retriever, "is_indexed", False))
+        reranker_loaded = bool(
+            reranker_runtime.get(
+                "reranker_model_loaded",
+                reranker is not None,
+            )
+        )
+        reranker_warmed = bool(
+            reranker_runtime.get("reranker_warmed", reranker_loaded)
+        )
+        try:
+            embedding_dtype = (
+                str(next(embedding_model.parameters()).dtype)
+                if embedding_model is not None
+                else None
+            )
+        except (AttributeError, StopIteration, TypeError):
+            embedding_dtype = "unknown" if embedding_model is not None else None
         return {
             "embedding_ready": embedding_model is not None,
+            "dense_model_status": (
+                "ready"
+                if embedding_model is not None and self._query_embedding_warmed
+                else "loaded"
+                if embedding_model is not None
+                else "unavailable"
+            ),
+            "dense_model_warmed": self._query_embedding_warmed,
+            "dense_model_warm_duration_ms": (
+                self._query_embedding_warm_duration_ms
+            ),
             "embedding_device": (
                 str(getattr(embedding_model, "device", "unknown"))
                 if embedding_model is not None
                 else None
             ),
-            "reranker_ready": bool(
-                pipeline is not None and getattr(pipeline, "reranker", None) is not None
+            "reranker_ready": reranker_loaded and reranker_warmed,
+            "reranker_status": (
+                "ready"
+                if reranker_loaded and reranker_warmed
+                else "loaded"
+                if reranker_loaded
+                else "unavailable"
             ),
+            "bm25_status": "ready" if bm25_ready else "unavailable",
+            **reranker_runtime,
             "loaded_generation": self._loaded_generation,
             "loaded_bm25_generation": self._loaded_bm25_generation,
             **dict(self._bm25_snapshot_metrics),
@@ -317,6 +454,19 @@ class KnowledgeEngineService:
                 if embedding_model is not None
                 else None
             ),
+            "query_embedding_dtype": embedding_dtype,
+            "query_embedding_model_state": (
+                "warmed"
+                if embedding_model is not None and self._query_embedding_warmed
+                else "loaded"
+                if embedding_model is not None
+                else "unavailable"
+            ),
+            "query_embedding_cache_status": (
+                "model_reused" if embedding_model is not None else "unavailable"
+            ),
+            **dict(self._qdrant_index_metrics),
+            **self._retrieval_cache.diagnostics(),
             "indexer_embedding_gpu_resident": self._indexer_embedding_gpu_resident,
             "ollama_keep_alive": settings.ollama_keep_alive,
             "ollama_num_gpu": settings.ollama_num_gpu,
@@ -433,6 +583,7 @@ class KnowledgeEngineService:
             raise KnowledgeEngineUnavailable(self._engine_error_message())
         from cial_knowledge_os.bm25_snapshot import load_bm25_snapshot
         from cial_knowledge_os.embeddings import (
+            embed_texts,
             embedding_runtime_diagnostics,
             get_embedding_dimension,
             load_embedding_model,
@@ -441,6 +592,7 @@ class KnowledgeEngineService:
         from cial_knowledge_os.vectorstore import (
             create_qdrant_client,
             ensure_collection,
+            ensure_query_payload_indexes,
             execute_qdrant_operation,
         )
 
@@ -473,6 +625,18 @@ class KnowledgeEngineService:
             if self._cached_embedding_model is None:
                 self._cached_embedding_model = load_embedding_model(config)
             pipeline.embedding_model = self._cached_embedding_model
+            if not create_collection and not self._query_embedding_warmed:
+                dense_warm_started = time.perf_counter()
+                embed_texts(
+                    pipeline.embedding_model,
+                    ["retrieval readiness"],
+                    batch_size=1,
+                )
+                self._query_embedding_warm_duration_ms = round(
+                    (time.perf_counter() - dense_warm_started) * 1000,
+                    3,
+                )
+                self._query_embedding_warmed = True
             embedding_diagnostics = embedding_runtime_diagnostics(
                 pipeline.embedding_model,
                 configured_device=configured_embedding_device,
@@ -512,6 +676,17 @@ class KnowledgeEngineService:
                     get_embedding_dimension(pipeline.embedding_model),
                 )
                 collection_exists = True
+            if collection_exists:
+                self._qdrant_index_metrics = ensure_query_payload_indexes(
+                    client,
+                    config,
+                )
+                pipeline.qdrant_index_status = str(
+                    self._qdrant_index_metrics.get(
+                        "qdrant_index_status",
+                        "unknown",
+                    )
+                )
             if not collection_exists:
                 client.close()
                 return {
@@ -627,11 +802,19 @@ class KnowledgeEngineService:
                 self._load_reranker(pipeline)
             self.set_pipeline(pipeline)
             self._loaded_generation = int(generation.generation or 0) if generation is not None else 0
+            self._retrieval_cache.activate_generation(self._loaded_generation)
             self._loaded_bm25_generation = (
                 int(generation.bm25_generation or 0) if generation is not None else 0
             )
+            bm25_loaded_at = datetime.now(timezone.utc).isoformat()
             self._bm25_snapshot_metrics = {
-                "bm25_snapshot_loaded_at": datetime.now(timezone.utc).isoformat(),
+                "bm25_runtime_state": "ready",
+                "bm25_snapshot_version": (
+                    int(snapshot.generation) if snapshot is not None else None
+                ),
+                "bm25_loaded_at": bm25_loaded_at,
+                "bm25_load_duration_ms": snapshot_load_duration_ms,
+                "bm25_snapshot_loaded_at": bm25_loaded_at,
                 "bm25_snapshot_size": (
                     snapshot_path.stat().st_size if snapshot_path.exists() else None
                 ),
@@ -786,9 +969,17 @@ class KnowledgeEngineService:
                 }
                 pipeline._ensure_retrievers()
                 self._loaded_generation = int(generation.generation or 0)
+                self._retrieval_cache.activate_generation(
+                    self._loaded_generation
+                )
                 self._loaded_bm25_generation = int(generation.bm25_generation or 0)
+                bm25_loaded_at = datetime.now(timezone.utc).isoformat()
                 self._bm25_snapshot_metrics = {
-                    "bm25_snapshot_loaded_at": datetime.now(timezone.utc).isoformat(),
+                    "bm25_runtime_state": "ready",
+                    "bm25_snapshot_version": int(snapshot.generation),
+                    "bm25_loaded_at": bm25_loaded_at,
+                    "bm25_load_duration_ms": snapshot_load_duration_ms,
+                    "bm25_snapshot_loaded_at": bm25_loaded_at,
                     "bm25_snapshot_size": (
                         snapshot_path.stat().st_size
                         if snapshot_path.exists()
@@ -852,6 +1043,8 @@ class KnowledgeEngineService:
                 "current_bm25_generation": self._loaded_bm25_generation,
                 "generation_refresh_running": self._generation_refresh_inflight,
                 **dict(self._bm25_snapshot_metrics),
+                **dict(self._qdrant_index_metrics),
+                **self._retrieval_cache.diagnostics(),
             }
 
     def _prepare_pipeline_locked(
@@ -1450,6 +1643,9 @@ class KnowledgeEngineService:
             if callable(close): close()
         self._retired_pipelines.clear()
         self._cached_embedding_model = None
+        self._query_embedding_warmed = False
+        self._query_embedding_warm_duration_ms = None
+        self._retrieval_cache.clear()
 
     def answer_question(
         self,
@@ -1555,6 +1751,7 @@ class KnowledgeEngineService:
                         "dense_retrieval": "qdrant_latency",
                         "bm25_retrieval": "bm25_latency",
                         "hybrid_fusion": "hybrid_fusion_latency",
+                        "parallel_retrieval": "parallel_retrieval_duration_ms",
                         "reranking": "reranker_latency",
                         "generation": "generation_latency",
                     }.get(stage_id)
@@ -1569,6 +1766,46 @@ class KnowledgeEngineService:
                             "bm25_candidate_count",
                             metrics.get("candidate_count", 0),
                         )
+                    if stage_id == "parallel_retrieval":
+                        self._chat_debug["parallel_retrieval_duration_ms"] = (
+                            metrics.get(
+                                "parallel_retrieval_duration_ms",
+                                metrics["duration_ms"],
+                            )
+                        )
+                        for key in (
+                            "dense_started",
+                            "dense_completed",
+                            "bm25_started",
+                            "bm25_completed",
+                        ):
+                            self._chat_debug[key] = metrics.get(key)
+                    if stage_id == "query_embedding":
+                        self._chat_debug["query_embedding_metrics"] = dict(
+                            metrics
+                        )
+                    if stage_id == "qdrant_search":
+                        self._chat_debug["qdrant_metrics"] = dict(metrics)
+                    if stage_id == "retrieval_cache":
+                        self._chat_debug["retrieval_cache_metrics"] = dict(
+                            metrics
+                        )
+                    if stage_id == "reranking":
+                        self._chat_debug["reranker_metrics"] = {
+                            key: metrics.get(key)
+                            for key in (
+                                "reranker_device",
+                                "reranker_dtype",
+                                "reranker_model_loaded",
+                                "reranker_warmed",
+                                "reranker_warm_duration_ms",
+                                "reranker_gpu_memory",
+                                "reranker_batch_size",
+                                "reranker_candidate_count",
+                                "reranker_latency_ms",
+                            )
+                            if metrics.get(key) is not None
+                        }
                     if stage_id == "generation":
                         allowed_generation_metrics = {
                             key: metrics.get(key)
@@ -1640,7 +1877,16 @@ class KnowledgeEngineService:
                 bm25_search_duration_ms=None,
                 bm25_candidate_count=None,
                 hybrid_fusion_latency=None,
+                parallel_retrieval_duration_ms=None,
+                query_embedding_metrics={},
+                qdrant_metrics={},
+                retrieval_cache_metrics={},
+                dense_started=None,
+                dense_completed=None,
+                bm25_started=None,
+                bm25_completed=None,
                 reranker_latency=None,
+                reranker_metrics={},
                 generation_latency=None,
                 generation_metrics={},
                 generation_gpu_start={},
@@ -1671,6 +1917,21 @@ class KnowledgeEngineService:
                 selected_scope,
             )
             progress("context.building", "completed", documents_searched=len(effective_relative_paths or ()))
+            (
+                retrieval_cache_key,
+                retrieval_cache_principal,
+                retrieval_permission_boundary,
+            ) = self._retrieval_cache_identity(
+                request.question,
+                generation=self._loaded_generation,
+                access_context=access_context,
+                selected_scope=selected_scope,
+                effective_relative_paths=effective_relative_paths,
+            )
+            self._retrieval_cache.observe_permission_boundary(
+                retrieval_cache_principal,
+                retrieval_permission_boundary,
+            )
         except Exception as exc:
             logger.info(
                 "chat_failed",
@@ -1743,6 +2004,16 @@ class KnowledgeEngineService:
             )
             pipeline.token_callback = token_callback
             pipeline.cancel_event = cancel_event
+            pipeline.retrieval_cache_getter = lambda: self._retrieval_cache.lookup(
+                retrieval_cache_key
+            )
+            pipeline.retrieval_cache_setter = lambda payload: self._retrieval_cache.store(
+                retrieval_cache_key,
+                payload,
+                generation=self._loaded_generation,
+                principal_id=retrieval_cache_principal,
+                permission_boundary=retrieval_permission_boundary,
+            )
 
             def pipeline_telemetry(
                 stage_name: str, status: str, metrics: dict[str, Any]
@@ -1847,6 +2118,8 @@ class KnowledgeEngineService:
                 pipeline.token_callback = None
                 pipeline.cancel_event = None
                 pipeline.telemetry_callback = None
+                pipeline.retrieval_cache_getter = None
+                pipeline.retrieval_cache_setter = None
             if priority_context is not None:
                 priority_context.__exit__(None, None, None)
             self._query_lock.release()
@@ -2529,8 +2802,13 @@ class KnowledgeEngineService:
     @staticmethod
     def _load_reranker(pipeline: Any) -> None:
         reranker = getattr(pipeline, "reranker", None)
+        warm = getattr(reranker, "warm", None)
         load = getattr(reranker, "load", None)
-        if callable(load) and bool(getattr(pipeline.config, "reranker_enabled", True)):
+        if not bool(getattr(pipeline.config, "reranker_enabled", True)):
+            return
+        if callable(warm):
+            warm()
+        elif callable(load):
             load()
 
     @classmethod

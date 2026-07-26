@@ -158,8 +158,12 @@ class Settings:
     )
     embedding_model_name: str = _env_str("CIAL_EMBEDDING_MODEL_NAME", "EMBEDDING_MODEL_NAME", default="BAAI/bge-m3")
     query_embedding_device: str = _env_str(
-        "CIAL_QUERY_EMBEDDING_DEVICE", default="cpu"
+        "CIAL_QUERY_EMBEDDING_DEVICE", default="auto"
     ).casefold()
+    retrieval_cache_max_entries: int = _env_int(
+        "CIAL_RETRIEVAL_CACHE_MAX_ENTRIES",
+        256,
+    )
     indexer_gpu_cooperative_mode: bool = _env_bool(
         "CIAL_INDEXER_GPU_COOPERATIVE_MODE",
         _env_bool("INDEXER_GPU_COOPERATIVE_MODE", True),
@@ -340,6 +344,7 @@ class Settings:
             "CIAL_GENERATION_TIMEOUT_SECONDS": self.generation_timeout_seconds,
             "CIAL_CHAT_LOCK_TIMEOUT_SECONDS": self.chat_lock_timeout_seconds,
             "CIAL_CHAT_REQUEST_TIMEOUT_SECONDS": self.chat_request_timeout_seconds,
+            "CIAL_RETRIEVAL_CACHE_MAX_ENTRIES": self.retrieval_cache_max_entries,
         }
         invalid = [name for name, value in positive.items() if value <= 0]
         if invalid:

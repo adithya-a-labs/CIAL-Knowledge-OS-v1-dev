@@ -326,6 +326,18 @@ class SystemStatusService:
                 "embedding": settings.embedding_model_name,
                 "embedding_device": diagnostics.get("embedding_device") or configured_device,
                 "embedding_ready": embedding_ready,
+                "dense_model_status": diagnostics.get(
+                    "dense_model_status",
+                    "unavailable",
+                ),
+                "reranker_status": diagnostics.get(
+                    "reranker_status",
+                    "unavailable",
+                ),
+                "bm25_status": diagnostics.get(
+                    "bm25_status",
+                    "unavailable",
+                ),
             },
             "gpu": {
                 "available": gpu_available,
