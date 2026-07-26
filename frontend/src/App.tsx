@@ -68,6 +68,8 @@ function ProtectedRouter() {
       <AppShell>
         <Switch>
           <Route path="/" component={DashboardPage} />
+          <Route path="/assistant/new" component={AIAssistantPage} />
+          <Route path="/assistant/conversations/:conversationId" component={AIAssistantPage} />
           <Route path="/assistant" component={AIAssistantPage} />
           <Route path="/knowledge/document/:documentId" component={DocumentWorkspacePage} />
           <Route path="/knowledge-center" component={KnowledgeCenterPage} />

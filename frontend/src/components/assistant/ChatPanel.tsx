@@ -26,12 +26,10 @@ import type {
 import { useDocumentIndexingStatuses } from '@/hooks/useDocumentIndexingStatuses';
 import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { AIComposerFrame } from './AIComposer';
-import { PENDING_COMPOSER_SUBMIT_KEY } from '@/lib/conversationHandoff';
 import SaveToKnowledgeDialog from './SaveToKnowledgeDialog';
+import { isAssistantDraftId } from '@/lib/assistantNavigation';
 
 const supportedFileTypes = '.pdf,.docx,.pptx,.xlsx,.csv,.txt,image/*';
-const ASSISTANT_CONTEXT_STORAGE_KEY = 'cial-assistant-selected-context';
-const ASSISTANT_CONTEXT_INTENT_STORAGE_KEY = 'cial-assistant-context-intent';
 const ASSISTANT_SOURCE_PANEL_SIZE_STORAGE_KEY = 'cial-assistant-source-panel-size';
 const DEFAULT_SOURCE_PANEL_SIZE = 40;
 
@@ -76,6 +74,9 @@ export default function ChatPanel() {
     updateActiveSession,
     updateSession,
     appendMessage,
+    promoteDraftSession,
+    pendingComposer,
+    consumePendingComposer,
   } = useAssistantSessions();
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -153,26 +154,7 @@ export default function ChatPanel() {
   }, [corpusTreeQuery.data]);
 
   useEffect(() => {
-    window.localStorage.setItem(ASSISTANT_CONTEXT_STORAGE_KEY, JSON.stringify(selectedContextItems));
-  }, [selectedContextItems]);
-
-  useEffect(() => {
-    try {
-      const intent = window.localStorage.getItem(ASSISTANT_CONTEXT_INTENT_STORAGE_KEY);
-      if (!intent) return;
-      const raw = window.localStorage.getItem(ASSISTANT_CONTEXT_STORAGE_KEY);
-      window.localStorage.removeItem(ASSISTANT_CONTEXT_INTENT_STORAGE_KEY);
-      if (!raw) return;
-      const restored = JSON.parse(raw) as SelectedContextItem[];
-      if (Array.isArray(restored) && restored.length > 0) {
-        updateActiveSession({ selectedContextItems: restored });
-      }
-    } catch {
-      // Ignore malformed local storage and keep the session unchanged.
-    }
-  }, [activeSession.id, updateActiveSession]);
-
-  useEffect(() => {
+    activeRequestControllerRef.current?.abort();
     setInput('');
     setErrorMessage(null);
     retryQuestionRef.current = null;
@@ -360,7 +342,10 @@ export default function ChatPanel() {
           liveStatus.data,
         );
       }
-      const response = await streamQuestion(toChatRequest(requestPayload, requestSessionId), (event) => {
+      const response = await streamQuestion(toChatRequest(
+        requestPayload,
+        isAssistantDraftId(requestSessionId) ? undefined : requestSessionId,
+      ), (event) => {
         if (event.type === 'stage') {
           setGenerationEvents((current) => [...current, event].slice(-30));
           const errorState = event.metrics?.error_state;
@@ -402,9 +387,13 @@ export default function ChatPanel() {
         relatedQuestions: adapted.relatedQuestions,
       };
 
-      updateSession(requestSessionId, {
-        messages: [...messages, persistedUserMsg, aiMsg],
-      });
+      const completedMessages = [...messages, persistedUserMsg, aiMsg];
+      if (isAssistantDraftId(requestSessionId)) {
+        if (!response.session_id) throw new Error('The new conversation did not return a session ID.');
+        promoteDraftSession(requestSessionId, response.session_id, { messages: completedMessages });
+      } else {
+        updateSession(requestSessionId, { messages: completedMessages });
+      }
       const failed = degradedStageRef.current as {
         stage: string;
         reason: string;
@@ -452,15 +441,17 @@ export default function ChatPanel() {
   };
 
   useEffect(() => {
+    if (!pendingComposer) return;
+    if (!pendingComposer.autoSubmit) {
+      setInput(pendingComposer.question);
+      consumePendingComposer();
+      return;
+    }
     if (!chatReady || isLoading) return;
-    const raw=localStorage.getItem(PENDING_COMPOSER_SUBMIT_KEY);if(!raw)return;
-    try{
-      const pending=JSON.parse(raw) as {sessionId:string;question:string;profile?:typeof activeProfile};
-      if(pending.sessionId!==activeSession.id||!pending.question.trim())return;
-      localStorage.removeItem(PENDING_COMPOSER_SUBMIT_KEY);
-      void handleSend(pending.question,pending.profile);
-    }catch{localStorage.removeItem(PENDING_COMPOSER_SUBMIT_KEY);}
-  },[activeSession.id,chatReady,isLoading]);
+    const pending = pendingComposer;
+    consumePendingComposer();
+    void handleSend(pending.question, pending.profile);
+  }, [chatReady, consumePendingComposer, isLoading, pendingComposer]);
 
   const handleFileChange = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -471,7 +462,8 @@ export default function ChatPanel() {
     });
     if (fileInputRef.current) fileInputRef.current.value = '';
 
-    const results = await Promise.allSettled(Array.from(files).map((file) => uploadChatAttachment(file, activeSession.id)));
+    const attachmentSessionId = isAssistantDraftId(activeSession.id) ? undefined : activeSession.id;
+    const results = await Promise.allSettled(Array.from(files).map((file) => uploadChatAttachment(file, attachmentSessionId)));
     updateActiveSession({
       uploadedFiles: [...uploadedFiles, ...queuedFiles].map((file) => {
         const resultIndex = queuedFiles.findIndex((queuedFile) => queuedFile.id === file.id);
