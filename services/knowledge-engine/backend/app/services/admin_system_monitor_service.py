@@ -479,6 +479,22 @@ class AdminSystemMonitorService:
                 ),
                 "validation_latency_ms": query.get("validation_latency"),
                 "retrieval_latency_ms": query.get("retrieval_latency"),
+                "bm25_search_duration_ms": query.get(
+                    "bm25_search_duration_ms"
+                ),
+                "bm25_candidate_count": query.get("bm25_candidate_count"),
+                "bm25_snapshot_loaded_at": query.get(
+                    "bm25_snapshot_loaded_at"
+                ),
+                "bm25_snapshot_size": query.get("bm25_snapshot_size"),
+                "bm25_snapshot_load_duration_ms": query.get(
+                    "bm25_snapshot_load_duration_ms"
+                ),
+                "bm25_index_activation_duration_ms": query.get(
+                    "bm25_index_activation_duration_ms"
+                ),
+                "bm25_document_count": query.get("bm25_document_count"),
+                "bm25_chunk_count": query.get("bm25_chunk_count"),
                 "reranker_latency_ms": query.get("reranker_latency"),
                 "generation_latency_ms": query.get("generation_latency"),
                 "generation_metrics": query.get("generation_metrics") or {},

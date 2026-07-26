@@ -54,6 +54,14 @@ class _Engine:
             "status": "completed",
             "validation_latency": 3,
             "retrieval_latency": 20,
+            "bm25_search_duration_ms": 12.5,
+            "bm25_candidate_count": 10,
+            "bm25_snapshot_loaded_at": "2026-07-25T08:58:00+00:00",
+            "bm25_snapshot_size": 1049687710,
+            "bm25_snapshot_load_duration_ms": 18293.11,
+            "bm25_index_activation_duration_ms": 23590.491,
+            "bm25_document_count": 488,
+            "bm25_chunk_count": 459715,
             "reranker_latency": 8,
             "generation_latency": 40,
             "total_latency": 74,
@@ -155,6 +163,11 @@ def test_admin_monitor_snapshot_reuses_live_runtime_telemetry():
     assert payload["gpu"]["embedding_model_status"] == "embedding_gpu"
     assert payload["gpu"]["embedding_batch"]["duration_ms"] == 45.5
     assert payload["query"]["retrieval_latency_ms"] == 20
+    assert payload["query"]["bm25_search_duration_ms"] == 12.5
+    assert payload["query"]["bm25_candidate_count"] == 10
+    assert payload["query"]["bm25_snapshot_size"] == 1049687710
+    assert payload["query"]["bm25_document_count"] == 488
+    assert payload["query"]["bm25_chunk_count"] == 459715
     assert payload["models"]["loaded_models"] == ["llama3.1:8b"]
 
 
