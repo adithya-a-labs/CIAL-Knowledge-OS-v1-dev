@@ -175,6 +175,16 @@ export interface AdminSystemMonitor {
     memory_used_mb: number | null;
     memory_total_mb: number | null;
     embedding_device: string;
+    embedding_device_configured?: string;
+    embedding_device_actual?: string | null;
+    embedding_model_status?: string | null;
+    embedding_batch?: {
+      batch_size?: number;
+      device?: string;
+      gpu_memory_before?: number;
+      gpu_memory_after?: number;
+      duration_ms?: number;
+    };
     precision: string;
     batch_size: number;
     embedding_throughput_chunks_per_minute: number | null;

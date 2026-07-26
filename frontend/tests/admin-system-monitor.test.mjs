@@ -54,6 +54,10 @@ test('dashboard renders every required live operations section', () => {
   assert.match(page, /gpu_layers_used/);
   assert.match(page, /generation_gpu_utilization/);
   assert.match(page, /cpu_offload_detected/);
+  assert.match(page, /Configured device/);
+  assert.match(page, /Actual model device/);
+  assert.match(page, /Embedding model/);
+  assert.match(page, /Batch latency/);
 });
 
 test('monitor uses authenticated SSE with reconnect and stale detection', () => {

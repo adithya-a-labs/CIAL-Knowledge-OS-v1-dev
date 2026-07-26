@@ -248,6 +248,10 @@ function AuthorizedMonitor() {
               <Metric label="Precision" value={data.gpu.precision} />
               <Metric label="Batch size" value={data.gpu.batch_size} />
               <Metric label="Device" value={data.gpu.embedding_device} />
+              <Metric label="Configured device" value={data.gpu.embedding_device_configured ?? 'unknown'} />
+              <Metric label="Actual model device" value={data.gpu.embedding_device_actual ?? 'unknown'} />
+              <Metric label="Embedding model" value={data.gpu.embedding_model_status ?? 'unknown'} />
+              <Metric label="Batch latency" value={formatNumber(data.gpu.embedding_batch?.duration_ms, ' ms')} />
               <Metric label="Query embedding" value={data.models.query_embedding_device ?? 'unknown'} />
               <Metric label="GPU state" value={data.gpu.state ?? 'unknown'} />
               <Metric label="Embedding jobs" value={data.gpu.active_embedding_jobs ?? 0} />
