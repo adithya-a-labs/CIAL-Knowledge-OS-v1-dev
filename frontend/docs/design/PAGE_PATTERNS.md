@@ -59,6 +59,13 @@ Interaction expectations:
 - AI actions should remain explainable
 - the interface should not feel playful or overly chat-like
 
+### Assistant navigation contract
+- `/assistant/new` represents a client-only empty draft. Generic Assistant and New Conversation actions always use this route and clear conversation-scoped messages, uploads, selected context, citations, and pending handoffs.
+- `/assistant/new?handoff=<one-time-token>` represents a new client-only draft with only the context explicitly supplied by the originating document, folder, search, upload, note, or Saved Knowledge action.
+- `/assistant/conversations/:conversationId` represents an existing persisted conversation and is entered only through an explicit history or recent-conversation selection.
+- History hydration may populate the history list but must never choose a conversation for a fresh route.
+- The first submitted draft message lets the chat API create the backend session. The client then replaces the draft URL with the persisted conversation route.
+
 ## Analytics Dashboard
 Use for operational reporting, document usage, learning progress, and knowledge insights.
 
@@ -87,6 +94,13 @@ Interaction expectations:
 - show the user where they are immediately
 - make key actions obvious and predictable
 - support both quick scan and deeper reading
+
+### Knowledge Center document workspace
+- Keep the shared global application navigation mounted; default it to the 64px icon rail when entering a document.
+- Persist the user's global navigation width preference locally across routes and refreshes.
+- Treat the Corpus Tree and document assistant as workspace panels, not global navigation.
+- Responsive disclosure order is global navigation first, then Corpus Tree, then document assistant. Use overlay drawers only below each panel's desktop breakpoint.
+- Icon-only global navigation must retain accessible names, keyboard focus treatment, active-route state, and hover/focus tooltips.
 
 ## Settings and Admin Page
 Use for configuration, governance, and management screens.
