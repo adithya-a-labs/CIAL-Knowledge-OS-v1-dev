@@ -212,8 +212,21 @@ export interface AdminSystemMonitor {
     embedding_model: string;
     embedding_model_ready: boolean;
     query_embedding_device?: string;
+    query_embedding_dtype?: string | null;
+    query_embedding_model_state?: string | null;
+    query_embedding_cache_status?: string | null;
     reranker_model: string;
     reranker_ready: boolean;
+    dense_model_status?: string;
+    reranker_status?: string;
+    bm25_status?: string;
+    reranker_device?: string | null;
+    reranker_dtype?: string | null;
+    reranker_model_loaded?: boolean | null;
+    reranker_gpu_memory?: {
+      allocated_bytes?: number | null;
+      load_delta_bytes?: number | null;
+    };
   };
   query: {
     active_chat_requests: number;
@@ -224,6 +237,37 @@ export interface AdminSystemMonitor {
     timeout_reason: string | null;
     validation_latency_ms: number | null;
     retrieval_latency_ms: number | null;
+    parallel_retrieval_duration_ms?: number | null;
+    dense_started?: boolean | null;
+    dense_completed?: boolean | null;
+    bm25_started?: boolean | null;
+    bm25_completed?: boolean | null;
+    query_embedding_metrics?: {
+      query_embedding_started?: boolean;
+      query_embedding_completed?: boolean;
+      query_embedding_duration_ms?: number;
+      query_embedding_device?: string;
+      query_embedding_dtype?: string;
+      query_embedding_model_state?: string;
+      query_embedding_cache_status?: string;
+    };
+    qdrant_metrics?: {
+      qdrant_index_status?: string;
+      qdrant_filter_latency_ms?: number | null;
+      qdrant_search_latency_ms?: number;
+      qdrant_filter_fields?: string[];
+    };
+    qdrant_index_status?: string | null;
+    qdrant_payload_index_fields?: string[];
+    retrieval_cache_metrics?: {
+      retrieval_cache_hit?: boolean;
+      retrieval_cache_miss?: boolean;
+      retrieval_cache_latency_ms?: number;
+      retrieval_cache_size?: number;
+      retrieval_cache_invalidation_reason?: string | null;
+    };
+    retrieval_cache_size?: number;
+    retrieval_cache_invalidation_reason?: string | null;
     bm25_search_duration_ms: number | null;
     bm25_candidate_count: number | null;
     bm25_snapshot_loaded_at: string | null;
@@ -232,7 +276,23 @@ export interface AdminSystemMonitor {
     bm25_index_activation_duration_ms: number | null;
     bm25_document_count: number;
     bm25_chunk_count: number;
+    bm25_runtime_state?: string | null;
+    bm25_snapshot_version?: number | null;
+    bm25_loaded_at?: string | null;
+    bm25_load_duration_ms?: number | null;
     reranker_latency_ms: number | null;
+    reranker_metrics?: {
+      reranker_device?: string | null;
+      reranker_dtype?: string | null;
+      reranker_model_loaded?: boolean | null;
+      reranker_gpu_memory?: {
+        allocated_bytes?: number | null;
+        load_delta_bytes?: number | null;
+      };
+      reranker_batch_size?: number;
+      reranker_candidate_count?: number;
+      reranker_latency_ms?: number;
+    };
     generation_latency_ms: number | null;
     generation_metrics?: {
       prompt_tokens?: number;

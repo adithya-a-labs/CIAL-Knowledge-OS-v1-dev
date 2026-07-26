@@ -58,6 +58,13 @@ test('dashboard renders every required live operations section', () => {
   assert.match(page, /Actual model device/);
   assert.match(page, /Embedding model/);
   assert.match(page, /Batch latency/);
+  assert.match(page, /Parallel retrieval/);
+  assert.match(page, /Query embedding latency/);
+  assert.match(page, /Qdrant search/);
+  assert.match(page, /Retrieval cache/);
+  assert.match(page, /Reranker batch/);
+  assert.match(page, /Reranker device/);
+  assert.match(page, /BM25 runtime/);
 });
 
 test('monitor uses authenticated SSE with reconnect and stale detection', () => {

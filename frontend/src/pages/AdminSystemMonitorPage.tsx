@@ -272,7 +272,11 @@ function AuthorizedMonitor() {
               <Metric label="Actual model device" value={data.gpu.embedding_device_actual ?? 'unknown'} />
               <Metric label="Embedding model" value={data.gpu.embedding_model_status ?? 'unknown'} />
               <Metric label="Batch latency" value={formatNumber(data.gpu.embedding_batch?.duration_ms, ' ms')} />
-              <Metric label="Query embedding" value={data.models.query_embedding_device ?? 'unknown'} />
+            <Metric label="Query embedding" value={data.models.query_embedding_device ?? 'unknown'} detail={[data.models.query_embedding_dtype, data.models.query_embedding_model_state].filter(Boolean).join(' · ') || undefined} />
+            <Metric label="Dense model" value={data.models.dense_model_status ?? 'unavailable'} />
+            <Metric label="Reranker status" value={data.models.reranker_status ?? 'unavailable'} />
+            <Metric label="Reranker device" value={data.models.reranker_device ?? 'Unavailable'} detail={data.models.reranker_dtype ?? undefined} />
+            <Metric label="BM25 runtime" value={data.models.bm25_status ?? 'unavailable'} />
               <Metric label="GPU state" value={data.gpu.state ?? 'unknown'} />
               <Metric label="Embedding jobs" value={data.gpu.active_embedding_jobs ?? 0} />
               <Metric label="Chat priority" value={data.gpu.chat_priority_active ? 'active' : 'idle'} />
@@ -301,6 +305,10 @@ function AuthorizedMonitor() {
             <Metric label="Current stage" value={q.current_stage ?? 'Idle'} detail={q.current_stage_duration_ms === null ? undefined : `${q.current_stage_duration_ms} ms active`} />
             <Metric label="Validation" value={formatNumber(q.validation_latency_ms, ' ms')} />
             <Metric label="Retrieval" value={formatNumber(q.retrieval_latency_ms, ' ms')} />
+            <Metric label="Parallel retrieval" value={formatNumber(q.parallel_retrieval_duration_ms, ' ms')} detail={q.dense_completed && q.bm25_completed ? 'Dense + BM25 completed' : undefined} />
+            <Metric label="Query embedding latency" value={formatNumber(q.query_embedding_metrics?.query_embedding_duration_ms, ' ms')} detail={q.query_embedding_metrics?.query_embedding_cache_status} />
+            <Metric label="Qdrant search" value={formatNumber(q.qdrant_metrics?.qdrant_search_latency_ms, ' ms')} detail={q.qdrant_index_status ?? undefined} />
+            <Metric label="Retrieval cache" value={q.retrieval_cache_metrics?.retrieval_cache_hit ? 'hit' : q.retrieval_cache_metrics?.retrieval_cache_miss ? 'miss' : 'Unavailable'} detail={`${q.retrieval_cache_size ?? 0} entries · ${formatNumber(q.retrieval_cache_metrics?.retrieval_cache_latency_ms, ' ms')}`} />
             <Metric label="BM25 search" value={formatNumber(q.bm25_search_duration_ms, ' ms')} />
             <Metric label="BM25 candidates" value={q.bm25_candidate_count ?? 'Unavailable'} />
             <Metric label="BM25 chunks" value={q.bm25_chunk_count} detail={`${q.bm25_document_count} documents`} />
@@ -308,6 +316,7 @@ function AuthorizedMonitor() {
             <Metric label="BM25 load" value={formatNumber(q.bm25_snapshot_load_duration_ms, ' ms')} />
             <Metric label="BM25 activation" value={formatNumber(q.bm25_index_activation_duration_ms, ' ms')} />
             <Metric label="Reranking" value={formatNumber(q.reranker_latency_ms, ' ms')} />
+            <Metric label="Reranker batch" value={q.reranker_metrics?.reranker_batch_size ?? 'Unavailable'} detail={q.reranker_metrics?.reranker_candidate_count === undefined ? undefined : `${q.reranker_metrics.reranker_candidate_count} candidates`} />
             <Metric label="Generation" value={formatLatency(q.generation_latency_ms, q.total_latency_ms)} />
             <Metric label="First token" value={formatLatency(q.generation_metrics?.first_token_ms, q.generation_latency_ms)} />
             <Metric label="Tokens / sec" value={formatNumber(q.generation_metrics?.tokens_per_second)} />
