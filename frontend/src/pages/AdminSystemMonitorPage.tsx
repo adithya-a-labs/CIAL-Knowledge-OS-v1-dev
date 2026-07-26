@@ -46,6 +46,26 @@ function formatNumber(value: number | null | undefined, suffix = '') {
   return value === null || value === undefined ? 'Unavailable' : `${value.toLocaleString()}${suffix}`;
 }
 
+function formatLatency(
+  value: number | null | undefined,
+  maximum?: number | null,
+) {
+  if (
+    value === null
+    || value === undefined
+    || !Number.isFinite(value)
+    || value < 0
+    || (
+      maximum !== null
+      && maximum !== undefined
+      && (!Number.isFinite(maximum) || value > maximum)
+    )
+  ) {
+    return 'Unavailable';
+  }
+  return `${value.toLocaleString()} ms`;
+}
+
 function formatTime(value: string | null | undefined) {
   if (!value) return 'Not available';
   return new Intl.DateTimeFormat(undefined, {
@@ -281,11 +301,17 @@ function AuthorizedMonitor() {
             <Metric label="Current stage" value={q.current_stage ?? 'Idle'} detail={q.current_stage_duration_ms === null ? undefined : `${q.current_stage_duration_ms} ms active`} />
             <Metric label="Validation" value={formatNumber(q.validation_latency_ms, ' ms')} />
             <Metric label="Retrieval" value={formatNumber(q.retrieval_latency_ms, ' ms')} />
+            <Metric label="BM25 search" value={formatNumber(q.bm25_search_duration_ms, ' ms')} />
+            <Metric label="BM25 candidates" value={q.bm25_candidate_count ?? 'Unavailable'} />
+            <Metric label="BM25 chunks" value={q.bm25_chunk_count} detail={`${q.bm25_document_count} documents`} />
+            <Metric label="BM25 snapshot" value={q.bm25_snapshot_size === null ? 'Unavailable' : `${(q.bm25_snapshot_size / 1_048_576).toFixed(1)} MB`} detail={q.bm25_snapshot_loaded_at ? `Loaded ${formatTime(q.bm25_snapshot_loaded_at)}` : undefined} />
+            <Metric label="BM25 load" value={formatNumber(q.bm25_snapshot_load_duration_ms, ' ms')} />
+            <Metric label="BM25 activation" value={formatNumber(q.bm25_index_activation_duration_ms, ' ms')} />
             <Metric label="Reranking" value={formatNumber(q.reranker_latency_ms, ' ms')} />
-            <Metric label="Generation" value={formatNumber(q.generation_latency_ms, ' ms')} />
-            <Metric label="First token" value={formatNumber(q.generation_metrics?.first_token_ms, ' ms')} />
+            <Metric label="Generation" value={formatLatency(q.generation_latency_ms, q.total_latency_ms)} />
+            <Metric label="First token" value={formatLatency(q.generation_metrics?.first_token_ms, q.generation_latency_ms)} />
             <Metric label="Tokens / sec" value={formatNumber(q.generation_metrics?.tokens_per_second)} />
-            <Metric label="Model load" value={formatNumber(q.generation_metrics?.model_load_ms, ' ms')} />
+            <Metric label="Model load" value={formatLatency(q.generation_metrics?.model_load_ms, q.generation_latency_ms)} />
             <Metric label="Ollama processor" value={q.generation_metrics?.ollama_processor_type ?? 'Unavailable'} />
             <Metric label="GPU layers" value={q.generation_metrics?.gpu_layers_used ?? 'Unavailable'} detail={q.generation_metrics?.gpu_layers_requested === -1 ? 'all requested' : undefined} />
             <Metric label="Generation GPU" value={formatNumber(q.generation_metrics?.generation_gpu_utilization, '%')} detail={q.generation_metrics?.generation_gpu_utilization_peak === undefined ? undefined : `${q.generation_metrics.generation_gpu_utilization_peak}% peak`} />

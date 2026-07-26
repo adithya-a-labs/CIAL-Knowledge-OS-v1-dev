@@ -224,6 +224,14 @@ export interface AdminSystemMonitor {
     timeout_reason: string | null;
     validation_latency_ms: number | null;
     retrieval_latency_ms: number | null;
+    bm25_search_duration_ms: number | null;
+    bm25_candidate_count: number | null;
+    bm25_snapshot_loaded_at: string | null;
+    bm25_snapshot_size: number | null;
+    bm25_snapshot_load_duration_ms: number | null;
+    bm25_index_activation_duration_ms: number | null;
+    bm25_document_count: number;
+    bm25_chunk_count: number;
     reranker_latency_ms: number | null;
     generation_latency_ms: number | null;
     generation_metrics?: {

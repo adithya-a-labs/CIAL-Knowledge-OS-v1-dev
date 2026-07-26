@@ -78,3 +78,19 @@ test('dashboard handles disconnected, stale, and partial unavailable states', ()
   assert.match(page, /Unavailable/);
   assert.match(page, /componentStatus/);
 });
+
+test('generation latency display validates backend timing boundaries', () => {
+  assert.match(page, /function formatLatency/);
+  assert.match(page, /Number\.isFinite\(value\)/);
+  assert.match(page, /value < 0/);
+  assert.match(page, /value > maximum/);
+  assert.match(
+    page,
+    /formatLatency\(q\.generation_metrics\?\.first_token_ms, q\.generation_latency_ms\)/,
+  );
+  assert.match(
+    page,
+    /formatLatency\(q\.generation_metrics\?\.model_load_ms, q\.generation_latency_ms\)/,
+  );
+  assert.match(page, /return 'Unavailable'/);
+});
