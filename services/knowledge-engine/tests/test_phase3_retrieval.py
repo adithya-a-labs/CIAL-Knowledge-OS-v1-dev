@@ -5,6 +5,7 @@ import time
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from langchain_core.documents import Document
 
@@ -148,6 +149,56 @@ class BM25AndFusionTests(unittest.TestCase):
 
         self.assertEqual([item["chunk_id"] for item in results], ["chunk-90"])
         self.assertEqual(tokenized_inputs, ["alpha"])
+
+    def test_authorized_bm25_query_never_constructs_an_index(self) -> None:
+        retriever = BM25Retriever()
+        retriever.index(
+            [
+                Document(
+                    page_content="published lexical beacon evidence",
+                    metadata={
+                        "relative_path": "public/a.pdf",
+                        "document_id": "doc-a",
+                        "chunk_id": "a",
+                    },
+                ),
+                Document(
+                    page_content="private lexical beacon evidence",
+                    metadata={
+                        "relative_path": "private/b.pdf",
+                        "document_id": "doc-b",
+                        "chunk_id": "b",
+                    },
+                ),
+            ]
+        )
+        retriever.set_allowed_relative_paths(frozenset({"public/a.pdf"}))
+
+        with (
+            patch(
+                "rank_bm25.BM25Okapi",
+                side_effect=AssertionError(
+                    "query-time BM25 construction is prohibited"
+                ),
+            ),
+            patch.object(
+                retriever._index,
+                "get_scores",
+                side_effect=AssertionError(
+                    "query-time full-corpus scoring is prohibited"
+                ),
+            ),
+        ):
+            results = retriever.retrieve("published beacon", top_k=5)
+
+        self.assertEqual([item["chunk_id"] for item in results], ["a"])
+        self.assertEqual(retriever.last_search_metrics["bm25_candidate_count"], 1)
+        self.assertEqual(retriever.last_search_metrics["document_count"], 2)
+        self.assertEqual(retriever.last_search_metrics["chunk_count"], 2)
+        self.assertGreaterEqual(
+            retriever.last_search_metrics["bm25_search_duration_ms"],
+            0,
+        )
 
     def test_timeout_returns_partial_results_and_exposes_stage_telemetry(
         self,
