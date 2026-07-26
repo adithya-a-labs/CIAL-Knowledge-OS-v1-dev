@@ -799,6 +799,8 @@ export interface SelectedContextItem {
   document_count?: number;
   updated_at?: string;
   is_pinned?: boolean;
+  page_number?: number;
+  chunk_id?: string;
 }
 
 export class ApiError extends Error {
