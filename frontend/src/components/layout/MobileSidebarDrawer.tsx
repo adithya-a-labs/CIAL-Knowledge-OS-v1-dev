@@ -6,27 +6,63 @@ import { THEME } from '@/config/themeConfig';
 import { useAuth } from '@/auth/AuthContext';
 import { homeNavItems } from '@/data/homePageData';
 import { useCommandPalette } from '@/components/common/CommandPalette';
+import { startNewConversation } from '@/lib/assistantNavigation';
 
 interface MobileSidebarDrawerProps {
   open: boolean;
   onClose: () => void;
 }
 
-const ASSISTANT_CONTEXT_STORAGE_KEY = 'cial-assistant-selected-context';
-const ASSISTANT_NEW_SESSION_PENDING_STORAGE_KEY = 'cial-new-conversation-pending';
-const NEW_CONVERSATION_EVENT = 'cial-new-conversation';
-
 export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDrawerProps) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const { setOpen } = useCommandPalette();
   const { logout, userView } = useAuth();
+  const drawerRef = React.useRef<HTMLElement>(null);
+  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
+  const previousFocusRef = React.useRef<HTMLElement | null>(null);
 
   useEffect(() => {
+    if (open) {
+      previousFocusRef.current = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+      window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+    }
     document.body.style.overflow = open ? 'hidden' : '';
     return () => {
       document.body.style.overflow = '';
+      if (open) previousFocusRef.current?.focus();
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab' || !drawerRef.current) return;
+      const focusable = Array.from(
+        drawerRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getClientRects().length > 0);
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, open]);
 
   useEffect(() => {
     onClose();
@@ -36,6 +72,7 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
 
   const isActive = (label: string, path: string) => {
     if (label === 'Conversations') return false;
+    if (label === 'AI Assistant') return location.startsWith('/assistant');
     if (path === '/') return location === '/';
     if (path === '/knowledge-center') {
       return location.startsWith('/knowledge-center') || location.startsWith('/knowledge/document') || location === '/documents' || location === '/knowledge' || location === '/policies';
@@ -45,18 +82,19 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
     return location.startsWith(path);
   };
 
-  const startNewConversation = () => {
-    window.localStorage.removeItem(ASSISTANT_CONTEXT_STORAGE_KEY);
-    window.localStorage.setItem(ASSISTANT_NEW_SESSION_PENDING_STORAGE_KEY, String(Date.now()));
-    window.dispatchEvent(new Event(NEW_CONVERSATION_EVENT));
-  };
-
   const primaryNavItems = homeNavItems.filter((item) => item.label !== 'Conversations');
 
   return (
     <div className="fixed inset-0 z-50 flex lg:hidden">
       <div className="absolute inset-0 bg-black/35 backdrop-blur-sm" onClick={onClose} data-testid="sidebar-overlay" />
-      <aside className="relative flex h-full w-[min(19rem,86vw)] flex-col bg-white shadow-2xl animate-in slide-in-from-left duration-200" data-testid="mobile-sidebar">
+      <aside
+        ref={drawerRef}
+        className="relative flex h-full w-[min(19rem,86vw)] flex-col bg-white shadow-2xl animate-in slide-in-from-left duration-200"
+        data-testid="mobile-sidebar"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Global application navigation"
+      >
         <div className="flex items-center justify-between border-b border-[#e3e9e1] px-4 py-4">
           <div className="flex items-center gap-3">
             <img src={THEME.logoPath} alt="CIAL Logo" className="h-9 w-auto object-contain" />
@@ -65,7 +103,7 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
               <div className="text-xs text-slate-500">Knowledge OS</div>
             </div>
           </div>
-          <button onClick={onClose} className="ce-icon-button" data-testid="button-close-sidebar" aria-label="Close sidebar">
+          <button ref={closeButtonRef} onClick={onClose} className="ce-icon-button" data-testid="button-close-sidebar" aria-label="Close sidebar">
             <X size={18} />
           </button>
         </div>
@@ -80,6 +118,12 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
               <React.Fragment key={item.label}>
                 <Link
                   href={item.path}
+                  onClick={(event) => {
+                    if (item.label !== 'AI Assistant') return;
+                    event.preventDefault();
+                    onClose();
+                    startNewConversation(navigate);
+                  }}
                   className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
                     active ? 'bg-[#edf6e9] text-[#244f1d]' : 'text-slate-700 hover:bg-[#f6f8f5] hover:text-slate-950'
                   }`}
@@ -109,8 +153,12 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
 
         <div className="space-y-1 border-t border-[#e8ece6] p-3">
           <Link
-            href="/assistant"
-            onClick={startNewConversation}
+            href="/assistant/new"
+            onClick={(event) => {
+              event.preventDefault();
+              onClose();
+              startNewConversation(navigate);
+            }}
             className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-900"
             aria-label="Start a new conversation"
           >

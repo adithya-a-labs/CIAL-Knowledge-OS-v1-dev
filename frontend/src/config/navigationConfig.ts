@@ -2,7 +2,7 @@ import { NavItem } from '../types';
 
 export const NAV_ITEMS: NavItem[] = [
   { label: 'Home', path: '/', icon: 'Home' },
-  { label: 'AI Assistant', path: '/assistant', icon: 'Bot' },
+  { label: 'AI Assistant', path: '/assistant/new', icon: 'Bot' },
   {
     label: 'Knowledge Center',
     path: '/knowledge-center',
