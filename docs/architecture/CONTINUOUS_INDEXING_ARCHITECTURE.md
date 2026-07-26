@@ -486,3 +486,33 @@ it with Ollama's live `size`/`size_vram` process record. It reports
 `gpu_layers_used` is deliberately null because Ollama's process API does not
 publish an actual layer count; `gpu_layers_requested=-1` records the real
 request without fabricating a measurement.
+
+### Embedding device resolution and verification
+
+Only the standalone `backend/indexer_main.py` process owns production BGE-M3
+document embedding. Extraction, OCR, chunking, metadata hydration, and Qdrant
+submission remain CPU/network work. The FastAPI query process separately uses
+the configured query-embedding device and does not supply model state to the
+indexer.
+
+`CIAL_INDEXER_DEVICE=auto` is resolved inside the standalone process to the
+concrete `cuda:<index>` device when `torch.cuda.is_available()` is true, or to
+CPU only when CUDA is unavailable. The resolved value—not the literal string
+`auto`—is retained as the device to restore after idle/chat release. Before
+every encode batch, the worker verifies the model's actual device. A requested
+CUDA model that remains on CPU is an indexing error and is never treated as a
+successful CPU batch.
+
+Startup diagnostics record configured and actual device, PyTorch/CUDA build,
+CUDA availability and device name, model dtype, and process-local allocated and
+reserved CUDA bytes. Batch diagnostics record actual device, batch size,
+allocated bytes before/after encode, and measured duration. The model stays
+loaded during indexing and the existing adaptive 64–256 batch controller and
+CUDA-OOM reduction remain unchanged.
+
+For troubleshooting, compare `torch.version.cuda` and
+`torch.cuda.is_available()` in the repository virtual environment, then inspect
+the indexer heartbeat's configured/actual device and model status. During an
+active non-reused embedding batch, `nvidia-smi` must show the standalone Python
+process and non-zero utilization. Zero utilization after the configured idle
+release interval is expected and does not indicate CPU embedding.

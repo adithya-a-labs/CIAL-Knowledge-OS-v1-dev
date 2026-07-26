@@ -237,3 +237,25 @@ active CUDA process IDs classified as Ollama, Python, or other. Indexer
 heartbeats separately report active embedding jobs, embedding queue depth, GPU
 residency/state, chat-priority waits, and process-local allocation/reservation.
 Driver-unavailable values remain unavailable rather than inferred.
+
+## Standalone Embedding GPU Telemetry
+
+The indexer heartbeat and administrator monitor expose real measurements from
+the standalone process:
+
+- configured and actual embedding device;
+- embedding model state and current GPU residency;
+- PyTorch version, CUDA build/availability, CUDA device name, and model dtype;
+- process-local allocated/reserved CUDA memory;
+- total device utilization and used/total VRAM from `nvidia-smi`;
+- active adaptive batch size, last batch size/device/duration, and allocated
+  memory before/after `model.encode()`; and
+- chunks/minute plus measured batch throughput.
+
+`embedding_runtime_initialized`, `embedding_device_mismatch`,
+`embedding_batch_started`, and `embedding_batch_completed` are content-free.
+They contain no source text, vectors, paths, credentials, or workspace/user
+identifiers. CPU extraction and Qdrant/network activity do not emit synthetic
+GPU utilization. An idle-released model reports actual device `cpu` and
+resident `false`; the next real batch must report `cuda:<index>` before encode
+when CUDA is available.

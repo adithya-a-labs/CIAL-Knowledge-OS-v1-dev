@@ -765,3 +765,40 @@ A cold one-word probe completed in 16.0 seconds including a 15.3-second model
 load; the immediately repeated warm probe completed in 1.6 seconds at 33.59
 tokens/second. These probes validate the generation runtime and keep-alive,
 not the latency of retrieval or a full authenticated chat request.
+
+## Standalone Indexer CUDA Verification (2026-07-26)
+
+The continuous indexer resolves `CIAL_INDEXER_DEVICE=auto` inside its own
+process. The resolved `cuda:<index>` value is retained across the intentional
+idle/chat release cycle; the literal `auto` value is not used as a restore
+target. BGE-M3 must be on CUDA before `model.encode()` whenever the installed
+PyTorch runtime reports CUDA available. CPU fallback is permitted only when
+CUDA is genuinely unavailable.
+
+The corrected runtime logs configured/actual device, CUDA availability and
+device name, PyTorch/CUDA build, model device/dtype, allocated/reserved bytes,
+and real per-batch size/device/memory/duration. A CUDA configuration/actual
+device mismatch produces an actionable warning and stops that indexing batch
+instead of silently completing it on CPU.
+
+Live verification used the repository virtual environment with
+PyTorch `2.13.0+cu132`, CUDA build 13.2, and the NVIDIA RTX 5070 Ti Laptop GPU.
+After an intentional CPU/idle release, the production embedding service
+restored BGE-M3 to `cuda:0` and encoded 256 chunks into 1024-dimensional vectors
+in 4.23 seconds. The encode call reported float16 model parameters, 1.14 GiB
+allocated before and 1.17 GiB after, while 21 independent `nvidia-smi` samples
+observed 100% peak utilization and 5,414 MiB peak total device memory.
+Validation passed 510 backend tests plus 50 subtests, 59 frontend contract
+tests, TypeScript checking, and the production frontend build.
+
+Troubleshooting order:
+
+1. Run CUDA checks with the repository `.venv`, not a global Python.
+2. Confirm `torch.version.cuda`, `torch.cuda.is_available()`, device count, and
+   device name.
+3. Inspect the worker heartbeat's configured device, actual device, model
+   status, GPU residency, and last batch telemetry.
+4. Confirm an active batch—not extraction, Qdrant writing, chunk reuse, or the
+   post-idle period—is being observed in `nvidia-smi`.
+5. Treat configured CUDA with actual CPU as an indexing failure; do not infer
+   success from the startup device label alone.
