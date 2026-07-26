@@ -355,14 +355,33 @@ class KnowledgeEngineService:
                 raise KnowledgeEngineUnavailable(
                     "The configured embedding model does not support bfloat16."
                 )
+        from cial_knowledge_os.embeddings import embedding_runtime_diagnostics
+
+        embedding_diagnostics = embedding_runtime_diagnostics(
+            pipeline.embedding_model,
+            configured_device=settings.indexer_device,
+        )
+        logger.info(
+            "embedding_runtime_initialized",
+            extra={
+                "event": "embedding_runtime_initialized",
+                **embedding_diagnostics,
+            },
+        )
         runtime["embedding_precision"] = precision
+        runtime["embedding_runtime"] = embedding_diagnostics
         return runtime
 
     def _prepare_live_runtime(self, *, create_collection: bool, load_reranker: bool) -> dict[str, Any]:
         if not self.engine_available:
             raise KnowledgeEngineUnavailable(self._engine_error_message())
         from cial_knowledge_os.bm25_snapshot import load_bm25_snapshot
-        from cial_knowledge_os.embeddings import get_embedding_dimension, load_embedding_model
+        from cial_knowledge_os.embeddings import (
+            embedding_runtime_diagnostics,
+            get_embedding_dimension,
+            load_embedding_model,
+            resolve_embedding_device,
+        )
         from cial_knowledge_os.vectorstore import (
             create_qdrant_client,
             ensure_collection,
@@ -370,22 +389,26 @@ class KnowledgeEngineService:
         )
 
         config = self.build_config(force_rebuild_index=False)
-        ollama_blocks_indexer_gpu = False
+        configured_embedding_device = (
+            settings.indexer_device
+            if create_collection
+            else settings.query_embedding_device
+        )
+        resolved_embedding_device = resolve_embedding_device(
+            configured_embedding_device
+        )
         if create_collection and settings.indexer_gpu_cooperative_mode:
             ollama_loaded = inspect_ollama_runtime(
                 settings.ollama_model_name
             ).get("model_loaded")
-            ollama_blocks_indexer_gpu = bool(
-                ollama_loaded
-                and not release_ollama_runtime(settings.ollama_model_name)
-            )
-        config.embedding_device = (
-            "cpu"
-            if ollama_blocks_indexer_gpu
-            else settings.indexer_device
-            if create_collection
-            else settings.query_embedding_device
-        )
+            if ollama_loaded and not release_ollama_runtime(
+                settings.ollama_model_name
+            ):
+                raise KnowledgeEngineUnavailable(
+                    "The indexer could not release the warm Ollama GPU runner. "
+                    "Embedding was not allowed to fall back silently to CPU."
+                )
+        config.embedding_device = resolved_embedding_device
         if create_collection:
             config.qdrant_batch_size = settings.indexer_qdrant_batch_size
         pipeline = self._phase4_pipeline_cls(config)
@@ -394,6 +417,28 @@ class KnowledgeEngineService:
             if self._cached_embedding_model is None:
                 self._cached_embedding_model = load_embedding_model(config)
             pipeline.embedding_model = self._cached_embedding_model
+            embedding_diagnostics = embedding_runtime_diagnostics(
+                pipeline.embedding_model,
+                configured_device=configured_embedding_device,
+            )
+            if (
+                embedding_diagnostics["embedding_device_actual"]
+                != resolved_embedding_device
+            ):
+                logger.warning(
+                    "embedding_device_mismatch",
+                    extra={
+                        "event": "embedding_device_mismatch",
+                        **embedding_diagnostics,
+                        "embedding_device_expected": resolved_embedding_device,
+                    },
+                )
+                if create_collection and resolved_embedding_device.startswith("cuda"):
+                    raise KnowledgeEngineUnavailable(
+                        "The standalone indexer embedding model loaded on "
+                        f"'{embedding_diagnostics['embedding_device_actual']}' "
+                        f"instead of required device '{resolved_embedding_device}'."
+                    )
             client = create_qdrant_client(config)
             collection_exists = bool(
                 execute_qdrant_operation(
@@ -445,9 +490,7 @@ class KnowledgeEngineService:
                             config.embedding_device,
                         )
                     )
-                    self._indexer_embedding_target_device = (
-                        settings.indexer_device if create_collection else actual_device
-                    )
+                    self._indexer_embedding_target_device = resolved_embedding_device
                     self._indexer_embedding_gpu_resident = (
                         actual_device.startswith("cuda")
                     )
@@ -460,6 +503,7 @@ class KnowledgeEngineService:
                         "bm25_generation": 0,
                         "bm25_chunks": 0,
                         "embedding_device": actual_device,
+                        "embedding_runtime": embedding_diagnostics,
                         "message": (
                             "Indexer runtime is ready to create the first "
                             "published generation."
@@ -522,9 +566,7 @@ class KnowledgeEngineService:
             )
             actual_device = str(getattr(pipeline.embedding_model, "device", config.embedding_device))
             if create_collection:
-                self._indexer_embedding_target_device = (
-                    settings.indexer_device if create_collection else actual_device
-                )
+                self._indexer_embedding_target_device = resolved_embedding_device
                 self._indexer_embedding_gpu_resident = actual_device.startswith("cuda")
             return {
                 "retrieval_ready": True,
@@ -534,6 +576,7 @@ class KnowledgeEngineService:
                 "bm25_generation": self._loaded_bm25_generation,
                 "bm25_chunks": len(chunks),
                 "embedding_device": actual_device,
+                "embedding_runtime": embedding_diagnostics,
                 "message": "Query runtime loaded from the latest committed index generation.",
             }
         except Exception:
@@ -913,20 +956,74 @@ class KnowledgeEngineService:
 
         pipeline = self._ready_pipeline("standard")
         from cial_knowledge_os.embeddings import embed_texts
+        import torch
 
         with self._embedding_lock:
             self.ensure_indexer_embedding_device()
-            return embed_texts(
+            actual_device = str(getattr(pipeline.embedding_model, "device", "unknown"))
+            target = self._indexer_embedding_target_device or settings.indexer_device
+            if str(target).startswith("cuda") and not actual_device.startswith("cuda"):
+                raise RuntimeError(
+                    "CUDA is available and configured for standalone indexing, "
+                    f"but BGE-M3 is on '{actual_device}' instead of '{target}'."
+                )
+            device_index = (
+                int(actual_device.rsplit(":", 1)[1])
+                if actual_device.startswith("cuda") and ":" in actual_device
+                else torch.cuda.current_device()
+                if actual_device.startswith("cuda") and torch.cuda.is_available()
+                else None
+            )
+            memory_before = (
+                int(torch.cuda.memory_allocated(device_index))
+                if device_index is not None
+                else 0
+            )
+            started = time.perf_counter()
+            logger.info(
+                "embedding_batch_started",
+                extra={
+                    "event": "embedding_batch_started",
+                    "batch_size": min(batch_size, len(chunks)),
+                    "device": actual_device,
+                    "gpu_memory_before": memory_before,
+                },
+            )
+            vectors = embed_texts(
                 pipeline.embedding_model,
                 [chunk.page_content for chunk in chunks],
                 batch_size=batch_size,
             )
+            duration_ms = round((time.perf_counter() - started) * 1000, 3)
+            memory_after = (
+                int(torch.cuda.memory_allocated(device_index))
+                if device_index is not None
+                else 0
+            )
+            self._last_embedding_batch_metrics = {
+                "embedding_batch_started": True,
+                "batch_size": min(batch_size, len(chunks)),
+                "device": actual_device,
+                "gpu_memory_before": memory_before,
+                "gpu_memory_after": memory_after,
+                "duration_ms": duration_ms,
+            }
+            logger.info(
+                "embedding_batch_completed",
+                extra={
+                    "event": "embedding_batch_completed",
+                    **self._last_embedding_batch_metrics,
+                },
+            )
+            return vectors
 
     def ensure_indexer_embedding_device(self) -> bool:
         """Move the indexer model back to its configured accelerator on demand."""
 
         pipeline = self._ready_pipeline("standard")
         target = self._indexer_embedding_target_device or settings.indexer_device
+        actual_before = str(getattr(pipeline.embedding_model, "device", "unknown"))
+        self._indexer_embedding_gpu_resident = actual_before.startswith("cuda")
         if not str(target).startswith("cuda") or self._indexer_embedding_gpu_resident:
             return False
         if settings.indexer_gpu_cooperative_mode:
@@ -949,7 +1046,21 @@ class KnowledgeEngineService:
             bfloat16 = getattr(pipeline.embedding_model, "bfloat16", None)
             if callable(bfloat16):
                 bfloat16()
-        self._indexer_embedding_gpu_resident = True
+        actual_after = str(getattr(pipeline.embedding_model, "device", "unknown"))
+        self._indexer_embedding_gpu_resident = actual_after.startswith("cuda")
+        if not self._indexer_embedding_gpu_resident:
+            logger.error(
+                "embedding_device_mismatch",
+                extra={
+                    "event": "embedding_device_mismatch",
+                    "embedding_device_configured": settings.indexer_device,
+                    "embedding_device_expected": target,
+                    "embedding_device_actual": actual_after,
+                },
+            )
+            raise RuntimeError(
+                f"BGE-M3 remained on '{actual_after}' after requesting '{target}'."
+            )
         return True
 
     def release_indexer_gpu(self) -> bool:
