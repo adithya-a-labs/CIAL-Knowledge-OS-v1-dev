@@ -26,7 +26,7 @@ export interface HomeNavItem {
 
 export const homeNavItems: HomeNavItem[] = [
   { label: 'Home', path: '/', icon: Home },
-  { label: 'AI Assistant', path: '/assistant', icon: Bot },
+  { label: 'AI Assistant', path: '/assistant/new', icon: Bot },
   { label: 'Knowledge Center', path: '/knowledge-center', icon: BookOpen },
   // TODO: Surface department ownership in a future Admin Console, not employee navigation.
   { label: 'My Workspace', path: '/workspace', icon: UserRound },
@@ -42,7 +42,7 @@ export const suggestedPrompts = [
 ];
 
 export const quickActions = [
-  { title: 'Ask AI', subtitle: 'Get instant answers', path: '/assistant', icon: MessageSquare, tone: 'green' },
+  { title: 'Ask AI', subtitle: 'Get instant answers', path: '/assistant/new', icon: MessageSquare, tone: 'green' },
   { title: 'Browse Knowledge', subtitle: 'Explore documents', path: '/knowledge-center', icon: FolderOpen, tone: 'blue' },
   { title: 'Upload File', subtitle: 'Add documents', path: '/workspace/documents', icon: UploadCloud, tone: 'violet' },
   { title: 'Create Summary', subtitle: 'Summarize anything', path: '/workspace/summaries/new', icon: FileText, tone: 'rose' },

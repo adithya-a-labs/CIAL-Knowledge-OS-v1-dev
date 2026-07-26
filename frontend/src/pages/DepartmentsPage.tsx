@@ -83,7 +83,7 @@ export default function DepartmentsPage() {
                     </div>
                     <div className="flex flex-wrap gap-2 lg:justify-end">
                       <Link href="/knowledge-center" className="ce-action h-9 px-3">Documents</Link>
-                      <Link href="/assistant" className="ce-action ce-action-primary h-9 px-3"><Sparkles size={14} />Ask in scope</Link>
+                      <Link href="/assistant/new" className="ce-action ce-action-primary h-9 px-3"><Sparkles size={14} />Ask in scope</Link>
                     </div>
                   </article>
                 );
@@ -135,7 +135,7 @@ export default function DepartmentsPage() {
           <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-950">AI scope hook</h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">Start from a department to keep answers grounded to that organizational space.</p>
-            <Link href="/assistant" className="ce-action ce-action-primary mt-4 h-10 w-full px-3"><Sparkles size={15} />Ask with department scope</Link>
+            <Link href="/assistant/new" className="ce-action ce-action-primary mt-4 h-10 w-full px-3"><Sparkles size={15} />Ask with department scope</Link>
           </section>
 
           <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">

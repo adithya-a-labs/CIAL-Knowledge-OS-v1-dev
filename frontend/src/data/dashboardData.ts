@@ -16,7 +16,7 @@ export const HERO_QUICK_SEARCHES: string[] = [
 ];
 
 export const QUICK_ACTIONS: { label: string; icon: string; path: string; colorClass: string }[] = [
-  { label: 'New Query', icon: 'Plus', path: '/assistant', colorClass: 'bg-[#f0f7ed] text-[#4a7c3f]' },
+  { label: 'New Query', icon: 'Plus', path: '/assistant/new', colorClass: 'bg-[#f0f7ed] text-[#4a7c3f]' },
   { label: 'Upload Document', icon: 'FileText', path: '/documents', colorClass: 'bg-[#fef3e8] text-[#e8820c]' },
   { label: 'My Bookmarks', icon: 'BookmarkCheck', path: '/documents', colorClass: 'bg-[#e8f0fe] text-[#3b5bdb]' },
   // TODO: Reintroduce department-owned admin actions in a future Admin Console.
