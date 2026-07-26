@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import numpy as np
 import torch
@@ -15,18 +16,75 @@ def _offline_enabled(name: str) -> bool:
     return os.environ.get(name, "1").strip().lower() not in {"0", "false", "no"}
 
 
+def resolve_embedding_device(configured_device: str) -> str:
+    """Resolve auto to the concrete device owned by the current process."""
+
+    configured = str(configured_device or "auto").casefold()
+    if configured == "auto":
+        return f"cuda:{torch.cuda.current_device()}" if torch.cuda.is_available() else "cpu"
+    if configured.startswith("cuda") and not torch.cuda.is_available():
+        raise RuntimeError(
+            f"Embedding device '{configured}' was requested, but this PyTorch "
+            f"build cannot access CUDA (torch={torch.__version__}, "
+            f"torch.version.cuda={torch.version.cuda!r}). Install the CUDA-enabled "
+            "PyTorch build and verify NVIDIA driver/device visibility."
+        )
+    if configured == "cuda":
+        return f"cuda:{torch.cuda.current_device()}"
+    return configured
+
+
+def embedding_runtime_diagnostics(
+    model: SentenceTransformer,
+    *,
+    configured_device: str,
+) -> dict[str, Any]:
+    """Return measured model/CUDA state for logs and worker telemetry."""
+
+    actual_device = str(getattr(model, "device", "unknown"))
+    try:
+        model_dtype = str(next(model.parameters()).dtype)
+    except (AttributeError, StopIteration, TypeError):
+        model_dtype = "unknown"
+    device_index: int | None = None
+    if actual_device.startswith("cuda") and torch.cuda.is_available():
+        device_index = (
+            int(actual_device.rsplit(":", 1)[1])
+            if ":" in actual_device
+            else torch.cuda.current_device()
+        )
+    return {
+        "embedding_device_configured": str(configured_device),
+        "embedding_device_actual": actual_device,
+        "torch_cuda_available": bool(torch.cuda.is_available()),
+        "torch_version": str(torch.__version__),
+        "torch_cuda_build": torch.version.cuda,
+        "cuda_device_name": (
+            torch.cuda.get_device_name(device_index)
+            if device_index is not None
+            else None
+        ),
+        "model_device": actual_device,
+        "model_dtype": model_dtype,
+        "gpu_memory_allocated": (
+            int(torch.cuda.memory_allocated(device_index))
+            if device_index is not None
+            else 0
+        ),
+        "gpu_memory_reserved": (
+            int(torch.cuda.memory_reserved(device_index))
+            if device_index is not None
+            else 0
+        ),
+    }
+
+
 def load_embedding_model(config: KnowledgeOSConfig) -> SentenceTransformer:
     """Load an embedding model from local storage only."""
 
     os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
-    device = config.embedding_device
-    if device == "auto":
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    if device.startswith("cuda") and not torch.cuda.is_available():
-        raise RuntimeError(
-            f"Embedding device '{device}' was requested, but CUDA is unavailable."
-        )
+    device = resolve_embedding_device(config.embedding_device)
 
     print(
         f"Embedding device: {device} "
