@@ -119,6 +119,18 @@ def test_actual_answer_path_enriches_retrieval_stage_telemetry(monkeypatch):
         telemetry_callback = None
 
         def answer(self, question):
+            self.telemetry_callback("generation", "started", {})
+            time.sleep(0.005)
+            self.telemetry_callback(
+                "generation",
+                "completed",
+                {
+                    "duration_ms": 1_758_803,
+                    "first_token_ms": 1_758_803,
+                    "model_load_ms": -1,
+                    "tokens_per_second": float("inf"),
+                },
+            )
             self.telemetry_callback("dense_retrieval", "started", {})
             self.telemetry_callback(
                 "dense_retrieval",
@@ -184,6 +196,15 @@ def test_actual_answer_path_enriches_retrieval_stage_telemetry(monkeypatch):
     assert dense_completed["error_state"] is None
     assert dense_completed["timeout_state"] == "not_timed_out"
     assert dense_completed["timestamp"].endswith("+00:00")
+    generation_completed = next(
+        metrics
+        for stage, status, metrics in events
+        if stage == "generation" and status == "completed"
+    )
+    assert 5 <= generation_completed["duration_ms"] < 1_000
+    assert generation_completed["first_token_ms"] is None
+    assert generation_completed["model_load_ms"] is None
+    assert generation_completed["tokens_per_second"] is None
 
 
 class _SlowReranker:

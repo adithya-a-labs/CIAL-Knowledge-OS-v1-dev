@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import logging
+import math
 from pathlib import Path
 import sys
 from threading import Lock, RLock, Thread
@@ -204,6 +205,14 @@ class KnowledgeEngineService:
         }
         self._loaded_generation = 0
         self._loaded_bm25_generation = 0
+        self._bm25_snapshot_metrics: dict[str, Any] = {
+            "bm25_snapshot_loaded_at": None,
+            "bm25_snapshot_size": None,
+            "bm25_snapshot_load_duration_ms": None,
+            "bm25_index_activation_duration_ms": None,
+            "bm25_document_count": 0,
+            "bm25_chunk_count": 0,
+        }
         self._cached_embedding_model: Any | None = None
         self._indexer_embedding_target_device: str | None = None
         self._indexer_embedding_gpu_resident = False
@@ -238,6 +247,52 @@ class KnowledgeEngineService:
             and getattr(pipeline, "is_ready_for_answering", False)
         )
 
+    @staticmethod
+    def _sanitize_generation_telemetry(
+        metrics: Mapping[str, Any],
+        *,
+        generation_duration_ms: float,
+        request_duration_ms: float,
+    ) -> dict[str, Any]:
+        """Keep only finite generation values bounded by measured wall time."""
+
+        sanitized = dict(metrics)
+        maximum = min(
+            max(0.0, float(generation_duration_ms)),
+            max(0.0, float(request_duration_ms)),
+        )
+        for key in (
+            "first_token_ms",
+            "model_load_ms",
+            "prompt_eval_ms",
+            "ollama_total_ms",
+        ):
+            value = sanitized.get(key)
+            if value is None or isinstance(value, bool):
+                sanitized[key] = None
+                continue
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError):
+                sanitized[key] = None
+                continue
+            sanitized[key] = (
+                round(parsed, 3)
+                if math.isfinite(parsed) and 0 <= parsed <= maximum
+                else None
+            )
+        rate = sanitized.get("tokens_per_second")
+        try:
+            parsed_rate = float(rate)
+        except (TypeError, ValueError):
+            parsed_rate = 0.0
+        sanitized["tokens_per_second"] = (
+            round(parsed_rate, 3)
+            if math.isfinite(parsed_rate) and parsed_rate > 0
+            else None
+        )
+        return sanitized
+
     def runtime_diagnostics(self) -> dict[str, Any]:
         """Return non-sensitive model/runtime facts for health telemetry."""
 
@@ -256,6 +311,7 @@ class KnowledgeEngineService:
             ),
             "loaded_generation": self._loaded_generation,
             "loaded_bm25_generation": self._loaded_bm25_generation,
+            **dict(self._bm25_snapshot_metrics),
             "query_embedding_device": (
                 str(getattr(embedding_model, "device", "unknown"))
                 if embedding_model is not None
@@ -526,7 +582,12 @@ class KnowledgeEngineService:
                 if generation is not None and generation.bm25_snapshot_path
                 else settings.bm25_path / "continuous" / "current.json"
             )
+            snapshot_load_started = time.perf_counter()
             snapshot = load_bm25_snapshot(snapshot_path)
+            snapshot_load_duration_ms = round(
+                (time.perf_counter() - snapshot_load_started) * 1000,
+                3,
+            )
             chunks = []
             if snapshot is not None:
                 from langchain_core.documents import Document as LangchainDocument
@@ -555,8 +616,13 @@ class KnowledgeEngineService:
                 and int(item.metadata.get("note_revision") or 0) > 0
             )
             pipeline.published_note_revisions = published_notes or None
+            bm25_activation_started = time.perf_counter()
             if pipeline.bm25_retriever is not None:
                 pipeline.bm25_retriever.index(chunks)
+            bm25_index_activation_duration_ms = round(
+                (time.perf_counter() - bm25_activation_started) * 1000,
+                3,
+            )
             if load_reranker:
                 self._load_reranker(pipeline)
             self.set_pipeline(pipeline)
@@ -564,6 +630,18 @@ class KnowledgeEngineService:
             self._loaded_bm25_generation = (
                 int(generation.bm25_generation or 0) if generation is not None else 0
             )
+            self._bm25_snapshot_metrics = {
+                "bm25_snapshot_loaded_at": datetime.now(timezone.utc).isoformat(),
+                "bm25_snapshot_size": (
+                    snapshot_path.stat().st_size if snapshot_path.exists() else None
+                ),
+                "bm25_snapshot_load_duration_ms": snapshot_load_duration_ms,
+                "bm25_index_activation_duration_ms": bm25_index_activation_duration_ms,
+                "bm25_document_count": int(
+                    getattr(pipeline.bm25_retriever, "document_count", 0) or 0
+                ),
+                "bm25_chunk_count": len(chunks),
+            }
             actual_device = str(getattr(pipeline.embedding_model, "device", config.embedding_device))
             if create_collection:
                 self._indexer_embedding_target_device = resolved_embedding_device
@@ -636,7 +714,13 @@ class KnowledgeEngineService:
                 return False
             if not generation.bm25_snapshot_path:
                 return False
-            snapshot = load_bm25_snapshot(Path(generation.bm25_snapshot_path))
+            snapshot_path = Path(generation.bm25_snapshot_path)
+            snapshot_load_started = time.perf_counter()
+            snapshot = load_bm25_snapshot(snapshot_path)
+            snapshot_load_duration_ms = round(
+                (time.perf_counter() - snapshot_load_started) * 1000,
+                3,
+            )
             if snapshot is None:
                 logger.warning("bm25_generation_snapshot_unavailable")
                 return False
@@ -656,9 +740,17 @@ class KnowledgeEngineService:
             lexical = BM25Retriever(
                 k1=pipeline.config.bm25_k1,
                 b=pipeline.config.bm25_b,
-                cache_path=Path(pipeline.config.bm25_cache_dir) / pipeline.config.bm25_cache_filename,
+                cache_path=(
+                    Path(pipeline.config.bm25_cache_dir)
+                    / pipeline.config.bm25_cache_filename
+                ),
             )
+            bm25_activation_started = time.perf_counter()
             lexical.index(chunks)
+            bm25_index_activation_duration_ms = round(
+                (time.perf_counter() - bm25_activation_started) * 1000,
+                3,
+            )
             # Activation is opportunistic. A chat already using the immutable
             # published snapshot always wins this race; refresh retries later.
             if not self._query_lock.acquire(timeout=0.05):
@@ -695,6 +787,20 @@ class KnowledgeEngineService:
                 pipeline._ensure_retrievers()
                 self._loaded_generation = int(generation.generation or 0)
                 self._loaded_bm25_generation = int(generation.bm25_generation or 0)
+                self._bm25_snapshot_metrics = {
+                    "bm25_snapshot_loaded_at": datetime.now(timezone.utc).isoformat(),
+                    "bm25_snapshot_size": (
+                        snapshot_path.stat().st_size
+                        if snapshot_path.exists()
+                        else None
+                    ),
+                    "bm25_snapshot_load_duration_ms": snapshot_load_duration_ms,
+                    "bm25_index_activation_duration_ms": (
+                        bm25_index_activation_duration_ms
+                    ),
+                    "bm25_document_count": lexical.document_count,
+                    "bm25_chunk_count": len(chunks),
+                }
             finally:
                 self._query_lock.release()
             logger.info(
@@ -703,6 +809,7 @@ class KnowledgeEngineService:
                     "event": "bm25_generation_reloaded",
                     "generation": self._loaded_bm25_generation,
                     "chunk_count": len(chunks),
+                    **self._bm25_snapshot_metrics,
                 },
             )
             return True
@@ -744,6 +851,7 @@ class KnowledgeEngineService:
                 "current_index_generation": self._loaded_generation,
                 "current_bm25_generation": self._loaded_bm25_generation,
                 "generation_refresh_running": self._generation_refresh_inflight,
+                **dict(self._bm25_snapshot_metrics),
             }
 
     def _prepare_pipeline_locked(
@@ -1390,6 +1498,19 @@ class KnowledgeEngineService:
                 if "timeout" in str(error_state or "").casefold()
                 else "not_timed_out"
             )
+            if (
+                stage_id == "generation"
+                and status in {"completed", "failed"}
+                and stage_id in stage_started
+            ):
+                # The API stage boundary is authoritative. Do not trust a
+                # lower layer's duration if it used another clock or unit.
+                metrics["duration_ms"] = duration_ms
+                metrics = self._sanitize_generation_telemetry(
+                    metrics,
+                    generation_duration_ms=duration_ms,
+                    request_duration_ms=(now - request_started) * 1000,
+                )
             metrics = {
                 **metrics,
                 "request_id": chat_request_id,
@@ -1439,6 +1560,15 @@ class KnowledgeEngineService:
                     }.get(stage_id)
                     if latency_key is not None:
                         self._chat_debug[latency_key] = metrics["duration_ms"]
+                    if stage_id == "bm25_retrieval":
+                        self._chat_debug["bm25_search_duration_ms"] = metrics.get(
+                            "bm25_search_duration_ms",
+                            metrics["duration_ms"],
+                        )
+                        self._chat_debug["bm25_candidate_count"] = metrics.get(
+                            "bm25_candidate_count",
+                            metrics.get("candidate_count", 0),
+                        )
                     if stage_id == "generation":
                         allowed_generation_metrics = {
                             key: metrics.get(key)
@@ -1507,6 +1637,8 @@ class KnowledgeEngineService:
                 retrieval_latency=None,
                 qdrant_latency=None,
                 bm25_latency=None,
+                bm25_search_duration_ms=None,
+                bm25_candidate_count=None,
                 hybrid_fusion_latency=None,
                 reranker_latency=None,
                 generation_latency=None,
