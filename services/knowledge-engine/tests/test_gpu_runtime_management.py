@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from threading import Event
+from threading import Event, Lock
 import time
 from types import SimpleNamespace
+
+import pytest
+import numpy as np
+import torch
 
 from backend.app.services.continuous_indexer import ContinuousIndexer
 from backend.app.services.gpu_resource_coordinator import GpuResourceCoordinator
@@ -10,6 +14,8 @@ from backend.app.services.gpu_resource_coordinator import inspect_ollama_runtime
 from backend.app.services.gpu_resource_coordinator import inspect_gpu_runtime
 from backend.app.services.gpu_resource_coordinator import release_ollama_runtime
 from backend.app.services.knowledge_engine_service import KnowledgeEngineService
+from cial_knowledge_os.embeddings import embedding_runtime_diagnostics
+from cial_knowledge_os.embeddings import resolve_embedding_device
 
 
 def test_gpu_priority_marker_is_visible_across_coordinators(tmp_path):
@@ -81,10 +87,18 @@ def test_idle_indexer_releases_embedding_model(monkeypatch):
 def test_indexer_restores_cuda_after_chat_even_while_ollama_is_warm(monkeypatch):
     moves: list[str] = []
     releases: list[str] = []
-    model = SimpleNamespace(
-        to=lambda device: moves.append(device),
-        half=lambda: None,
-    )
+
+    class _Model:
+        device = "cpu"
+
+        def to(self, device):
+            moves.append(device)
+            self.device = device
+
+        def half(self):
+            return None
+
+    model = _Model()
     service = KnowledgeEngineService.__new__(KnowledgeEngineService)
     service._indexer_embedding_target_device = "cuda:0"
     service._indexer_embedding_gpu_resident = False
@@ -116,6 +130,67 @@ def test_indexer_restores_cuda_after_chat_even_while_ollama_is_warm(monkeypatch)
     assert releases == ["gemma3:12b"]
     assert moves == ["cuda:0"]
     assert service._indexer_embedding_gpu_resident is True
+
+
+def test_auto_embedding_device_resolves_to_cuda_when_available(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "current_device", lambda: 0)
+
+    assert resolve_embedding_device("auto") == "cuda:0"
+    assert resolve_embedding_device("cuda") == "cuda:0"
+
+
+def test_auto_embedding_device_falls_back_only_when_cuda_unavailable(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+
+    assert resolve_embedding_device("auto") == "cpu"
+    with pytest.raises(RuntimeError, match="CUDA-enabled PyTorch"):
+        resolve_embedding_device("cuda")
+
+
+def test_embedding_runtime_diagnostics_reports_actual_model_device(monkeypatch):
+    model = SimpleNamespace(
+        device="cpu",
+        parameters=lambda: iter([torch.ones(1, dtype=torch.float32)]),
+    )
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+
+    diagnostics = embedding_runtime_diagnostics(
+        model,
+        configured_device="cuda",
+    )
+
+    assert diagnostics["embedding_device_configured"] == "cuda"
+    assert diagnostics["embedding_device_actual"] == "cpu"
+    assert diagnostics["model_device"] == "cpu"
+    assert diagnostics["model_dtype"] == "torch.float32"
+    assert diagnostics["gpu_memory_allocated"] == 0
+
+
+def test_embedding_batch_telemetry_uses_measured_device_and_memory():
+    class _Model:
+        device = "cpu"
+
+        def encode(self, texts, **kwargs):
+            return np.ones((len(texts), 3), dtype=np.float32)
+
+    service = KnowledgeEngineService.__new__(KnowledgeEngineService)
+    service._embedding_lock = Lock()
+    service._indexer_embedding_target_device = "cpu"
+    service._indexer_embedding_gpu_resident = False
+    service._ready_pipeline = lambda response_length: SimpleNamespace(
+        embedding_model=_Model()
+    )
+    chunks = [SimpleNamespace(page_content="one"), SimpleNamespace(page_content="two")]
+
+    vectors = service.embed_chunk_batch(chunks, batch_size=2)
+
+    assert vectors.shape == (2, 3)
+    assert service._last_embedding_batch_metrics["batch_size"] == 2
+    assert service._last_embedding_batch_metrics["device"] == "cpu"
+    assert service._last_embedding_batch_metrics["gpu_memory_before"] == 0
+    assert service._last_embedding_batch_metrics["gpu_memory_after"] == 0
+    assert service._last_embedding_batch_metrics["duration_ms"] >= 0
 
 
 def test_gpu_process_telemetry_keeps_windows_na_memory(monkeypatch):
