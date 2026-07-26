@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Collection
+import time
+from typing import Any, Callable, Collection
 
 from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
 
@@ -26,6 +27,10 @@ def search_similar_chunks(
     allowed_relative_paths: Collection[str] | None = None,
     allowed_document_version_ids: Collection[str] | None = None,
     allowed_note_revisions: Collection[tuple[str, int]] | None = None,
+    telemetry_callback: Callable[[str, str, dict[str, Any]], None] | None = None,
+    query_embedding_model_state: str = "loaded",
+    query_embedding_cache_status: str = "model_reused",
+    qdrant_index_status: str = "unknown",
 ) -> list[dict[str, Any]]:
     """Embed a query locally and return normalized, inspectable search results.
 
@@ -57,10 +62,11 @@ def search_similar_chunks(
             }
         )
     normalized_note_revisions = sorted(set(allowed_note_revisions or ()))
-    query_vector = embed_texts(embedding_model, [query])[0]
     filter_must = []
+    qdrant_filter_fields: list[str] = []
     repository_id = None if allowed_relative_paths is not None else getattr(config, "repository_id", None)
     if repository_id:
+        qdrant_filter_fields.append("metadata.repository_id")
         filter_must.append(
             FieldCondition(
                 key="metadata.repository_id",
@@ -70,6 +76,7 @@ def search_similar_chunks(
     if normalized_versions is not None or normalized_note_revisions:
         version_conditions = []
         if normalized_versions:
+            qdrant_filter_fields.append("metadata.document_version_id")
             version_conditions.append(
                 FieldCondition(
                     key="metadata.document_version_id",
@@ -93,10 +100,15 @@ def search_similar_chunks(
         )
         if not version_conditions:
             return []
+        if normalized_note_revisions:
+            qdrant_filter_fields.extend(
+                ("metadata.note_id", "metadata.note_revision")
+            )
         filter_must.append(
             Filter(should=version_conditions)
         )
     if normalized_paths is not None:
+        qdrant_filter_fields.append("metadata.relative_path")
         filter_must.append(
             Filter(
                 should=[
@@ -108,6 +120,44 @@ def search_similar_chunks(
             )
         )
     query_filter = Filter(must=filter_must) if filter_must else None
+    embedding_device = str(getattr(embedding_model, "device", "unknown"))
+    try:
+        embedding_dtype = str(next(embedding_model.parameters()).dtype)
+    except (AttributeError, StopIteration, TypeError):
+        embedding_dtype = "unknown"
+    embedding_metrics = {
+        "query_embedding_started": True,
+        "query_embedding_completed": False,
+        "query_embedding_device": embedding_device,
+        "query_embedding_dtype": embedding_dtype,
+        "query_embedding_model_state": query_embedding_model_state,
+        "query_embedding_cache_status": query_embedding_cache_status,
+    }
+    if telemetry_callback is not None:
+        telemetry_callback("query_embedding", "started", dict(embedding_metrics))
+    embedding_started = time.perf_counter()
+    query_vector = embed_texts(embedding_model, [query])[0]
+    embedding_duration_ms = round(
+        (time.perf_counter() - embedding_started) * 1000,
+        3,
+    )
+    embedding_metrics.update(
+        query_embedding_completed=True,
+        query_embedding_duration_ms=embedding_duration_ms,
+    )
+    if telemetry_callback is not None:
+        telemetry_callback("query_embedding", "completed", dict(embedding_metrics))
+
+    qdrant_started = time.perf_counter()
+    qdrant_metrics = {
+        "qdrant_index_status": qdrant_index_status,
+        # Qdrant exposes total filtered search duration at this API boundary,
+        # not an independently measured server-side filter evaluation duration.
+        "qdrant_filter_latency_ms": None,
+        "qdrant_filter_fields": list(dict.fromkeys(qdrant_filter_fields)),
+    }
+    if telemetry_callback is not None:
+        telemetry_callback("qdrant_search", "started", dict(qdrant_metrics))
     response = execute_qdrant_operation(
         config,
         "query_points",
@@ -120,6 +170,12 @@ def search_similar_chunks(
             timeout=timeout,
         ),
     )
+    qdrant_metrics["qdrant_search_latency_ms"] = round(
+        (time.perf_counter() - qdrant_started) * 1000,
+        3,
+    )
+    if telemetry_callback is not None:
+        telemetry_callback("qdrant_search", "completed", dict(qdrant_metrics))
     results: list[dict[str, Any]] = []
     for point in response.points:
         payload = point.payload or {}
