@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -34,7 +35,11 @@ from cial_knowledge_os.phase4_pipeline import (
 )
 from cial_knowledge_os.phase4_runner import Phase4Runner
 from cial_knowledge_os.phase4_trace import Phase4Trace, phase4_diagnostics
-from cial_knowledge_os.reranker import CrossEncoderReranker, MockReranker
+from cial_knowledge_os.reranker import (
+    CrossEncoderReranker,
+    MockReranker,
+    resolve_reranker_device,
+)
 from cial_knowledge_os.token_budget import TokenBudgetManager
 
 
@@ -86,6 +91,10 @@ class _FlakyLLM:
 class _FakeCrossEncoder:
     def __init__(self) -> None:
         self.calls: list[tuple[Any, ...]] = []
+        self.device = "cuda:0"
+
+    def parameters(self):
+        yield SimpleNamespace(dtype="torch.float32")
 
     def predict(self, pairs, **kwargs):
         self.calls.append((pairs, kwargs))
@@ -152,6 +161,52 @@ class RerankerAndSelectionTests(unittest.TestCase):
         self.assertEqual(result.candidates[0]["score"], 0.4)
         self.assertEqual(result.candidates[0]["original_rrf_rank"], 2)
         self.assertEqual(model.calls[0][1]["batch_size"], 2)
+        self.assertEqual(len(model.calls), 1)
+        self.assertEqual(
+            reranker.last_rerank_metrics["reranker_candidate_count"],
+            2,
+        )
+        self.assertEqual(
+            reranker.last_rerank_metrics["reranker_batch_size"],
+            2,
+        )
+        self.assertEqual(
+            reranker.last_rerank_metrics["reranker_device"],
+            "cuda:0",
+        )
+        self.assertEqual(
+            reranker.last_rerank_metrics["reranker_dtype"],
+            "torch.float32",
+        )
+
+    def test_reranker_auto_uses_cuda_when_available(self) -> None:
+        with patch("torch.cuda.is_available", return_value=True):
+            self.assertEqual(resolve_reranker_device("auto"), "cuda")
+
+    def test_reranker_auto_falls_back_to_cpu_without_cuda(self) -> None:
+        with patch("torch.cuda.is_available", return_value=False):
+            self.assertEqual(resolve_reranker_device("auto"), "cpu")
+
+    def test_explicit_cpu_reranker_remains_on_cpu(self) -> None:
+        self.assertEqual(resolve_reranker_device("cpu"), "cpu")
+
+    def test_reranker_warmup_initializes_inference_only_once(self) -> None:
+        model = _FakeCrossEncoder()
+        reranker = CrossEncoderReranker(
+            "local-test-model",
+            model=model,
+            batch_size=16,
+        )
+
+        reranker.warm()
+        reranker.warm()
+
+        self.assertEqual(len(model.calls), 1)
+        self.assertEqual(model.calls[0][1]["batch_size"], 1)
+        diagnostics = reranker.runtime_diagnostics()
+        self.assertTrue(diagnostics["reranker_model_loaded"])
+        self.assertTrue(diagnostics["reranker_warmed"])
+        self.assertIsNotNone(diagnostics["reranker_warm_duration_ms"])
 
     def test_reranker_loads_from_cache_before_considering_download(self) -> None:
         model = _FakeCrossEncoder()

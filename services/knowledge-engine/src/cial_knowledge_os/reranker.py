@@ -9,6 +9,21 @@ from time import perf_counter
 from typing import Any, Protocol, runtime_checkable
 
 
+def resolve_reranker_device(configured_device: str) -> str:
+    """Resolve the default accelerator once without changing explicit CPU use."""
+
+    requested = configured_device.strip().casefold()
+    if requested not in {"auto", "cuda"} and not requested.startswith("cuda:"):
+        return requested
+    try:
+        import torch
+    except ImportError:
+        return "cpu"
+    if torch.cuda.is_available():
+        return "cuda" if requested == "auto" else requested
+    return "cpu"
+
+
 def _print_status(message: str, *, ascii_fallback: str | None = None) -> None:
     """Print a model-loading status without turning display errors into failures.
 
@@ -120,11 +135,17 @@ class CrossEncoderReranker:
         if batch_size <= 0:
             raise ValueError("batch_size must be greater than zero.")
         self.model_name = model_name.strip()
-        self.device = device.strip()
+        self.configured_device = device.strip()
+        self.device = resolve_reranker_device(self.configured_device)
         self.batch_size = batch_size
         self.local_files_only = local_files_only
         self._model = model
         self.load_source: str | None = "injected" if model is not None else None
+        self.last_rerank_metrics: dict[str, Any] = {}
+        self._gpu_memory_before_load: int | None = None
+        self._gpu_memory_after_load: int | None = None
+        self._warmed = False
+        self._warm_duration_ms: float | None = None
 
     @property
     def resolved_device(self) -> str:
@@ -135,14 +156,59 @@ class CrossEncoderReranker:
             model_device = getattr(getattr(self._model, "model", None), "device", None)
         return str(model_device or self.device)
 
+    @staticmethod
+    def _model_dtype(model: Any | None) -> str | None:
+        module = getattr(model, "model", model)
+        parameters = getattr(module, "parameters", None)
+        if not callable(parameters):
+            return None
+        try:
+            return str(next(parameters()).dtype)
+        except (StopIteration, TypeError):
+            return None
+
+    def _gpu_memory_allocated(self) -> int | None:
+        if not self.resolved_device.startswith("cuda"):
+            return None
+        try:
+            import torch
+
+            return int(torch.cuda.memory_allocated(self.resolved_device))
+        except (ImportError, RuntimeError, ValueError):
+            return None
+
+    def runtime_diagnostics(self) -> dict[str, Any]:
+        """Expose only observed model/device state and CUDA allocation."""
+
+        allocated = self._gpu_memory_allocated()
+        before = self._gpu_memory_before_load
+        after = self._gpu_memory_after_load
+        return {
+            "reranker_device": self.resolved_device,
+            "reranker_dtype": self._model_dtype(self._model),
+            "reranker_model_loaded": self._model is not None,
+            "reranker_warmed": self._warmed,
+            "reranker_warm_duration_ms": self._warm_duration_ms,
+            "reranker_gpu_memory": {
+                "allocated_bytes": allocated,
+                "load_delta_bytes": (
+                    max(0, after - before)
+                    if after is not None and before is not None
+                    else None
+                ),
+            },
+            "reranker_batch_size": self.batch_size,
+        }
+
     def _load_model(self) -> Any:
         if self._model is not None:
             return self._model
 
         from sentence_transformers import CrossEncoder
 
+        self._gpu_memory_before_load = self._gpu_memory_allocated()
         model_kwargs = {
-            "device": None if self.device == "auto" else self.device,
+            "device": self.device,
         }
         try:
             # Cache-first loading keeps normal runs network-free after the
@@ -168,6 +234,7 @@ class CrossEncoderReranker:
                     f"{location}."
                 ),
             )
+            self._gpu_memory_after_load = self._gpu_memory_allocated()
             return self._model
         except Exception as cache_exc:
             if self.local_files_only:
@@ -209,6 +276,7 @@ class CrossEncoderReranker:
                 "tests that must not access model files or the network."
             ) from download_exc
         self.load_source = "download"
+        self._gpu_memory_after_load = self._gpu_memory_allocated()
         _print_status(
             "✓ Reranker downloaded and cached successfully.",
             ascii_fallback="[OK] Reranker downloaded and cached successfully.",
@@ -224,6 +292,26 @@ class CrossEncoderReranker:
         """
 
         return self._load_model()
+
+    def warm(self) -> Any:
+        """Load the model and initialize its inference path before a query."""
+
+        model = self._load_model()
+        if self._warmed:
+            return model
+        started = perf_counter()
+        model.predict(
+            [("retrieval readiness", "retrieval readiness")],
+            batch_size=1,
+            show_progress_bar=False,
+            device=self.device,
+        )
+        self._warm_duration_ms = round(
+            (perf_counter() - started) * 1000,
+            3,
+        )
+        self._warmed = True
+        return model
 
     def rerank(
         self,
@@ -252,7 +340,7 @@ class CrossEncoderReranker:
             pairs,
             batch_size=self.batch_size,
             show_progress_bar=False,
-            device=None if self.device == "auto" else self.device,
+            device=self.device,
         )
         if len(scores) != len(copied):
             raise RuntimeError(
@@ -274,11 +362,18 @@ class CrossEncoderReranker:
         )
         for reranked_rank, candidate in enumerate(enriched, start=1):
             candidate["reranked_rank"] = reranked_rank
-        return RerankResult(
+        result = RerankResult(
             tuple(enriched),
             perf_counter() - started,
             self.model_name,
         )
+        self.last_rerank_metrics = {
+            **self.runtime_diagnostics(),
+            "reranker_batch_size": self.batch_size,
+            "reranker_candidate_count": len(copied),
+            "reranker_latency_ms": round(result.latency_seconds * 1000, 3),
+        }
+        return result
 
 
 class MockReranker:
