@@ -45,10 +45,16 @@ _QUERY_PAYLOAD_INDEXES = (
     ("metadata.relative_path", PayloadSchemaType.KEYWORD),
     ("metadata.document_id", PayloadSchemaType.KEYWORD),
     ("metadata.document_version_id", PayloadSchemaType.KEYWORD),
+    ("metadata.published_generation", PayloadSchemaType.INTEGER),
     ("metadata.note_id", PayloadSchemaType.KEYWORD),
     ("metadata.note_revision", PayloadSchemaType.INTEGER),
     ("metadata.repository_id", PayloadSchemaType.KEYWORD),
+    ("metadata.organization_id", PayloadSchemaType.KEYWORD),
+    ("metadata.workspace_id", PayloadSchemaType.KEYWORD),
+    ("metadata.storage_scope", PayloadSchemaType.KEYWORD),
     ("metadata.owner_user_id", PayloadSchemaType.KEYWORD),
+    ("metadata.department_id", PayloadSchemaType.KEYWORD),
+    ("metadata.folder_id", PayloadSchemaType.KEYWORD),
     ("metadata.visibility", PayloadSchemaType.KEYWORD),
     ("metadata.lifecycle_status", PayloadSchemaType.KEYWORD),
 )
@@ -364,11 +370,15 @@ def _collection_vector_size(
 def ensure_query_payload_indexes(
     client: QdrantClient,
     config: KnowledgeOSConfig,
-) -> None:
+) -> dict[str, Any]:
     """Create keyword indexes used by authorization and replacement filters."""
 
     if config.qdrant_mode != "server":
-        return
+        return {
+            "qdrant_index_status": "unsupported_embedded_mode",
+            "qdrant_payload_index_fields": [],
+            "qdrant_payload_indexes_created": [],
+        }
     collection_name = config.qdrant_collection_name
     collection = execute_qdrant_operation(
         config,
@@ -377,6 +387,7 @@ def ensure_query_payload_indexes(
         collection=collection_name,
     )
     existing = set((getattr(collection, "payload_schema", None) or {}).keys())
+    created: list[str] = []
     for field_name, field_schema in _QUERY_PAYLOAD_INDEXES:
         if field_name in existing:
             continue
@@ -392,6 +403,14 @@ def ensure_query_payload_indexes(
             ),
             collection=collection_name,
         )
+        created.append(field_name)
+    return {
+        "qdrant_index_status": "ready",
+        "qdrant_payload_index_fields": [
+            field_name for field_name, _ in _QUERY_PAYLOAD_INDEXES
+        ],
+        "qdrant_payload_indexes_created": created,
+    }
 
 
 def ensure_collection(

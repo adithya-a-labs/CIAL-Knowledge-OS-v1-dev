@@ -196,14 +196,23 @@ def test_query_authorization_fields_receive_keyword_payload_indexes(tmp_path):
         create_payload_index=lambda **kwargs: calls.append(kwargs),
     )
 
-    ensure_query_payload_indexes(client, config(tmp_path))
+    status = ensure_query_payload_indexes(client, config(tmp_path))
 
     fields = {call["field_name"] for call in calls}
     assert "metadata.relative_path" in fields
     assert "metadata.repository_id" in fields
     assert "metadata.owner_user_id" in fields
+    assert "metadata.workspace_id" in fields
+    assert "metadata.document_version_id" in fields
+    assert "metadata.published_generation" in fields
+    assert "metadata.organization_id" in fields
+    assert "metadata.department_id" in fields
+    assert "metadata.folder_id" in fields
+    assert "metadata.visibility" in fields
     assert "metadata.document_id" not in fields
     assert all(call["timeout"] == 120 for call in calls)
+    assert status["qdrant_index_status"] == "ready"
+    assert set(status["qdrant_payload_indexes_created"]) == fields
 
 
 def test_timeout_and_retry_configuration_comes_from_environment(
