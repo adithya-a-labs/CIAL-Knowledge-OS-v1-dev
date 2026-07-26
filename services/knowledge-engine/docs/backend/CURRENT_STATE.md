@@ -1,6 +1,6 @@
 # CIAL Knowledge OS: Current State through Phase 5
 
-Last audited: 2026-07-25
+Last audited: 2026-07-26
 
 This document describes the implemented repository state. `PROJECT_REQUIREMENTS.md`
 defines the binding requirements, while this file distinguishes completed
@@ -141,6 +141,22 @@ work to perform and would load source files and embed the published BM25
 snapshot before retrieval. Query-time BM25 rebuilding is also rejected in the
 production authorization-aware runtime.
 
+The production BM25 runtime loads only the active generation's atomic snapshot.
+At startup or asynchronous publication refresh it materializes the chunk set,
+loads/reuses cached tokens, constructs one `BM25Okapi`, and builds immutable
+term-posting and relative-path index maps. A query does not read snapshot JSON,
+source documents, the full tokenized corpus, or construct a scope-specific
+BM25 model. It scores query-term postings from that loaded publication, filters
+them with the authorized path-index set, and selects the bounded top candidates.
+
+The 2026-07-26 regression investigation used the real generation-29 snapshot:
+1,049,687,710 bytes, 459,715 chunks, and 488 document identifiers. The prior
+cold broad-scope query-time model build measured 15,626 ms; after isolating that
+fault, full-corpus score/sort still measured 828-911 ms. Published posting
+searches now measured 2.48-11.15 ms across unrestricted, broad-scope, and
+single-path cases. Snapshot load measured 17,194 ms and activation 35,725 ms,
+both outside the request path. The BM25 search objective is below 100 ms.
+
 Hard stage ceilings are Qdrant/dense retrieval 30 seconds, BM25 10 seconds,
 fusion 5 seconds, reranking 15 seconds, and evidence selection 5 seconds.
 Configured lower Qdrant limits and transient-only retries still apply inside
@@ -152,6 +168,9 @@ bounded by the 120-second generation timeout. Chat lock acquisition is limited
 to 5 seconds, and streaming has a 150-second terminal watchdog. Structured
 stage telemetry and authenticated `GET /api/chat/debug` expose safe timings and
 the exact failed stage without query, prompt, or document content.
+BM25 debug/administrator telemetry includes actual snapshot activation time and
+bytes, load and in-memory activation durations, document/chunk counts, search
+duration, and returned candidate count. Unavailable measurements remain null.
 
 The current LLM adapter uses Ollama. The surrounding pipeline accepts replaceable
 local model objects, but adapters for other local runtimes such as vLLM and
@@ -757,6 +776,24 @@ The administrator monitor exposes only measured generation data:
 tokens, first-token latency, model-load time, and tokens/second. Ollama's live
 process API does not disclose a layer count, so `gpu_layers_used` is null while
 `gpu_layers_requested=-1` documents the actual request.
+
+Generation timing is millisecond-based at the API boundary. Local elapsed
+times use monotonic `perf_counter()` timestamps: first-token latency is the
+first non-empty token timestamp minus generation start, and generation latency
+is completion minus the same start event. Ollama `load_duration`,
+`prompt_eval_duration`, and `total_duration` are native nanoseconds converted
+once to milliseconds; model load therefore represents Ollama's model-load
+start-to-ready interval. Output throughput uses Ollama's output count and
+positive evaluation duration.
+
+Every Ollama request clears the previous request's metrics before streaming.
+The API independently recomputes generation duration and rejects negative,
+non-finite, stale, or unit-inconsistent timing values, including any component
+duration greater than the measured generation or request duration. Missing or
+rejected metrics remain null and the console renders `Unavailable`. The
+previously observed 1,758,803 ms first-token value alongside a 24,179 ms
+generation was invalid telemetry, not generation behavior, and is now rejected
+at both backend and presentation boundaries.
 
 Live verification on the RTX 5070 Ti Laptop GPU (12,227 MiB reported VRAM)
 showed `gemma3:12b` at `100% GPU` in `ollama ps`, 7,672.1 MiB attributed to
