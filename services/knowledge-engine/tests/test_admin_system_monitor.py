@@ -46,7 +46,24 @@ class _Engine:
         return {
             "embedding_ready": True,
             "embedding_device": "cuda:0",
+            "query_embedding_device": "cuda:0",
+            "query_embedding_dtype": "torch.float32",
+            "query_embedding_model_state": "warmed",
+            "query_embedding_cache_status": "model_reused",
+            "qdrant_index_status": "ready",
+            "qdrant_payload_index_fields": ["metadata.workspace_id"],
+            "retrieval_cache_size": 2,
             "reranker_ready": True,
+            "dense_model_status": "ready",
+            "reranker_status": "ready",
+            "bm25_status": "ready",
+            "reranker_device": "cuda:0",
+            "reranker_dtype": "torch.float32",
+            "reranker_model_loaded": True,
+            "reranker_gpu_memory": {
+                "allocated_bytes": 64_000_000,
+                "load_delta_bytes": 32_000_000,
+            },
         }
 
     def chat_debug_snapshot(self):
@@ -54,6 +71,33 @@ class _Engine:
             "status": "completed",
             "validation_latency": 3,
             "retrieval_latency": 20,
+            "parallel_retrieval_duration_ms": 12,
+            "dense_started": True,
+            "dense_completed": True,
+            "bm25_started": True,
+            "bm25_completed": True,
+            "query_embedding_metrics": {
+                "query_embedding_duration_ms": 42.5,
+                "query_embedding_device": "cuda:0",
+                "query_embedding_dtype": "torch.float32",
+                "query_embedding_model_state": "warmed",
+                "query_embedding_cache_status": "model_reused",
+            },
+            "qdrant_metrics": {
+                "qdrant_index_status": "ready",
+                "qdrant_filter_latency_ms": None,
+                "qdrant_search_latency_ms": 18.2,
+                "qdrant_filter_fields": ["metadata.relative_path"],
+            },
+            "qdrant_index_status": "ready",
+            "qdrant_payload_index_fields": ["metadata.workspace_id"],
+            "retrieval_cache_metrics": {
+                "retrieval_cache_hit": True,
+                "retrieval_cache_miss": False,
+                "retrieval_cache_latency_ms": 0.15,
+                "retrieval_cache_size": 2,
+            },
+            "retrieval_cache_size": 2,
             "bm25_search_duration_ms": 12.5,
             "bm25_candidate_count": 10,
             "bm25_snapshot_loaded_at": "2026-07-25T08:58:00+00:00",
@@ -62,6 +106,22 @@ class _Engine:
             "bm25_index_activation_duration_ms": 23590.491,
             "bm25_document_count": 488,
             "bm25_chunk_count": 459715,
+            "bm25_runtime_state": "ready",
+            "bm25_snapshot_version": 29,
+            "bm25_loaded_at": "2026-07-25T08:58:00+00:00",
+            "bm25_load_duration_ms": 18293.11,
+            "reranker_metrics": {
+                "reranker_device": "cuda:0",
+                "reranker_dtype": "torch.float32",
+                "reranker_model_loaded": True,
+                "reranker_gpu_memory": {
+                    "allocated_bytes": 64_000_000,
+                    "load_delta_bytes": 32_000_000,
+                },
+                "reranker_batch_size": 16,
+                "reranker_candidate_count": 30,
+                "reranker_latency_ms": 8,
+            },
             "reranker_latency": 8,
             "generation_latency": 40,
             "total_latency": 74,
@@ -163,11 +223,32 @@ def test_admin_monitor_snapshot_reuses_live_runtime_telemetry():
     assert payload["gpu"]["embedding_model_status"] == "embedding_gpu"
     assert payload["gpu"]["embedding_batch"]["duration_ms"] == 45.5
     assert payload["query"]["retrieval_latency_ms"] == 20
+    assert payload["query"]["parallel_retrieval_duration_ms"] == 12
+    assert payload["query"]["dense_completed"] is True
+    assert payload["query"]["bm25_completed"] is True
+    assert payload["query"]["query_embedding_metrics"][
+        "query_embedding_duration_ms"
+    ] == 42.5
+    assert payload["query"]["qdrant_metrics"]["qdrant_search_latency_ms"] == 18.2
+    assert payload["query"]["qdrant_index_status"] == "ready"
+    assert payload["query"]["retrieval_cache_metrics"][
+        "retrieval_cache_hit"
+    ] is True
+    assert payload["query"]["retrieval_cache_size"] == 2
     assert payload["query"]["bm25_search_duration_ms"] == 12.5
     assert payload["query"]["bm25_candidate_count"] == 10
     assert payload["query"]["bm25_snapshot_size"] == 1049687710
     assert payload["query"]["bm25_document_count"] == 488
     assert payload["query"]["bm25_chunk_count"] == 459715
+    assert payload["query"]["bm25_runtime_state"] == "ready"
+    assert payload["query"]["bm25_snapshot_version"] == 29
+    assert payload["query"]["reranker_metrics"]["reranker_batch_size"] == 16
+    assert payload["models"]["dense_model_status"] == "ready"
+    assert payload["models"]["reranker_status"] == "ready"
+    assert payload["models"]["bm25_status"] == "ready"
+    assert payload["models"]["reranker_device"] == "cuda:0"
+    assert payload["models"]["query_embedding_dtype"] == "torch.float32"
+    assert payload["models"]["query_embedding_model_state"] == "warmed"
     assert payload["models"]["loaded_models"] == ["llama3.1:8b"]
 
 

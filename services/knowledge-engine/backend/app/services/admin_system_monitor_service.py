@@ -438,13 +438,53 @@ class AdminSystemMonitorService:
                 "embedding_model_ready": bool(
                     diagnostics.get("embedding_ready")
                 ),
+                "dense_model_status": diagnostics.get(
+                    "dense_model_status",
+                    "unavailable",
+                ),
                 "query_embedding_device": diagnostics.get(
                     "query_embedding_device"
                 )
                 or diagnostics.get("embedding_device")
                 or settings.query_embedding_device,
+                "query_embedding_dtype": diagnostics.get(
+                    "query_embedding_dtype"
+                ),
+                "query_embedding_model_state": diagnostics.get(
+                    "query_embedding_model_state"
+                ),
+                "query_embedding_cache_status": diagnostics.get(
+                    "query_embedding_cache_status"
+                ),
                 "reranker_model": settings.reranker_model_name,
                 "reranker_ready": bool(diagnostics.get("reranker_ready")),
+                "reranker_status": diagnostics.get(
+                    "reranker_status",
+                    "unavailable",
+                ),
+                "bm25_status": diagnostics.get(
+                    "bm25_status",
+                    "unavailable",
+                ),
+                "reranker_device": diagnostics.get("reranker_device"),
+                "reranker_dtype": diagnostics.get("reranker_dtype"),
+                "reranker_model_loaded": diagnostics.get(
+                    "reranker_model_loaded"
+                ),
+                "reranker_warmed": diagnostics.get("reranker_warmed"),
+                "reranker_warm_duration_ms": diagnostics.get(
+                    "reranker_warm_duration_ms"
+                ),
+                "dense_model_warmed": diagnostics.get(
+                    "dense_model_warmed"
+                ),
+                "dense_model_warm_duration_ms": diagnostics.get(
+                    "dense_model_warm_duration_ms"
+                ),
+                "reranker_gpu_memory": diagnostics.get(
+                    "reranker_gpu_memory"
+                )
+                or {},
             },
             "query": {
                 "active_chat_requests": active_chat_requests,
@@ -479,6 +519,40 @@ class AdminSystemMonitorService:
                 ),
                 "validation_latency_ms": query.get("validation_latency"),
                 "retrieval_latency_ms": query.get("retrieval_latency"),
+                "parallel_retrieval_duration_ms": query.get(
+                    "parallel_retrieval_duration_ms"
+                ),
+                "dense_started": query.get("dense_started"),
+                "dense_completed": query.get("dense_completed"),
+                "bm25_started": query.get("bm25_started"),
+                "bm25_completed": query.get("bm25_completed"),
+                "query_embedding_metrics": query.get(
+                    "query_embedding_metrics"
+                )
+                or {},
+                "qdrant_metrics": query.get("qdrant_metrics") or {},
+                "qdrant_index_status": query.get(
+                    "qdrant_index_status",
+                    diagnostics.get("qdrant_index_status"),
+                ),
+                "qdrant_payload_index_fields": query.get(
+                    "qdrant_payload_index_fields",
+                    diagnostics.get("qdrant_payload_index_fields", []),
+                ),
+                "retrieval_cache_metrics": query.get(
+                    "retrieval_cache_metrics"
+                )
+                or {},
+                "retrieval_cache_size": query.get(
+                    "retrieval_cache_size",
+                    diagnostics.get("retrieval_cache_size", 0),
+                ),
+                "retrieval_cache_invalidation_reason": query.get(
+                    "retrieval_cache_invalidation_reason",
+                    diagnostics.get(
+                        "retrieval_cache_invalidation_reason"
+                    ),
+                ),
                 "bm25_search_duration_ms": query.get(
                     "bm25_search_duration_ms"
                 ),
@@ -495,7 +569,16 @@ class AdminSystemMonitorService:
                 ),
                 "bm25_document_count": query.get("bm25_document_count"),
                 "bm25_chunk_count": query.get("bm25_chunk_count"),
+                "bm25_runtime_state": query.get("bm25_runtime_state"),
+                "bm25_snapshot_version": query.get(
+                    "bm25_snapshot_version"
+                ),
+                "bm25_loaded_at": query.get("bm25_loaded_at"),
+                "bm25_load_duration_ms": query.get(
+                    "bm25_load_duration_ms"
+                ),
                 "reranker_latency_ms": query.get("reranker_latency"),
+                "reranker_metrics": query.get("reranker_metrics") or {},
                 "generation_latency_ms": query.get("generation_latency"),
                 "generation_metrics": query.get("generation_metrics") or {},
                 "total_latency_ms": query.get("total_latency"),
