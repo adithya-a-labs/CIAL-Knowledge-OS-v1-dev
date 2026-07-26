@@ -1,0 +1,8 @@
+191. [GET] http://127.0.0.1:5173/api/auth/me => [200] OK
+193. [GET] http://127.0.0.1:5173/api/system/status => [200] OK
+194. [GET] http://127.0.0.1:5173/api/corpus/tree => [200] OK
+195. [GET] http://127.0.0.1:5173/api/chat/sessions => [200] OK
+197. [GET] http://127.0.0.1:5173/api/system/status => [200] OK
+198. [GET] http://127.0.0.1:5173/api/system/status => [200] OK
+
+Note: 192 static requests not shown, run with "static" option to see them.

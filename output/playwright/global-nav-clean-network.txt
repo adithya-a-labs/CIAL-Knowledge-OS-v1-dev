@@ -1,0 +1,7 @@
+191. [GET] http://127.0.0.1:5173/api/auth/me => [200] OK
+193. [GET] http://127.0.0.1:5173/api/corpus/document/0873aa81-7e14-4449-bae7-e5436b24dc67 => [200] OK
+194. [GET] http://127.0.0.1:5173/api/corpus/document/0873aa81-7e14-4449-bae7-e5436b24dc67/preview?page=1 => [200] OK
+195. [GET] http://127.0.0.1:5173/api/corpus/tree => [200] OK
+198. [GET] http://127.0.0.1:5173/api/documents/0873aa81-7e14-4449-bae7-e5436b24dc67/analysis?summary_type=overview&length=standard => [200] OK
+
+Note: 209 static requests not shown, run with "static" option to see them.
