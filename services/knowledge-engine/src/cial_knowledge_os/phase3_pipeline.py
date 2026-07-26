@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +64,11 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
         ] = {}
         self.last_retrieval_telemetry: dict[str, dict[str, Any]] = {}
         self.last_retrieval_stage_events: list[dict[str, Any]] = []
+        self.retrieval_cache_getter: Callable[[], Mapping[str, Any] | None] | None = None
+        self.retrieval_cache_setter: Callable[[Mapping[str, Any]], None] | None = None
+        self.query_embedding_model_state = "loaded"
+        self.query_embedding_cache_status = "model_reused"
+        self.qdrant_index_status = "unknown"
         self.token_manager: TokenManager
         self.token_budget_manager: TokenBudgetManager | None = None
         self._token_config_key: tuple[int | None, str, int | None] | None = None
@@ -125,6 +130,10 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
             allowed_relative_paths=self._active_relative_path_filter,
             allowed_document_version_ids=self.published_document_version_ids,
             allowed_note_revisions=self.published_note_revisions,
+            telemetry_callback=getattr(self, "telemetry_callback", None),
+            query_embedding_model_state=self.query_embedding_model_state,
+            query_embedding_cache_status=self.query_embedding_cache_status,
+            qdrant_index_status=self.qdrant_index_status,
         )
 
     def set_retrieval_relative_paths(
@@ -319,6 +328,62 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
                         "Query-time snapshot rebuilding is disabled."
                     )
                 self.build_lexical_index()
+        cache_lookup_started = time.perf_counter()
+        cache_lookup = (
+            self.retrieval_cache_getter()
+            if self.retrieval_cache_getter is not None
+            else None
+        )
+        cache_hit = bool(
+            cache_lookup is not None
+            and cache_lookup.get("hit", True)
+        )
+        cache_latency_ms = round(
+            (time.perf_counter() - cache_lookup_started) * 1000,
+            3,
+        )
+        cache_metrics = {
+            "retrieval_cache_hit": cache_hit,
+            "retrieval_cache_miss": not cache_hit,
+            "retrieval_cache_latency_ms": cache_latency_ms,
+            "retrieval_cache_size": (
+                int(cache_lookup.get("cache_size", 0))
+                if cache_lookup is not None
+                else 0
+            ),
+            "retrieval_cache_invalidation_reason": (
+                cache_lookup.get("invalidation_reason")
+                if cache_lookup is not None
+                else None
+            ),
+        }
+        callback = getattr(self, "telemetry_callback", None)
+        if callback is not None:
+            callback("retrieval_cache", "completed", dict(cache_metrics))
+        self.last_retrieval_telemetry["retrieval_cache"] = {
+            "stage_started": True,
+            "stage_completed": True,
+            "duration_ms": cache_latency_ms,
+            "candidate_count": (
+                len(cache_lookup.get("results") or ())
+                if cache_hit and cache_lookup is not None
+                else 0
+            ),
+            "error_state": None,
+            **cache_metrics,
+        }
+        if cache_hit and cache_lookup is not None:
+            results = [dict(item) for item in cache_lookup.get("results") or ()]
+            rankings = cache_lookup.get("rankings") or {}
+            self.last_modality_results_by_query[query] = {
+                name: [dict(item) for item in values]
+                for name, values in rankings.items()
+            }
+            if "fused" not in self.last_modality_results_by_query[query]:
+                self.last_modality_results_by_query[query]["fused"] = [
+                    dict(item) for item in results
+                ]
+            return results
         if mode == "hybrid":
             assert self.hybrid_retriever is not None
             self.hybrid_retriever.telemetry_callback = getattr(
@@ -329,8 +394,13 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
                 top_k=self.config.retrieval_top_k,
             )
             self.last_retrieval_telemetry = {
-                name: dict(metrics)
-                for name, metrics in self.hybrid_retriever.last_stage_telemetry.items()
+                "retrieval_cache": self.last_retrieval_telemetry[
+                    "retrieval_cache"
+                ],
+                **{
+                    name: dict(metrics)
+                    for name, metrics in self.hybrid_retriever.last_stage_telemetry.items()
+                },
             }
             self.last_retrieval_stage_events.extend(
                 {"stage": name, **dict(metrics)}
@@ -344,6 +414,13 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
                 },
                 "fused": [dict(item) for item in results],
             }
+            if self.retrieval_cache_setter is not None:
+                self.retrieval_cache_setter(
+                    {
+                        "results": [dict(item) for item in results],
+                        "rankings": self.last_modality_results_by_query[query],
+                    }
+                )
             return results
         if mode not in self._retrievers:
             available = ", ".join(sorted([*self._retrievers, "hybrid"]))
@@ -366,6 +443,13 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
             mode: [dict(item) for item in results],
             "fused": [dict(item) for item in results],
         }
+        if self.retrieval_cache_setter is not None:
+            self.retrieval_cache_setter(
+                {
+                    "results": [dict(item) for item in results],
+                    "rankings": self.last_modality_results_by_query[query],
+                }
+            )
         return results
 
     def _retrieve_single_with_deadline(
