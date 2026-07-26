@@ -3,6 +3,7 @@ import { Search, Mic, Send } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/auth/AuthContext';
 import { HERO_QUICK_SEARCHES } from '@/data/dashboardData';
+import { createConversationHandoff } from '@/lib/conversationHandoff';
 
 export default function HeroSearch() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -11,7 +12,14 @@ export default function HeroSearch() {
   const firstName = userView?.name.split(' ')[0] ?? 'there';
 
   const handleSearch = () => {
-    if (searchQuery.trim()) setLocation('/assistant');
+    if (searchQuery.trim()) createConversationHandoff(setLocation, {
+      title: searchQuery.trim().slice(0, 72),
+      origin: 'homepage',
+      context_scope: 'all_accessible',
+      selected_document_ids: [],
+      question: searchQuery.trim(),
+      autoSubmit: true,
+    });
   };
 
   return (

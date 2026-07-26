@@ -2,6 +2,7 @@ import { useLocation } from 'wouter';
 import { Search, TrendingUp } from 'lucide-react';
 import DashboardBlock from '@/components/common/DashboardBlock';
 import { POPULAR_SEARCHES } from '@/data/knowledgeBaseData';
+import { createConversationHandoff } from '@/lib/conversationHandoff';
 
 export default function PopularSearchesBlock() {
   const [, setLocation] = useLocation();
@@ -12,7 +13,14 @@ export default function PopularSearchesBlock() {
         {POPULAR_SEARCHES.map((item, i) => (
           <button
             key={item.query}
-            onClick={() => setLocation('/assistant')}
+            onClick={() => createConversationHandoff(setLocation, {
+              title: item.query.slice(0, 72),
+              origin: 'global_search',
+              context_scope: 'all_accessible',
+              selected_document_ids: [],
+              question: item.query,
+              autoSubmit: true,
+            })}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[#f0f7ed] transition-colors group"
             data-testid={`popular-search-${i}`}
           >

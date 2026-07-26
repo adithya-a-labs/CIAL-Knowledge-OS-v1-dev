@@ -4,6 +4,7 @@ import DashboardBlock from '@/components/common/DashboardBlock';
 import { useQuery } from '@tanstack/react-query';
 import { listChatSessions } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
+import { assistantConversationPath, ASSISTANT_FRESH_PATH } from '@/lib/assistantNavigation';
 
 export default function AIConversationsBlock() {
   const [, setLocation] = useLocation();
@@ -15,13 +16,13 @@ export default function AIConversationsBlock() {
     <DashboardBlock
       title="Recent AI Conversations"
       viewAllLabel="Open Assistant"
-      onViewAll={() => setLocation('/assistant')}
+      onViewAll={() => setLocation(ASSISTANT_FRESH_PATH)}
     >
       <div className="space-y-2">
         {conversations.map(conv => (
           <button
             key={conv.id}
-            onClick={() => setLocation('/assistant')}
+            onClick={() => setLocation(assistantConversationPath(conv.id))}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-[#f8fdf6] border border-[#e2eedd] hover:border-[#4a7c3f] transition-colors group text-left"
             data-testid={`conv-item-${conv.id}`}
           >
