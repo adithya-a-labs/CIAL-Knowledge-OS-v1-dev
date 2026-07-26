@@ -135,6 +135,11 @@ log, and never includes prompt or document content.
 
 BM25 lifecycle and query telemetry is sourced from the loaded publication:
 
+- `bm25_runtime_state`, `bm25_status`: whether the in-memory publication is
+  ready;
+- `bm25_snapshot_version`: active published generation;
+- `bm25_loaded_at` and `bm25_load_duration_ms`: authoritative activation time
+  and measured load duration;
 - `bm25_snapshot_loaded_at`: UTC activation timestamp;
 - `bm25_snapshot_size`: actual published snapshot size in bytes;
 - `bm25_snapshot_load_duration_ms`: measured JSON snapshot load time;
@@ -147,6 +152,19 @@ BM25 lifecycle and query telemetry is sourced from the loaded publication:
 The same search metrics are attached to the `bm25_retrieval` completion event
 and projected by the administrator monitor. Missing measurements remain null;
 the monitor does not synthesize values.
+
+Hybrid retrieval additionally emits `parallel_retrieval` start/completion
+telemetry with `dense_started`, `dense_completed`, `bm25_started`,
+`bm25_completed`, and `parallel_retrieval_duration_ms`. Branch duration uses
+the worker's actual completion timestamp, not the later collection timestamp.
+The ordinary dense/BM25 stage events and candidate counts remain present.
+
+Reranking completion reports `reranker_device`, `reranker_dtype`,
+`reranker_model_loaded`, real PyTorch allocated/load-delta bytes,
+`reranker_batch_size`, `reranker_candidate_count`, and
+`reranker_latency_ms`. One `predict()` receives the full ordered candidate
+batch; telemetry does not imply one model invocation per candidate. Readiness
+also exposes `dense_model_status`, `reranker_status`, and `bm25_status`.
 
 Normal performance objectives are permission validation below 100 ms, Qdrant
 below 500 ms, fusion below 200 ms, reranking below 2 seconds, and retrieval
@@ -208,6 +226,15 @@ authorized chunk indexes, and partially selects top candidates. On the same
 459,715-chunk snapshot, measured searches were 2.48-11.15 ms. Snapshot load
 (17,194 ms) and activation (35,725 ms) remain observable startup/background
 refresh work rather than search latency.
+
+Phase 1 performance validation on the same generation retained all configured
+candidate and evidence counts. With dense/BM25 running concurrently and the
+dense/reranker inference paths initialized before readiness, the warm repeated
+retrieval measured 1,919 ms end to end. Component measurements were 81 ms
+parallel retrieval, 30.5 ms internal BM25 search, 2 ms fusion, 38 ms batched
+CUDA reranking of 28 candidates, and 7 ms evidence selection. A first
+post-start probe measured 2,103 ms. These are measured workstation results,
+not universal latency guarantees.
 
 ## Live System Status
 
@@ -313,3 +340,45 @@ identifiers. CPU extraction and Qdrant/network activity do not emit synthetic
 GPU utilization. An idle-released model reports actual device `cpu` and
 resident `false`; the next real batch must report `cuda:<index>` before encode
 when CUDA is available.
+
+## Phase 2 Query Infrastructure Telemetry
+
+The dense branch exposes two nested measured stages:
+
+1. `query_embedding` records `query_embedding_started`,
+   `query_embedding_completed`, `query_embedding_duration_ms`, actual device,
+   actual parameter dtype, warmed/loaded model state, and
+   `query_embedding_cache_status=model_reused`.
+2. `qdrant_search` records `qdrant_index_status`,
+   `qdrant_search_latency_ms`, and the exact payload field names present in the
+   unchanged query filter.
+
+Both durations use `perf_counter()` within their own boundaries. Qdrant's
+Python query response does not provide a separate server-side filter duration,
+so `qdrant_filter_latency_ms` is null. It must not be inferred by subtracting
+embedding time or transport time.
+
+The `retrieval_cache` stage reports mutually exclusive hit/miss flags, measured
+lookup latency, current bounded entry count, and the last applicable
+invalidation reason. Cache entries contain candidate ids, text/document data,
+scores, metadata, modality rankings, active generation, and UTC creation time.
+They contain no prompts, generated answer, or generation metrics.
+
+On a miss, dense Qdrant and BM25 run concurrently and unchanged, then the fused
+result is stored. On a hit, those stored fused candidates are defensively
+copied in their original order and processing resumes at the unchanged
+reranker. Thus a hit must show no new dense/BM25 work but must still show real
+reranking, evidence selection, context, citation, and generation telemetry.
+
+Cache security is fail-closed at key construction:
+
+- `normalized_query_hash` contains no raw question;
+- `published_generation` prevents cross-publication reuse;
+- `workspace_scope` fingerprints access scope, effective authorized paths, and
+  explicitly selected documents/folders/notes; and
+- `permission_boundary` fingerprints the resolved principal and current
+  organization, role, permission, department, and group grants.
+
+A generation change clears the cache. A permission-boundary change evicts all
+entries belonging to that principal before lookup. Different scopes or
+authorized path sets generate different keys and cannot collide at lookup.

@@ -18,6 +18,13 @@ existing Qdrant collection, loads the latest BM25 generation, and loads
 query-time models. It never calls corpus-wide `load()`, `chunk()`, `embed()`,
 `index()`, collection recreation, or forced rebuild.
 
+Startup readiness includes one-time retrieval inference initialization. The
+dense query model performs a discarded single-text embedding, and the loaded
+reranker performs a discarded single-pair prediction after resolving its
+actual device. BM25 is activated from the published snapshot. This moves
+tokenizer/framework/CUDA first-use work before user queries without creating
+index data or changing any retrieval result.
+
 The first deployment is allowed to report `api_ready=true` and
 `retrieval_ready=false` while the standalone indexer builds the first
 generation. When a previous generation exists, chat remains available while
@@ -95,6 +102,12 @@ are dense/Qdrant 30 seconds, BM25 10 seconds, fusion 5 seconds, reranking
 failed stage and timeout state while preserving partial authorized results
 where a safe fallback exists.
 
+Within every hybrid query variant, dense Qdrant and published BM25 searches run
+concurrently. Their unchanged ranked lists and candidate limits feed the same
+RRF implementation. The cross-encoder receives the complete ordered
+post-fusion candidate list through one batched prediction call and preserves
+the existing score/order tie-break contract.
+
 Enter and Send use the same single-flight handler. It refreshes the authenticated
 status before opening the chat stream, permits blue/indexing state, retains
 composer text when preflight or connection initiation fails, and clears the
@@ -119,6 +132,10 @@ non-finite, stale, or component timings larger than the measured generation or
 request. The frontend repeats the boundary check for display and renders
 missing/rejected values as `Unavailable`.
 
+The operations console also shows warm-component state, actual reranker
+device/dtype/allocation, BM25 publication lifecycle, dense/BM25 branch
+completion, aggregate parallel duration, and reranker batch/candidate latency.
+
 ## Commands
 
 ```powershell
@@ -136,12 +153,13 @@ heartbeat, but continues serving an existing committed generation.
 
 ## Shared GPU Runtime
 
-The query process defaults BGE-M3 to CPU so it does not retain a second CUDA
-copy. The standalone indexer retains GPU batches, releases its model from CUDA
-when idle, and yields between bounded batches while chat holds priority.
-Ollama uses an explicit keep-alive and remains the latency-priority workload.
-These rules do not alter scores, payloads, BM25, prompts, citations, or
-published generations.
+The query process defaults BGE-M3 device selection to `auto`, verifies CUDA,
+warms one model instance, and reuses it for single-query embeddings; CPU is
+only the unavailable-CUDA fallback. The standalone indexer retains independent
+GPU batches, releases its model from CUDA when idle, and yields between bounded
+batches while chat holds priority. Ollama uses an explicit keep-alive and
+remains the latency-priority generation workload. These rules do not alter
+scores, payloads, BM25, prompts, citations, or published generations.
 
 A stopped, stale, or restarting indexer changes indexing status to degraded but
 does not change `chat_available` when PostgreSQL, Qdrant, Ollama, and an already
@@ -161,3 +179,34 @@ immediately. With no pending batch, Ollama may retain its configured warm
 window. A warm runner never extends exclusive generation priority beyond the
 active request. Durable indexing, verification, BM25 publication, and query
 isolation are unchanged.
+
+## Phase 2 Retrieval Request Integration
+
+After request validation and SQL-backed access resolution, FastAPI constructs
+a content-free retrieval-cache identity from the normalized question hash,
+loaded generation, effective workspace/path scope, and resolved permission
+boundary. Only then does the serialized query enter the loaded Phase 4
+pipeline:
+
+```text
+validated request + resolved access boundary
+  -> retrieval cache lookup
+       hit  -> unchanged reranking -> evidence -> citations -> generation
+       miss -> warmed BGE-M3 query embedding
+             -> indexed filtered Qdrant search || warm BM25 search
+             -> unchanged RRF
+             -> cache fused candidates
+             -> unchanged reranking -> evidence -> citations -> generation
+```
+
+The cache is an API-process LRU and never stores chat responses. Candidate
+counts, scores, metadata, modality rankings, ordering, reranker inputs,
+evidence limits, citation numbering, prompts, and generation are unchanged.
+The original SQL authorization query still runs for every request; cache lookup
+cannot bypass it.
+
+Admin Operations Monitor projects actual query-embedding duration/device/dtype/
+state, Qdrant total filtered-search duration and filter fields, payload-index
+readiness, and retrieval-cache hit/miss/lookup/size/invalidation telemetry.
+Missing Qdrant filter-only timing remains unavailable because neither the SDK
+nor server response supplies that independent measurement.

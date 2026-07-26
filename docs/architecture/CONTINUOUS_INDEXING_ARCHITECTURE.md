@@ -233,6 +233,30 @@ batch workflows. The live runtime similarly refuses to build a missing BM25
 index from chunks during a request; it reports the published generation as
 unavailable instead.
 
+### Phase 1 retrieval runtime optimization (2026-07-26)
+
+FastAPI activates retrieval infrastructure before declaring the query runtime
+ready. It loads the published BM25 snapshot once, constructs its in-memory
+posting/path indexes, loads the dense query embedding model, performs one
+discarded readiness embedding, loads the cross-encoder, resolves `auto` to
+CUDA when available (CPU otherwise), and performs one discarded batched
+readiness prediction. No warmup result enters Qdrant, fusion, reranking,
+evidence selection, citations, or generation.
+
+For each hybrid search, dense Qdrant and BM25 branches start concurrently with
+their unchanged candidate limits and inputs. The caller waits for both bounded
+branches, preserves the per-branch rankings, and invokes the same reciprocal
+rank fusion. BM25 reads only the active in-memory publication. Publication
+discovery compares the published BM25 generation and does not reload an
+unchanged snapshot.
+
+The generation-29 validation retained 10 dense candidates, 10 BM25 candidates,
+28 cross-encoder candidates, and 8 selected evidence items. The warm repeated
+end-to-end retrieval measured 1,919 ms: parallel dense/BM25 81 ms, BM25 search
+30.5 ms, fusion 2 ms, one GPU reranker batch 38 ms, and evidence selection
+7 ms. The first post-start measurement was 2,103 ms; the operational target is
+below 2 seconds on the warmed runtime, not a reduction in retrieval work.
+
 BM25 publication is debounced during a sustained job burst and forced before
 the worker enters its queue-empty watching state. If the API started before the
 first collection existed, the first published generation activates the cached
@@ -453,10 +477,11 @@ source content, credentials, repository paths, or exception text.
 
 ## Physical GPU Isolation And Query Priority
 
-Process isolation does not isolate a shared CUDA device. The API therefore uses
-CPU query embeddings by default (`CIAL_QUERY_EMBEDDING_DEVICE=cpu`) and the
-standalone indexer owns throughput-oriented BGE-M3 CUDA batches. This prevents
-two process-local BGE-M3 copies from occupying VRAM alongside Ollama.
+Process isolation does not isolate a shared CUDA device. The API now resolves
+`CIAL_QUERY_EMBEDDING_DEVICE=auto` to CUDA when available and keeps its
+single-query BGE-M3 runtime warm; CPU is only an unavailable-CUDA fallback.
+The standalone indexer separately owns throughput-oriented BGE-M3 CUDA batches
+and remains cooperative with the active chat lease.
 
 The indexer yields between bounded batches whenever the API holds the
 stale-safe chat-priority lease. It moves the embedding model to CPU while
@@ -535,3 +560,39 @@ the indexer heartbeat's configured/actual device and model status. During an
 active non-reused embedding batch, `nvidia-smi` must show the standalone Python
 process and non-zero utilization. Zero utilization after the configured idle
 release interval is expected and does not indicate CPU embedding.
+
+## Query Runtime Index And Cache Boundary
+
+Phase 2 infrastructure remains entirely on the read side of the publication
+boundary. Query-runtime startup performs these operations once:
+
+```text
+load active generation pointer
+  -> reuse/load BGE-M3 and run one warm encode
+  -> verify/create Qdrant payload indexes idempotently
+  -> attach published document-version constraints
+  -> load the published BM25 snapshot
+  -> warm the reranker
+  -> mark retrieval ready
+```
+
+Payload-index creation does not rewrite points, filters, vectors, security
+predicates, or publication state. Server collections provision indexes for
+`repository_id`, `workspace_id`, `organization_id`, `document_id`,
+`document_version_id`, `published_generation`, `storage_scope`,
+`owner_user_id`, `department_id`, `folder_id`, `visibility`,
+`lifecycle_status`, `relative_path`, and note identity/revision. Embedded
+Qdrant reports payload indexing as unsupported because this production
+multi-process architecture requires server mode.
+
+The in-memory retrieval cache belongs to the API query process and is bounded
+by `CIAL_RETRIEVAL_CACHE_MAX_ENTRIES` (default 256). It stores only the output
+of the existing dense/BM25/RRF stage. It is never shared with or written by the
+indexer and is not part of the durable published generation.
+
+Publication activation clears every entry before the new generation can be
+used. A re-resolved permission fingerprint that differs from the last value
+for a principal evicts that principal's entries. Workspace/access scope and
+effective authorized paths remain part of each key. Consequently the cache
+cannot turn a formerly authorized result into a current authorization grant;
+the same access-resolution path always runs before cache lookup.

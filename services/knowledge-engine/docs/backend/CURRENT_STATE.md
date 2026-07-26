@@ -149,6 +149,19 @@ source documents, the full tokenized corpus, or construct a scope-specific
 BM25 model. It scores query-term postings from that loaded publication, filters
 them with the authorized path-index set, and selects the bounded top candidates.
 
+Phase 1 retrieval infrastructure is initialized before API readiness. The
+dense query embedding model performs one discarded readiness embedding; the
+cross-encoder loads cache-first, resolves `auto` to CUDA when available or CPU
+otherwise, and performs one discarded readiness batch. BM25 remains the single
+in-memory active publication. These readiness probes do not write Qdrant or
+enter retrieval results.
+
+Hybrid dense and BM25 branches execute concurrently for the same query,
+candidate limits, authorization filters, and publication. Their rankings feed
+the unchanged RRF logic. Cross-encoder reranking already uses one batched
+`predict()` over the complete ordered candidate pool; no per-candidate model
+loop is used.
+
 The 2026-07-26 regression investigation used the real generation-29 snapshot:
 1,049,687,710 bytes, 459,715 chunks, and 488 document identifiers. The prior
 cold broad-scope query-time model build measured 15,626 ms; after isolating that
@@ -156,6 +169,16 @@ fault, full-corpus score/sort still measured 828-911 ms. Published posting
 searches now measured 2.48-11.15 ms across unrestricted, broad-scope, and
 single-path cases. Snapshot load measured 17,194 ms and activation 35,725 ms,
 both outside the request path. The BM25 search objective is below 100 ms.
+
+Phase 1 performance validation retained 10 dense candidates, 10 BM25
+candidates, 28 reranker candidates, and 8 selected evidence items. On the
+RTX 5070 Ti, the reranker loaded on `cuda:0` as `torch.float32`, attributed a
+90,863,104-byte load delta, and processed the 28-candidate batch without
+changing scores or ordering rules. Warm repeated end-to-end retrieval measured
+1,919 ms; parallel dense/BM25 was 81 ms, BM25 search 30.5 ms, fusion 2 ms,
+reranking 38 ms, and evidence selection 7 ms. The first post-start probe was
+2,103 ms, so the below-2-second objective is a warmed-runtime target rather
+than a universal hardware guarantee.
 
 Hard stage ceilings are Qdrant/dense retrieval 30 seconds, BM25 10 seconds,
 fusion 5 seconds, reranking 15 seconds, and evidence selection 5 seconds.
@@ -733,12 +756,13 @@ Generating, Completed, and Failed.
 
 ## Query-Priority GPU Runtime
 
-The API and standalone indexer remain independent processes, but no longer
-duplicate BGE-M3 on CUDA by default. The API resolves
-`CIAL_QUERY_EMBEDDING_DEVICE=cpu` for single-vector query embedding, while the
-indexer retains `CIAL_INDEXER_DEVICE=auto` for throughput-oriented batches.
-This preserves retrieval behavior while reserving accelerator capacity for the
-latency-sensitive Ollama runner.
+The API and standalone indexer remain independent processes. The API now
+defaults `CIAL_QUERY_EMBEDDING_DEVICE=auto`, resolves it once to `cuda:<index>`
+when CUDA is available, and falls back to CPU only when CUDA is unavailable.
+The same warmed BGE-M3 instance is reused for every single-vector query; it is
+not loaded per request. The indexer independently retains
+`CIAL_INDEXER_DEVICE=auto` for throughput-oriented batches and continues to
+yield its CUDA allocation during an active chat lease.
 
 The indexer moves its embedding model to CPU after
 `CIAL_INDEXER_GPU_IDLE_RELEASE_SECONDS` when idle. Before each bounded batch it
@@ -839,3 +863,42 @@ Troubleshooting order:
    post-idle period—is being observed in `nvidia-smi`.
 5. Treat configured CUDA with actual CPU as an indexing failure; do not infer
    success from the startup device label alone.
+
+## Phase 2 Retrieval Infrastructure (2026-07-26)
+
+The API loads BGE-M3 once, performs a discarded startup encode, verifies the
+actual device/dtype, marks the model warmed, and reuses that same object for
+queries. Query telemetry now records real monotonic start/completion boundaries,
+duration, device, dtype, model state, and `model_reused` cache status. No query
+embedding vectors are cached.
+
+Qdrant server startup idempotently verifies payload indexes for repository,
+workspace, organization, document/version, publication, storage scope, owner,
+department, folder, visibility, lifecycle, relative-path, and note fields.
+The query filter remains unchanged: SQL/RBAC resolves accessible paths and the
+dense request applies the same published-version/path/repository predicates.
+`qdrant_search_latency_ms` measures the complete filtered Qdrant request.
+Qdrant does not expose independent server-side filter evaluation time through
+this API, so `qdrant_filter_latency_ms` remains unavailable rather than being
+fabricated.
+
+A bounded in-memory retrieval-result cache stores only fused retrieval
+candidates and modality rankings. It never stores an LLM answer. Keys bind the
+normalized-query hash, active published generation, effective workspace/path
+scope, and a fingerprint of the resolved principal, roles, permissions,
+departments, groups, organization, and authentication state. Generation
+activation clears all entries; a changed permission fingerprint removes every
+entry for that principal. Hits return defensive copies in the original order,
+then execute the unchanged reranker, evidence selector, context/citation
+builder, prompt, and generation path.
+
+Live Qdrant inspection found all declared payload indexes ready on the
+472,126-point `cial_phase4` collection. A workspace-and-version filtered
+10-candidate query measured 1,151 ms on its first cold access and 2.9-5.1 ms
+on four warm repetitions. A full authenticated published-generation cache
+probe could not be run from the validation shell because that shell had no
+active PostgreSQL generation pointer; the cache hit target is therefore
+covered by deterministic pipeline tests, not claimed as a live end-to-end
+measurement. CUDA query-embedding timing was also not duplicated in a new
+process while the workstation reported 11,650/12,227 MiB already allocated
+across Ollama and two Python CUDA processes.
