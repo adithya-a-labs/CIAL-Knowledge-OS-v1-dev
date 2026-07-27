@@ -40,18 +40,18 @@ function AppBootScreen({
   onRetry?: () => void;
 }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#f5f8f3]">
+    <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
       <div className="text-center">
         <img src="/favicon.svg" alt="CIAL" className="mx-auto h-12 w-12 animate-pulse" />
-        <p className="mt-4 text-sm font-medium text-slate-600">{message}</p>
+        <p className="mt-4 text-sm font-medium text-muted-foreground">{message}</p>
         {error ? (
-          <p className="mx-auto mt-3 max-w-md text-sm text-red-700">{error}</p>
+          <p className="mx-auto mt-3 max-w-md text-sm text-destructive">{error}</p>
         ) : null}
         {onRetry ? (
           <button
             type="button"
             onClick={onRetry}
-            className="mt-5 rounded-lg border border-[#b8c9b1] bg-white px-4 py-2 text-sm font-semibold text-[#25611f] shadow-sm transition hover:bg-[#f4f7f2]"
+            className="mt-5 rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-primary shadow-sm transition hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           >
             Retry
           </button>

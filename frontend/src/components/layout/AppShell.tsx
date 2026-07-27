@@ -47,7 +47,7 @@ export default function AppShell({ children }: AppShellProps) {
       <MobileSidebarDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} />
       <button
         onClick={() => setMobileOpen(true)}
-        className="fixed left-3 top-3 z-40 inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg border border-[#dce4d8] bg-white/92 text-slate-500 shadow-sm backdrop-blur transition hover:bg-[#f6f8f5] hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring lg:hidden"
+        className="fixed left-3 top-3 z-40 inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg border border-border bg-popover/92 text-muted-foreground shadow-sm backdrop-blur transition hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring lg:hidden"
         data-testid="button-hamburger"
         aria-label="Open global navigation"
       >

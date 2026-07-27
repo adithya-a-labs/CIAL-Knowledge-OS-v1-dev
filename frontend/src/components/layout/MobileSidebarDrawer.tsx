@@ -1,12 +1,13 @@
 import * as React from 'react';
 import { useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
-import { Bell, HelpCircle, LogOut, MessageSquarePlus, Settings2, X, Search } from 'lucide-react';
+import { Bell, HelpCircle, LogOut, MessageSquarePlus, X, Search } from 'lucide-react';
 import { THEME } from '@/config/themeConfig';
 import { useAuth } from '@/auth/AuthContext';
 import { homeNavItems } from '@/data/homePageData';
 import { useCommandPalette } from '@/components/common/CommandPalette';
 import { startNewConversation } from '@/lib/assistantNavigation';
+import AppearanceControl from '@/components/theme/AppearanceControl';
 
 interface MobileSidebarDrawerProps {
   open: boolean;
@@ -39,6 +40,9 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (event.target instanceof Element && event.target.closest('[role="menu"]')) {
+          return;
+        }
         event.preventDefault();
         onClose();
         return;
@@ -86,21 +90,21 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
 
   return (
     <div className="fixed inset-0 z-50 flex lg:hidden">
-      <div className="absolute inset-0 bg-black/35 backdrop-blur-sm" onClick={onClose} data-testid="sidebar-overlay" />
+      <div className="absolute inset-0 bg-black/55 backdrop-blur-sm dark:bg-black/80" onClick={onClose} data-testid="sidebar-overlay" />
       <aside
         ref={drawerRef}
-        className="relative flex h-full w-[min(19rem,86vw)] flex-col bg-white shadow-2xl animate-in slide-in-from-left duration-200"
+        className="relative flex h-full w-[min(19rem,86vw)] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-2xl animate-in slide-in-from-left duration-[180ms]"
         data-testid="mobile-sidebar"
         role="dialog"
         aria-modal="true"
         aria-label="Global application navigation"
       >
-        <div className="flex items-center justify-between border-b border-[#e3e9e1] px-4 py-4">
+        <div className="flex items-center justify-between border-b border-sidebar-border px-4 py-4">
           <div className="flex items-center gap-3">
             <img src={THEME.logoPath} alt="CIAL Logo" className="h-9 w-auto object-contain" />
             <div>
-              <div className="text-lg font-semibold text-[#25611f]">CIAL</div>
-              <div className="text-xs text-slate-500">Knowledge OS</div>
+              <div className="text-lg font-semibold text-primary">CIAL</div>
+              <div className="text-xs text-muted-foreground">Knowledge OS</div>
             </div>
           </div>
           <button ref={closeButtonRef} onClick={onClose} className="ce-icon-button" data-testid="button-close-sidebar" aria-label="Close sidebar">
@@ -125,10 +129,10 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
                     startNewConversation(navigate);
                   }}
                   className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
-                    active ? 'bg-[#edf6e9] text-[#244f1d]' : 'text-slate-700 hover:bg-[#f6f8f5] hover:text-slate-950'
+                    active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
                   }`}
                 >
-                  <Icon size={18} className={active ? 'text-[#2f6d25]' : 'text-slate-500'} />
+                  <Icon size={18} className={active ? 'text-primary' : 'text-muted-foreground'} />
                   <span>{item.label}</span>
                 </Link>
 
@@ -139,11 +143,11 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
                       onClose();
                       setOpen(true);
                     }}
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5] hover:text-slate-950 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-sidebar-foreground/80 transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                   >
-                    <Search size={18} className="text-slate-500" />
+                    <Search size={18} className="text-muted-foreground" />
                     <span>Search</span>
-                    <span className="ml-auto text-[10px] text-slate-400 font-mono">Ctrl+K</span>
+                    <span className="ml-auto font-mono text-[10px] text-muted-foreground">Ctrl+K</span>
                   </button>
                 )}
               </React.Fragment>
@@ -151,7 +155,7 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
           })}
         </nav>
 
-        <div className="space-y-1 border-t border-[#e8ece6] p-3">
+        <div className="space-y-1 border-t border-sidebar-border p-3">
           <Link
             href="/assistant/new"
             onClick={(event) => {
@@ -159,40 +163,37 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
               onClose();
               startNewConversation(navigate);
             }}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-slate-900"
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-foreground hover:bg-sidebar-accent"
             aria-label="Start a new conversation"
           >
-            <MessageSquarePlus size={18} className="text-[#2f6d25]" />
+            <MessageSquarePlus size={18} className="text-primary" />
             New Conversation
           </Link>
-          <button className="relative flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5]">
-            <Bell size={18} className="text-slate-500" />
+          <button className="relative flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-sidebar-foreground/80 transition hover:bg-sidebar-accent">
+            <Bell size={18} className="text-muted-foreground" />
             <span>Notifications</span>
             {(userView?.notificationsCount ?? 0) > 0 && (
-              <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-[#b76a09] px-1 text-[10px] font-bold text-white">{userView?.notificationsCount}</span>
+              <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-bold text-black">{userView?.notificationsCount}</span>
             )}
           </button>
-          <button className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5]">
-            <HelpCircle size={18} className="text-slate-500" />
+          <button className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-sidebar-foreground/80 transition hover:bg-sidebar-accent">
+            <HelpCircle size={18} className="text-muted-foreground" />
             <span>Help</span>
           </button>
-          <button className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5]">
-            <Settings2 size={18} className="text-slate-500" />
-            <span>Theme & Settings</span>
-          </button>
+          <AppearanceControl menuSide="top" />
           <div className="flex min-w-0 items-center gap-3 rounded-xl px-3 py-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#25611f] text-sm font-bold text-white">{userView?.initials ?? 'CU'}</div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">{userView?.initials ?? 'CU'}</div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-semibold text-slate-950">{userView?.name ?? 'CIAL User'}</div>
-              <div className="truncate text-xs text-slate-500">{userView?.department ?? 'CIAL'}</div>
+              <div className="truncate text-sm font-semibold text-foreground">{userView?.name ?? 'CIAL User'}</div>
+              <div className="truncate text-xs text-muted-foreground">{userView?.department ?? 'CIAL'}</div>
             </div>
           </div>
           <button
             type="button"
             onClick={() => void logout()}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5]"
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-sidebar-foreground/80 transition hover:bg-sidebar-accent"
           >
-            <LogOut size={18} className="text-slate-500" />
+            <LogOut size={18} className="text-muted-foreground" />
             <span>Log Out</span>
           </button>
         </div>
