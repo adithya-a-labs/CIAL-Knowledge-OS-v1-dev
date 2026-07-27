@@ -719,7 +719,7 @@ export default function ChatPanel() {
             type="button"
             onClick={() => void handleSend()}
             disabled={!input.trim() || isLoading || blockingAttachments.length > 0}
-            className="col-start-2 row-span-2 row-start-1 mb-3 mr-3 inline-flex h-11 w-11 self-end items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition hover:bg-primary/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none sm:h-12 sm:w-12"
+            className="composer-send col-start-2 row-span-2 row-start-1 mb-3 mr-3 inline-flex h-11 w-11 self-end items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition hover:bg-primary/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none sm:h-12 sm:w-12"
             data-testid="button-send"
             aria-label={chatReady ? 'Send message' : healthLabel}
             title={chatReady ? 'Send message' : healthLabel}
