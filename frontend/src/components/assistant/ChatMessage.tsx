@@ -186,7 +186,7 @@ function CitationInlineGroup({
               type="button"
               disabled={!source}
               onClick={() => source && onCitationClick(source)}
-              className="inline-flex min-h-5 items-center justify-center rounded-full border border-primary/25 bg-primary/10 px-1.5 text-[10px] font-bold text-primary align-middle transition-colors duration-[160ms] hover:border-primary/40 hover:bg-primary/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-40"
+              className="inline-citation inline-flex min-h-5 items-center justify-center rounded-full border border-primary/25 bg-primary/10 px-1.5 text-[10px] font-bold text-primary align-middle transition-colors duration-[160ms] hover:border-primary/40 hover:bg-primary/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-40"
               data-testid={`inline-citation-${reference.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`}
               aria-label={`Open citation ${reference.label}`}
             >
@@ -333,7 +333,7 @@ export default function ChatMessage({
     return (
       <div className="flex justify-end" data-testid={`chat-message-user-${message.id}`}>
         <div className="max-w-[92%] sm:max-w-[76%] lg:max-w-[70%]">
-          <div className="safe-text rounded-[1.35rem] bg-primary px-4 py-3 text-sm text-white shadow-sm">
+          <div className="user-message-bubble safe-text rounded-[1.35rem] bg-primary px-4 py-3 text-sm text-white shadow-sm">
             {message.content}
           </div>
           <p className="mt-1 text-right text-[11px] text-muted-foreground">{message.timestamp}</p>
@@ -368,7 +368,7 @@ export default function ChatMessage({
       <div style={cardWidthStyle} className="space-y-3 pr-1 transition-all duration-200">
         <div className="assistant-answer rounded-[1.5rem] border border-border bg-card px-5 py-4 shadow-sm lg:px-6">
           <div className="flex items-start gap-4">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white" aria-hidden="true"><Sparkles size={17} /></span>
+            <span className="grounded-response-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white" aria-hidden="true"><Sparkles size={17} /></span>
             <div className="min-w-0 flex-1">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{message.metadata?.transformationLabel ?? 'Grounded response'}</p>
