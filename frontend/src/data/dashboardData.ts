@@ -16,18 +16,18 @@ export const HERO_QUICK_SEARCHES: string[] = [
 ];
 
 export const QUICK_ACTIONS: { label: string; icon: string; path: string; colorClass: string }[] = [
-  { label: 'New Query', icon: 'Plus', path: '/assistant/new', colorClass: 'bg-[#f0f7ed] text-[#4a7c3f]' },
-  { label: 'Upload Document', icon: 'FileText', path: '/documents', colorClass: 'bg-[#fef3e8] text-[#e8820c]' },
-  { label: 'My Bookmarks', icon: 'BookmarkCheck', path: '/documents', colorClass: 'bg-[#e8f0fe] text-[#3b5bdb]' },
+  { label: 'New Query', icon: 'Plus', path: '/assistant/new', colorClass: 'bg-accent text-primary' },
+  { label: 'Upload Document', icon: 'FileText', path: '/documents', colorClass: 'bg-warning/10 text-warning' },
+  { label: 'My Bookmarks', icon: 'BookmarkCheck', path: '/documents', colorClass: 'bg-info/10 text-info' },
   // TODO: Reintroduce department-owned admin actions in a future Admin Console.
 ];
 
 export const DOC_TYPE_COLORS: Record<string, string> = {
-  Manual: 'bg-blue-100 text-blue-700',
-  SOP: 'bg-green-100 text-green-700',
-  Checklist: 'bg-purple-100 text-purple-700',
-  Policy: 'bg-orange-100 text-orange-700',
-  Report: 'bg-gray-100 text-gray-600',
+  Manual: 'bg-info/15 text-info-foreground',
+  SOP: 'bg-success/15 text-success-foreground',
+  Checklist: 'bg-accent text-accent-foreground',
+  Policy: 'bg-warning/15 text-warning-foreground',
+  Report: 'bg-muted text-muted-foreground',
 };
 
 export const KPI_ICON_BG: Record<string, string> = {

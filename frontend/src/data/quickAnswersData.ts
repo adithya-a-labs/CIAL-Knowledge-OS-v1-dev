@@ -70,7 +70,7 @@ export const popularQuestions: QuickAnswerQuestion[] = [
       'Check the zone panel to identify the triggered detector. Inspect the area for smoke, heat, dust or maintenance activity, notify Fire Safety, and follow the Fire Alarm Response Procedure before silencing or resetting the panel.',
     sources: ['Fire Alarm Response Procedure', 'Safety Manual', 'T3 Zone Panel Reference'],
     icon: Flame,
-    iconClassName: 'bg-red-50 text-red-600',
+    iconClassName: 'bg-destructive/10 text-destructive',
   },
   {
     id: 'preventive-maintenance-cmms',
@@ -82,7 +82,7 @@ export const popularQuestions: QuickAnswerQuestion[] = [
       "Log in to CMMS, open Work Orders, choose 'Preventive Maintenance', select the asset, add schedule details from the maintenance calendar, assign the owner, and submit for approval.",
     sources: ['CMMS User Guide', 'Preventive Maintenance Workflow', 'Asset Management SOP'],
     icon: BriefcaseBusiness,
-    iconClassName: 'bg-blue-50 text-blue-600',
+    iconClassName: 'bg-info/10 text-info',
   },
   {
     id: 'airfield-lighting-report',
@@ -106,20 +106,20 @@ export const popularQuestions: QuickAnswerQuestion[] = [
       'Yes. Emergency contacts are listed in the Emergency Response Directory in the Safety Manual and on department notice boards. Use the latest directory before calling external emergency support.',
     sources: ['Emergency Response Directory', 'Safety Manual', 'Department Contact Matrix'],
     icon: Wrench,
-    iconClassName: 'bg-green-50 text-green-600',
+    iconClassName: 'bg-success/10 text-success',
   },
 ];
 
 export const quickAnswerCategories: QuickAnswerCategory[] = [
   { id: 'baggage-handling', name: 'Baggage Handling', count: 32, icon: Package, iconClassName: 'bg-emerald-50 text-emerald-600' },
-  { id: 'safety-fire', name: 'Safety & Fire', count: 48, icon: Flame, iconClassName: 'bg-red-50 text-red-600' },
-  { id: 'airfield-operations', name: 'Airfield Operations', count: 36, icon: Plane, iconClassName: 'bg-blue-50 text-blue-600' },
+  { id: 'safety-fire', name: 'Safety & Fire', count: 48, icon: Flame, iconClassName: 'bg-destructive/10 text-destructive' },
+  { id: 'airfield-operations', name: 'Airfield Operations', count: 36, icon: Plane, iconClassName: 'bg-info/10 text-info' },
   { id: 'it-systems', name: 'IT Systems', count: 44, icon: Monitor, iconClassName: 'bg-indigo-50 text-indigo-600' },
-  { id: 'engineering', name: 'Engineering', count: 29, icon: Wrench, iconClassName: 'bg-orange-50 text-orange-600' },
-  { id: 'people-hr', name: 'People & HR', count: 26, icon: Users, iconClassName: 'bg-green-50 text-green-600' },
+  { id: 'engineering', name: 'Engineering', count: 29, icon: Wrench, iconClassName: 'bg-warning/10 text-warning' },
+  { id: 'people-hr', name: 'People & HR', count: 26, icon: Users, iconClassName: 'bg-success/10 text-success' },
   { id: 'compliance', name: 'Compliance', count: 18, icon: ShieldCheck, iconClassName: 'bg-violet-50 text-violet-600' },
   { id: 'facilities', name: 'Facilities', count: 21, icon: Building2, iconClassName: 'bg-sky-50 text-sky-600' },
-  { id: 'general', name: 'General', count: 30, icon: CircleEllipsis, iconClassName: 'bg-slate-100 text-slate-600' },
+  { id: 'general', name: 'General', count: 30, icon: CircleEllipsis, iconClassName: 'bg-muted text-muted-foreground' },
 ];
 
 export const recentlyAsked: RecentlyAskedItem[] = [
@@ -147,6 +147,6 @@ export function buildMockAnswer(query: string) {
       'This is a frontend-only mock response. In the production integration, this area can call the CIAL AI answer service, retrieve citations from Knowledge Center, and stream a grounded response back to the user.',
     sources: ['CIAL Knowledge Center', 'AI answer integration placeholder'],
     icon: Lightbulb,
-    iconClassName: 'bg-[#f0f7ed] text-primary',
+    iconClassName: 'bg-accent text-primary',
   } satisfies QuickAnswerQuestion;
 }

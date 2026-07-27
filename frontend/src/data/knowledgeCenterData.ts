@@ -94,8 +94,8 @@ export const knowledgeCategories: KnowledgeCategory[] = [
     articles: 138,
     docs: 24,
     icon: Plane,
-    className: 'border-blue-200 bg-blue-50/75 hover:border-blue-300',
-    iconClassName: 'text-blue-600',
+    className: 'border-info/30 bg-info/10/75 hover:border-info/40',
+    iconClassName: 'text-info',
   },
   {
     id: 'baggage-handling',
@@ -103,8 +103,8 @@ export const knowledgeCategories: KnowledgeCategory[] = [
     articles: 92,
     docs: 18,
     icon: Package,
-    className: 'border-amber-200 bg-amber-50/75 hover:border-amber-300',
-    iconClassName: 'text-orange-600',
+    className: 'border-warning/30 bg-warning/10/75 hover:border-warning/40',
+    iconClassName: 'text-warning',
   },
   {
     id: 'electrical-systems',
@@ -113,7 +113,7 @@ export const knowledgeCategories: KnowledgeCategory[] = [
     docs: 16,
     icon: Zap,
     className: 'border-yellow-200 bg-yellow-50/80 hover:border-yellow-300',
-    iconClassName: 'text-amber-600',
+    iconClassName: 'text-warning',
   },
   {
     id: 'hvac-systems',
@@ -130,8 +130,8 @@ export const knowledgeCategories: KnowledgeCategory[] = [
     articles: 110,
     docs: 22,
     icon: Shield,
-    className: 'border-red-200 bg-red-50/75 hover:border-red-300',
-    iconClassName: 'text-red-600',
+    className: 'border-destructive/30 bg-destructive/10/75 hover:border-destructive/40',
+    iconClassName: 'text-destructive',
   },
   {
     id: 'it-systems',
@@ -155,11 +155,11 @@ export const knowledgeCategories: KnowledgeCategory[] = [
 
 export const departments: KnowledgeDepartment[] = [
   { id: 'engineering', name: 'Engineering', documents: 247, categories: 18, icon: HardHat, iconClassName: 'text-emerald-600' },
-  { id: 'operations', name: 'Operations', documents: 182, categories: 12, icon: Wrench, iconClassName: 'text-blue-600' },
-  { id: 'safety', name: 'Safety', documents: 143, categories: 9, icon: Shield, iconClassName: 'text-red-600' },
+  { id: 'operations', name: 'Operations', documents: 182, categories: 12, icon: Wrench, iconClassName: 'text-info' },
+  { id: 'safety', name: 'Safety', documents: 143, categories: 9, icon: Shield, iconClassName: 'text-destructive' },
   { id: 'it', name: 'IT', documents: 96, categories: 6, icon: Monitor, iconClassName: 'text-indigo-600' },
-  { id: 'facilities', name: 'Facilities', documents: 81, categories: 5, icon: Building2, iconClassName: 'text-green-600' },
-  { id: 'hr', name: 'HR', documents: 43, categories: 4, icon: Users, iconClassName: 'text-orange-600' },
+  { id: 'facilities', name: 'Facilities', documents: 81, categories: 5, icon: Building2, iconClassName: 'text-success' },
+  { id: 'hr', name: 'HR', documents: 43, categories: 4, icon: Users, iconClassName: 'text-warning' },
   { id: 'finance', name: 'Finance', documents: 28, categories: 3, icon: Wallet, iconClassName: 'text-sky-600' },
   { id: 'security', name: 'Security', documents: 35, categories: 4, icon: Lock, iconClassName: 'text-violet-700' },
 ];

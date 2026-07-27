@@ -7,10 +7,10 @@ export interface Integration {
 }
 
 export const INTEGRATIONS: Integration[] = [
-  { name: 'Microsoft Entra ID', status: 'Connected', version: 'v2.1', lastSync: '23 May 2025, 10:00 AM', color: 'text-green-600' },
-  { name: 'SharePoint', status: 'Disconnected', version: 'v1.8', lastSync: 'Never', color: 'text-gray-400' },
-  { name: 'CMMS (IBM Maximo)', status: 'Connected', version: 'v7.6.1', lastSync: '23 May 2025, 09:00 AM', color: 'text-green-600' },
-  { name: 'SAP', status: 'Disconnected', version: 'v3.0', lastSync: 'Never', color: 'text-gray-400' },
+  { name: 'Microsoft Entra ID', status: 'Connected', version: 'v2.1', lastSync: '23 May 2025, 10:00 AM', color: 'text-success' },
+  { name: 'SharePoint', status: 'Disconnected', version: 'v1.8', lastSync: 'Never', color: 'text-muted-foreground' },
+  { name: 'CMMS (IBM Maximo)', status: 'Connected', version: 'v7.6.1', lastSync: '23 May 2025, 09:00 AM', color: 'text-success' },
+  { name: 'SAP', status: 'Disconnected', version: 'v3.0', lastSync: 'Never', color: 'text-muted-foreground' },
 ];
 
 export const THEME_CONFIG_ITEMS = [
@@ -27,8 +27,8 @@ export const INGESTION_SETTINGS = [
 ];
 
 export const ROLE_COLORS: Record<string, string> = {
-  admin: 'bg-purple-100 text-purple-700',
-  engineer: 'bg-blue-100 text-blue-700',
-  manager: 'bg-green-100 text-green-700',
-  viewer: 'bg-gray-100 text-gray-600',
+  admin: 'bg-accent text-accent-foreground',
+  engineer: 'bg-info/15 text-info-foreground',
+  manager: 'bg-success/15 text-success-foreground',
+  viewer: 'bg-muted text-muted-foreground',
 };

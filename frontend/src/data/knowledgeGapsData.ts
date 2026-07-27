@@ -146,8 +146,8 @@ export const GAP_OVERVIEW_STATS = [
 ];
 
 export const GAP_SEVERITY_COLORS: Record<GapSeverity, string> = {
-  critical: 'bg-red-100 text-red-700 border border-red-200',
-  high: 'bg-orange-100 text-orange-700 border border-orange-200',
-  medium: 'bg-amber-100 text-amber-700 border border-amber-200',
-  low: 'bg-gray-100 text-gray-600 border border-gray-200',
+  critical: 'bg-destructive/15 text-destructive border border-destructive/30',
+  high: 'bg-warning/15 text-warning-foreground border border-warning/30',
+  medium: 'bg-warning/15 text-warning-foreground border border-warning/30',
+  low: 'border border-border bg-muted text-muted-foreground',
 };

@@ -35,9 +35,9 @@ export const DOC_DEPARTMENTS: string[] = [
 export const DOC_TYPES: string[] = ['Manual', 'SOP', 'Checklist', 'Policy', 'Report'];
 
 export const DOC_TYPE_COLORS: Record<string, string> = {
-  Manual: 'bg-blue-100 text-blue-700',
-  SOP: 'bg-green-100 text-green-700',
-  Checklist: 'bg-purple-100 text-purple-700',
-  Policy: 'bg-orange-100 text-orange-700',
-  Report: 'bg-gray-100 text-gray-600',
+  Manual: 'bg-info/15 text-info-foreground',
+  SOP: 'bg-success/15 text-success-foreground',
+  Checklist: 'bg-accent text-accent-foreground',
+  Policy: 'bg-warning/15 text-warning-foreground',
+  Report: 'bg-muted text-muted-foreground',
 };
