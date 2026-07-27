@@ -42,7 +42,7 @@ export default function ContextChips({
           aria-label={`Manage selected context: ${totalContextCount} item${totalContextCount === 1 ? '' : 's'}`}
           data-testid="button-context-selector"
         >
-          <ShieldCheck size={17} className="text-primary" />
+          <ShieldCheck size={17} className="composer-context-icon text-primary" />
           <span>{totalContextCount} item{totalContextCount === 1 ? '' : 's'}</span>
           <ChevronDown size={14} className="text-muted-foreground" />
         </button>
