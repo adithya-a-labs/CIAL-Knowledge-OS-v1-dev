@@ -8,7 +8,7 @@ export function escapeHtml(value: string) {
 export function highlightHtml(value: string, query: string) {
   if (!query.trim()) return escapeHtml(value);
   const pattern = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-  return escapeHtml(value).replace(pattern, '<mark data-search-hit="true" class="rounded bg-[#f9e6a5] px-0.5">$1</mark>');
+  return escapeHtml(value).replace(pattern, '<mark data-search-hit="true" class="document-search-hit">$1</mark>');
 }
 
 export function zoomStyle(zoomLevel: number) {
@@ -49,6 +49,6 @@ export function clearTextMarks(root: ParentNode) {
     if (!(node instanceof HTMLElement)) return;
     node.dataset.pdfHighlight = '';
     node.dataset.pdfSearch = '';
-    node.classList.remove('bg-[#f7df79]', 'bg-[#f9e6a5]', 'rounded', 'transition-colors', 'duration-700');
+    node.classList.remove('document-citation-hit', 'document-search-hit', 'transition-colors', 'duration-700');
   });
 }

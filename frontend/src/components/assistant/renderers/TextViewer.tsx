@@ -22,17 +22,17 @@ export default function TextViewer({ text, searchQuery, zoomLevel, code = false 
   return (
     <div
       ref={containerRef}
-      className={`scrollbar-soft h-full overflow-auto rounded-[1.5rem] border border-border ${code ? 'bg-[hsl(210_20%_98%)] p-4' : 'bg-white p-5'}`}
+      className={`scrollbar-soft h-full overflow-auto rounded-[1.5rem] border border-border ${code ? 'bg-muted p-4' : 'bg-card p-5'}`}
     >
       {code ? (
         <pre
-          className="text-xs leading-6 text-slate-800"
+          className="text-xs leading-6 text-foreground"
           style={zoomStyle(zoomLevel)}
           dangerouslySetInnerHTML={{ __html: highlightedText }}
         />
       ) : (
         <div
-          className="safe-text whitespace-pre-wrap text-sm leading-7 text-slate-700"
+          className="safe-text whitespace-pre-wrap text-sm leading-7 text-foreground"
           style={zoomStyle(zoomLevel)}
           dangerouslySetInnerHTML={{ __html: highlightedText }}
         />

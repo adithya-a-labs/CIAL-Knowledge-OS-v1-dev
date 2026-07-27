@@ -37,20 +37,20 @@ export default function PptxViewer({
             key={`${slide.index}-${slide.title}`}
             type="button"
             onClick={() => onSelectPage(index + 1)}
-            className={`min-w-[7rem] rounded-2xl border p-3 text-left ${index === activeSlideIndex ? 'border-primary bg-[hsl(95_24%_95%)]' : 'border-border bg-white'}`}
+            className={`min-w-[7rem] rounded-2xl border p-3 text-left ${index === activeSlideIndex ? 'border-primary bg-accent' : 'border-border bg-card'}`}
           >
             <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Slide {slide.index}</p>
             <p className="mt-2 line-clamp-2 text-sm font-semibold text-foreground">{slide.title}</p>
           </button>
         ))}
       </div>
-      <div className="scrollbar-soft overflow-auto rounded-[1.5rem] border border-border bg-white p-5">
+      <div className="scrollbar-soft overflow-auto rounded-[1.5rem] border border-border bg-card p-5">
         <div style={zoomStyle(zoomLevel)} className="space-y-4">
-          <div className="rounded-[1.25rem] border border-border bg-[linear-gradient(160deg,#fffdf7_0%,#f8fafc_100%)] p-6 shadow-sm">
+          <div className="document-paper rounded-[1.25rem] border border-border p-6 shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Slide {activeSlide.index}</p>
-            <h3 className="mt-3 text-2xl font-semibold text-slate-950">{activeSlide.title}</h3>
+            <h3 className="mt-3 text-2xl font-semibold text-foreground">{activeSlide.title}</h3>
             <div
-              className="safe-text mt-5 whitespace-pre-wrap text-sm leading-7 text-slate-700"
+              className="safe-text mt-5 whitespace-pre-wrap text-sm leading-7 text-foreground"
               dangerouslySetInnerHTML={{ __html: bodyHtml }}
             />
           </div>

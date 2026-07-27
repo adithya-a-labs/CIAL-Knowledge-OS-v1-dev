@@ -14,9 +14,9 @@ export default function HtmlViewer({ html, zoomLevel }: HtmlViewerProps) {
   }, [html]);
 
   return (
-    <div ref={containerRef} className="scrollbar-soft h-full overflow-auto rounded-[1.5rem] border border-border bg-white p-5">
+    <div ref={containerRef} className="document-paper scrollbar-soft h-full overflow-auto rounded-[1.5rem] border border-border p-5">
       <article
-        className="prose prose-slate max-w-none"
+        className="prose prose-neutral max-w-none"
         style={zoomStyle(zoomLevel)}
         dangerouslySetInnerHTML={{ __html: html }}
       />

@@ -30,13 +30,13 @@ export default function SpreadsheetViewer({
   }, [table]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-border bg-white">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-border bg-card">
       {sheetNames?.length ? (
         <div className="flex flex-wrap gap-2 border-b border-border px-4 py-3">
           {sheetNames.map((sheet) => (
             <span
               key={sheet}
-              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${sheet === activeSheet ? 'bg-[hsl(95_24%_94%)] text-primary' : 'bg-[hsl(210_20%_98%)] text-muted-foreground'}`}
+              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${sheet === activeSheet ? 'bg-accent text-accent-foreground' : 'bg-muted text-muted-foreground'}`}
             >
               {sheet}
             </span>
@@ -50,7 +50,7 @@ export default function SpreadsheetViewer({
               {table.map((row, rowIndex) => (
                 <tr
                   key={rowIndex}
-                  className={rowIndex === 0 ? 'sticky top-0 bg-[hsl(210_20%_98%)] font-semibold text-slate-900' : 'border-t border-border text-slate-700'}
+                  className={rowIndex === 0 ? 'sticky top-0 bg-muted font-semibold text-foreground' : 'border-t border-border text-foreground'}
                 >
                   {row.map((cell, cellIndex) => (
                     <td

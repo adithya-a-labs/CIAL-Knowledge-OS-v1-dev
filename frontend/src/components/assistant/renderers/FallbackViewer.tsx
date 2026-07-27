@@ -18,7 +18,7 @@ export default function FallbackViewer({ extension, isImage = false, notice }: F
           : FileText;
 
   return (
-    <div className="flex h-full items-center justify-center rounded-[1.5rem] border border-border bg-[hsl(210_20%_98%)] p-6 text-center">
+    <div className="flex h-full items-center justify-center rounded-[1.5rem] border border-border bg-muted p-6 text-center">
       <div className="max-w-sm">
         {notice ? <Icon className="mx-auto text-primary" size={38} /> : <FileArchive className="mx-auto text-primary" size={34} />}
         <p className="mt-3 text-sm font-semibold text-foreground">{extension ? extension.toUpperCase() : 'Document'} file</p>
