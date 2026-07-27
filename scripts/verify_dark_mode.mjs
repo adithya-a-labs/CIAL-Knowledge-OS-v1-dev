@@ -277,6 +277,19 @@ try {
       border: read('--border'),
       borderStrong: read('--border-strong'),
       primary: read('--primary'),
+      greenPrimary: read('--dark-green-primary'),
+      greenActive: read('--dark-green-active'),
+      greenMuted: read('--dark-green-muted'),
+      greenBorder: read('--dark-green-border'),
+      greenSurface: read('--dark-green-surface'),
+      greenSurfaceSubtle: read('--dark-green-surface-subtle'),
+      greenTextSoft: read('--dark-green-text-soft'),
+      userMessageStart: read('--dark-user-message-start'),
+      userMessageEnd: read('--dark-user-message-end'),
+      citationSurface: read('--dark-citation-surface'),
+      citationText: read('--dark-citation-text'),
+      groundedIdentity: read('--dark-grounded-identity'),
+      utilityForeground: read('--dark-utility-foreground'),
     };
   });
   result.botanicalHierarchyPassed = requireAssertion(
@@ -289,7 +302,20 @@ try {
       botanicalTokens.heading === '0 0% 100%' &&
       botanicalTokens.border === '109 18% 12%' &&
       botanicalTokens.borderStrong === '113 18% 19%' &&
-      botanicalTokens.primary === '103 47% 56%',
+      botanicalTokens.primary === '103 36% 49%' &&
+      botanicalTokens.greenPrimary === '103 36% 49%' &&
+      botanicalTokens.greenActive === '106 30% 54%' &&
+      botanicalTokens.greenMuted === '106 27% 44%' &&
+      botanicalTokens.greenBorder === '109 36% 27%' &&
+      botanicalTokens.greenSurface === '116 38% 8%' &&
+      botanicalTokens.greenSurfaceSubtle === '113 36% 5%' &&
+      botanicalTokens.greenTextSoft === '106 30% 70%' &&
+      botanicalTokens.userMessageStart === '108 33% 30%' &&
+      botanicalTokens.userMessageEnd === '107 34% 35%' &&
+      botanicalTokens.citationSurface === '113 36% 9%' &&
+      botanicalTokens.citationText === '105 35% 58%' &&
+      botanicalTokens.groundedIdentity === '106 36% 45%' &&
+      botanicalTokens.utilityForeground === '97 15% 90%',
     botanicalTokens,
   );
   await screenshot('dark-dashboard.png');
