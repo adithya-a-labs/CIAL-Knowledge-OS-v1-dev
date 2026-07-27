@@ -13,8 +13,8 @@ interface QuickActionCardProps {
 
 const VARIANT_STYLES: Record<string, string> = {
   primary: 'bg-[#4a7c3f] hover:bg-[#2d4f22] text-white',
-  secondary: 'bg-white hover:bg-[#f0f7ed] text-[#1a2e14] border border-[#ddecd6]',
-  accent: 'bg-[#e8820c] hover:bg-[#c96f0a] text-white',
+  secondary: 'bg-card hover:bg-accent text-foreground border border-border',
+  accent: 'bg-warning hover:bg-warning/85 text-black',
 };
 
 export default function QuickActionCard({

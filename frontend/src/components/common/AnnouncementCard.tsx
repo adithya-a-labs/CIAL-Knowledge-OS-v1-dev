@@ -16,9 +16,9 @@ interface AnnouncementCardProps {
 }
 
 const SEVERITY_META: Record<AnnouncementSeverity, { icon: typeof Megaphone; bg: string; border: string; iconCls: string }> = {
-  info: { icon: Megaphone, bg: 'bg-[#f0f7ed]', border: 'border-[#ddecd6]', iconCls: 'text-[#4a7c3f]' },
-  warning: { icon: AlertTriangle, bg: 'bg-amber-50', border: 'border-amber-200', iconCls: 'text-amber-500' },
-  critical: { icon: Info, bg: 'bg-red-50', border: 'border-red-200', iconCls: 'text-red-500' },
+  info: { icon: Megaphone, bg: 'bg-accent', border: 'border-border', iconCls: 'text-primary' },
+  warning: { icon: AlertTriangle, bg: 'bg-warning/10', border: 'border-warning/30', iconCls: 'text-amber-500' },
+  critical: { icon: Info, bg: 'bg-destructive/10', border: 'border-destructive/30', iconCls: 'text-red-500' },
 };
 
 export default function AnnouncementCard({ announcement }: AnnouncementCardProps) {
@@ -31,8 +31,8 @@ export default function AnnouncementCard({ announcement }: AnnouncementCardProps
     >
       <Icon size={18} className={`mt-0.5 flex-shrink-0 ${iconCls}`} />
       <div className="min-w-0">
-        <p className="text-sm font-semibold text-[#1a2e14] leading-tight">{announcement.title}</p>
-        <p className="text-xs text-[#5a7a52] mt-0.5 leading-relaxed">{announcement.body}</p>
+        <p className="text-sm font-semibold text-foreground leading-tight">{announcement.title}</p>
+        <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{announcement.body}</p>
         <p className="text-[10px] text-[#7a9a72] mt-1">
           {announcement.date}{announcement.author ? ` · ${announcement.author}` : ''}
         </p>

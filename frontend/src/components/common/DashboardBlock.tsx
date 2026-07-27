@@ -17,15 +17,15 @@ export default function DashboardBlock({
 }: DashboardBlockProps) {
   return (
     <div
-      className={`fluid-card responsive-card overflow-hidden border border-[#e2eedd] bg-white shadow-sm ${className}`}
+      className={`fluid-card responsive-card overflow-hidden border border-border bg-card shadow-sm ${className}`}
       data-testid={`block-${title.toLowerCase().replace(/\s+/g, '-')}`}
     >
-      <div className="flex items-center justify-between gap-3 border-b border-[#f0f7ed] px-4 py-3">
-        <h3 className="safe-text text-sm font-semibold text-[#1a2e14]">{title}</h3>
+      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+        <h3 className="safe-text text-sm font-semibold text-foreground">{title}</h3>
         {(viewAllHref || onViewAll) && (
           <button
             onClick={onViewAll}
-            className="text-xs text-[#4a7c3f] hover:underline font-medium"
+            className="text-xs text-primary hover:underline font-medium"
             data-testid={`link-viewall-${title.toLowerCase().replace(/\s+/g, '-')}`}
           >
             {viewAllLabel}

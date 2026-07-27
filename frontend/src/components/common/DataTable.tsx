@@ -24,11 +24,11 @@ export default function DataTable<T extends object>({
     <div className={`scrollbar-soft w-full overflow-x-auto rounded-xl ${className}`}>
       <table className="w-full min-w-[42rem] text-sm">
         <thead>
-          <tr className="border-b border-[#e2eedd]">
+          <tr className="border-b border-border">
             {columns.map((col) => (
               <th
                 key={String(col.key)}
-                className={`px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-[#5a7a52] ${col.className ?? ''}`}
+                className={`px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground ${col.className ?? ''}`}
               >
                 {col.header}
               </th>
@@ -38,7 +38,7 @@ export default function DataTable<T extends object>({
         <tbody>
           {data.length === 0 ? (
             <tr>
-              <td colSpan={columns.length} className="text-center py-8 text-[#5a7a52] text-sm">
+              <td colSpan={columns.length} className="text-center py-8 text-muted-foreground text-sm">
                 {emptyMessage}
               </td>
             </tr>
@@ -46,11 +46,11 @@ export default function DataTable<T extends object>({
             data.map((row, i) => (
               <tr
                 key={i}
-                className="border-b border-[#f0f7ed] transition-colors hover:bg-[#f8fdf6]"
+                className="border-b border-border transition-colors hover:bg-muted"
                 data-testid={rowTestId ? rowTestId(row, i) : undefined}
               >
                 {columns.map((col) => (
-                  <td key={String(col.key)} className={`safe-text px-3 py-2 text-[#1a2e14] ${col.className ?? ''}`}>
+                  <td key={String(col.key)} className={`safe-text px-3 py-2 text-foreground ${col.className ?? ''}`}>
                     {col.render
                       ? col.render(row, i)
                       : String((row as Record<string, unknown>)[String(col.key)] ?? '')}

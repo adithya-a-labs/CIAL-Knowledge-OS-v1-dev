@@ -19,7 +19,7 @@ export default function FilterBar({ filters, values, onChange, className = '' }:
           key={filter.key}
           value={values[filter.key] ?? ''}
           onChange={e => onChange(filter.key, e.target.value)}
-          className="w-full cursor-pointer rounded-lg border border-[#ddecd6] bg-white px-3 py-2 text-sm text-[#1a2e14] transition-colors focus:border-[#4a7c3f] focus:ring-2 focus:ring-[#4a7c3f]/30"
+          className="w-full cursor-pointer rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground transition-colors focus:border-ring focus:ring-2 focus:ring-ring/30"
           data-testid={`filter-${filter.key}`}
         >
           <option value="">{filter.label}</option>
