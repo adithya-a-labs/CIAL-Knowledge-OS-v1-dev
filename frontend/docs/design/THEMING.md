@@ -61,22 +61,45 @@ radials restore the hierarchy and atmosphere present in light mode.
 | Sidebar | `#020402` |
 | Surface 1 / card | `#050705` |
 | Surface 2 / raised popover | `#090D08` |
-| Hover | `#0D140C` |
-| Active selection | `#122010` |
+| Botanical surface / active selection | `#0D1B0C` |
+| Botanical surface subtle | `#091108` |
 | Border | `#1B2419` |
 | Strong border | `#293827` |
+| Botanical border | `#355E2C` |
 | Primary text | `#F5F7F3` |
 | Heading text | `#FFFFFF` |
 | Secondary text | `#A8B0A5` |
 | Muted text | `#788075` (non-essential content only) |
-| Brand | `#78C45A` |
-| Brand strong | `#8AD167` |
+| Botanical primary / marker | `#68A94F` |
+| Botanical active / focus | `#77AD66` |
+| Botanical muted | `#5F8D51` |
+| Botanical soft text | `#A5C99A` |
+| Utility label | `#E4E9E1` |
+| Utility icon | `#6FA95C` |
+| User message | `#3E6734` to `#47763A` |
+| Citation fill / text | `#11200F` / `#82B96F` |
+| Grounded-response identity | `#5D9C49` |
 
 Use these values through semantic variables only. The page canvas must not
 become navy, generic charcoal, or a large grey block. Cards use small surface
 steps and soft black shadows instead of bright outlines. The sidebar is only
 slightly separated from the canvas; the selected destination uses a quiet
 green-black fill and a slim botanical marker.
+
+Dark green intensity follows surface area and semantic importance:
+
+- large message and selection surfaces use the darkest, most desaturated
+  botanical values;
+- medium selected states use soft green text and restrained active icons;
+- the brightest botanical green is reserved for small markers, enabled primary
+  actions, and compact identity accents;
+- utility labels remain near-neutral while utility icons carry the green cue;
+- citation badges use a dark fill and border so repeated references remain
+  discoverable without competing with the answer.
+
+Brand green remains distinct from semantic success. Information stays blue,
+warnings stay amber, destructive states stay red, and success uses its
+dedicated status token.
 
 The application shell may use extremely subtle forest-green ambient radials to
 keep large black areas from feeling empty. They must never read as a gradient
@@ -152,15 +175,16 @@ The repository dark-mode verifier covers:
 
 The default artifact path is `outputs/playwright/dark-mode/`. The validated
 botanical refinement evidence is in
-`outputs/playwright/dark-mode-refinement/`, including matched light/dark
-screenshots, before/after captures, and a machine-readable verifier result.
+`outputs/playwright/dark-green-refinement/`, including matched-viewport
+before/after captures, computed-style evidence, interaction states, and a
+machine-readable verifier result.
 
 ## Verification status
 
 Last verified on 2026-07-28:
 
 - `pnpm.cmd run typecheck`: passed;
-- `pnpm.cmd test`: 74 passed, 0 failed;
+- `pnpm.cmd test`: 75 passed, 0 failed;
 - production Vite build: passed using an isolated validation output directory
   because the normal Windows `dist` asset was held open by another process;
 - `node scripts/verify_dark_mode.mjs`: passed, including botanical-token
