@@ -44,6 +44,26 @@ test('dark palette keeps an absolute-black canvas with botanical surface hierarc
   assert.match(css, /\.dark \.assistant-composer/);
 });
 
+test('dark green intensity is expressed through semantic hierarchy tokens', () => {
+  assert.match(css, /--dark-green-primary:\s*103 36% 49%/);
+  assert.match(css, /--dark-green-active:\s*106 30% 54%/);
+  assert.match(css, /--dark-green-muted:\s*106 27% 44%/);
+  assert.match(css, /--dark-green-border:\s*109 36% 27%/);
+  assert.match(css, /--dark-green-surface:\s*116 38% 8%/);
+  assert.match(css, /--dark-green-surface-subtle:\s*113 36% 5%/);
+  assert.match(css, /--dark-green-text-soft:\s*106 30% 70%/);
+  assert.match(css, /--dark-user-message-start:\s*108 33% 30%/);
+  assert.match(css, /--dark-user-message-end:\s*107 34% 35%/);
+  assert.match(css, /--dark-citation-surface:\s*113 36% 9%/);
+  assert.match(css, /--dark-citation-text:\s*105 35% 58%/);
+  assert.match(css, /--dark-grounded-identity:\s*106 36% 45%/);
+  assert.match(css, /\.dark \.user-message-bubble/);
+  assert.match(css, /\.dark \.inline-citation/);
+  assert.match(css, /\.dark \.grounded-response-icon/);
+  assert.match(css, /\.dark \.sidebar-utility-action/);
+  assert.match(css, /\.dark \.composer-send:not\(:disabled\)/);
+});
+
 test('startup bootstrap does not invent a preference', () => {
   assert.match(html, /localStorage\.getItem\('cial-theme'\)/);
   assert.doesNotMatch(html, /localStorage\.setItem\('cial-theme'/);
