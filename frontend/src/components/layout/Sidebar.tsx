@@ -107,7 +107,7 @@ export default function Sidebar({ collapsed, onCollapsedChange }: SidebarProps) 
         />
         {!collapsed && (
           <div>
-            <div className="text-xl font-semibold leading-tight text-primary">CIAL</div>
+            <div className="brand-wordmark text-xl font-semibold leading-tight text-primary">CIAL</div>
             <div className="text-xs leading-tight text-muted-foreground">Knowledge OS</div>
           </div>
         )}
@@ -181,15 +181,15 @@ export default function Sidebar({ collapsed, onCollapsedChange }: SidebarProps) 
       <div className={`shrink-0 space-y-1 border-t border-sidebar-border py-2 ${collapsed ? 'px-2' : 'px-3'}`}>
         {canMonitorSystem ? (
           <RailTooltip collapsed={collapsed} label="System Monitor">
-            <Link href="/admin/system-monitor" className={`flex h-10 items-center rounded-xl text-sm font-semibold text-primary transition-colors hover:bg-sidebar-accent ${focusRing} ${itemLayout}`} data-testid="nav-system-monitor" aria-label="System Monitor">
-              <Activity size={18} />
+            <Link href="/admin/system-monitor" className={`sidebar-utility-action flex h-10 items-center rounded-xl text-sm font-semibold text-foreground transition-colors hover:bg-sidebar-accent ${focusRing} ${itemLayout}`} data-testid="nav-system-monitor" aria-label="System Monitor">
+              <Activity size={18} className="sidebar-utility-icon text-primary" />
               {!collapsed && <span>System Monitor</span>}
             </Link>
           </RailTooltip>
         ) : null}
         <RailTooltip collapsed={collapsed} label="New Conversation">
-          <Link href="/assistant/new" onClick={(event) => { event.preventDefault(); startNewConversation(navigate); }} className={`flex h-10 items-center rounded-xl text-sm font-semibold text-foreground transition-colors hover:bg-sidebar-accent ${focusRing} ${itemLayout}`} aria-label="Start a new conversation">
-            <MessageSquarePlus size={18} className="text-primary" />
+          <Link href="/assistant/new" onClick={(event) => { event.preventDefault(); startNewConversation(navigate); }} className={`sidebar-utility-action flex h-10 items-center rounded-xl text-sm font-semibold text-foreground transition-colors hover:bg-sidebar-accent ${focusRing} ${itemLayout}`} aria-label="Start a new conversation">
+            <MessageSquarePlus size={18} className="sidebar-utility-icon text-primary" />
             {!collapsed && <span>New Conversation</span>}
           </Link>
         </RailTooltip>
