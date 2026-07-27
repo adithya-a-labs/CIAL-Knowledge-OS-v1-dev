@@ -68,11 +68,11 @@ function UnavailableState({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-[28rem] items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center">
+    <div className="flex min-h-[28rem] items-center justify-center rounded-xl border border-dashed border-border bg-card p-6 text-center">
       <div className="max-w-md">
-        <FileSearch className="mx-auto text-slate-400" size={34} />
-        <h1 className="mt-4 text-lg font-semibold text-slate-950">{title}</h1>
-        <p className="mt-2 text-sm leading-6 text-slate-600">{message}</p>
+        <FileSearch className="mx-auto text-muted-foreground" size={34} />
+        <h1 className="mt-4 text-lg font-semibold text-foreground">{title}</h1>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">{message}</p>
         {action ? <div className="mt-5">{action}</div> : null}
       </div>
     </div>
@@ -301,7 +301,7 @@ export default function DocumentWorkspacePage() {
   if (documentQuery.isLoading) {
     return (
       <div className="flex h-full min-h-[32rem] items-center justify-center" data-testid="document-workspace-loading">
-        <div className="rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
+        <div className="rounded-xl border border-border bg-card px-5 py-4 text-sm text-muted-foreground shadow-sm">
           Loading document workspace...
         </div>
       </div>
@@ -322,25 +322,25 @@ export default function DocumentWorkspacePage() {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden" data-testid="document-workspace-page">
-      <header className="mb-2 flex h-14 shrink-0 items-center gap-3 border-b border-slate-200 bg-white pl-14 pr-3 sm:px-3"><button onClick={toggleCorpusTree} className="ce-icon-button" aria-label="Toggle corpus tree" aria-expanded={leftOpen}><PanelLeftClose size={17}/></button><button onClick={()=>setSearchOpen(true)} className="flex h-10 min-w-0 max-w-xl flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500"><Search size={16}/><span className="truncate">Search Corpus…</span><span className="ml-auto hidden rounded border bg-white px-1.5 py-0.5 text-[10px] sm:inline">Ctrl + K</span></button><button onClick={()=>navigate('/knowledge-center')} className="ce-icon-button hidden sm:inline-flex" aria-label="Upload documents"><Upload size={17}/></button><button onClick={()=>void Promise.all([treeQuery.refetch(),documentQuery.refetch(),previewQuery.refetch()])} className="ce-icon-button hidden sm:inline-flex" aria-label="Refresh workspace"><RefreshCw size={17}/></button><button onClick={toggleDocumentAssistant} className="ce-icon-button" aria-label="Toggle document assistant" aria-expanded={rightOpen}><PanelRightClose size={17}/></button></header>
+      <header className="mb-2 flex h-14 shrink-0 items-center gap-3 border-b border-popover-border bg-popover/88 pl-14 pr-3 shadow-xs backdrop-blur sm:px-3"><button onClick={toggleCorpusTree} className="ce-icon-button" aria-label="Toggle corpus tree" aria-expanded={leftOpen}><PanelLeftClose size={17}/></button><button onClick={()=>setSearchOpen(true)} className="flex h-10 min-w-0 max-w-xl flex-1 items-center gap-2 rounded-lg border border-border bg-secondary px-3 text-sm text-muted-foreground"><Search size={16}/><span className="truncate">Search Corpus…</span><span className="ml-auto hidden rounded border bg-card px-1.5 py-0.5 text-[10px] sm:inline">Ctrl + K</span></button><button onClick={()=>navigate('/knowledge-center')} className="ce-icon-button hidden sm:inline-flex" aria-label="Upload documents"><Upload size={17}/></button><button onClick={()=>void Promise.all([treeQuery.refetch(),documentQuery.refetch(),previewQuery.refetch()])} className="ce-icon-button hidden sm:inline-flex" aria-label="Refresh workspace"><RefreshCw size={17}/></button><button onClick={toggleDocumentAssistant} className="ce-icon-button" aria-label="Toggle document assistant" aria-expanded={rightOpen}><PanelRightClose size={17}/></button></header>
       <div className="flex min-h-0 flex-1 overflow-hidden">
       {leftOpen&&!corpusTreePersistent?<div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px]" aria-hidden="true" onClick={closeCorpusTree} data-testid="corpus-tree-overlay"/>:null}
-      {leftOpen&&treeQuery.data?.root?<aside ref={leftPanelRef} className="fixed inset-y-0 left-0 z-50 h-full max-w-[85vw] shrink-0 border-r border-slate-200 bg-white shadow-xl xl:relative xl:inset-auto xl:z-auto xl:shadow-none" style={{width:leftWidth}} data-testid="corpus-tree-panel" role={corpusTreePersistent?undefined:'dialog'} aria-modal={corpusTreePersistent?undefined:true} aria-label={corpusTreePersistent?undefined:'Corpus Tree'}><button onClick={closeCorpusTree} className="absolute right-2 top-2 ce-icon-button xl:hidden" aria-label="Close corpus tree"><PanelLeftClose size={16}/></button><CorpusTreePanel root={treeQuery.data.root} selectedDocumentId={documentId}/><div role="separator" aria-label="Resize corpus tree" onPointerDown={beginResize('left')} className="absolute inset-y-0 right-0 hidden w-1 cursor-col-resize bg-transparent hover:bg-primary/25 xl:block"/></aside>:null}
+      {leftOpen&&treeQuery.data?.root?<aside ref={leftPanelRef} className="fixed inset-y-0 left-0 z-50 h-full max-w-[85vw] shrink-0 border-r border-border bg-card shadow-xl xl:relative xl:inset-auto xl:z-auto xl:shadow-none" style={{width:leftWidth}} data-testid="corpus-tree-panel" role={corpusTreePersistent?undefined:'dialog'} aria-modal={corpusTreePersistent?undefined:true} aria-label={corpusTreePersistent?undefined:'Corpus Tree'}><button onClick={closeCorpusTree} className="absolute right-2 top-2 ce-icon-button xl:hidden" aria-label="Close corpus tree"><PanelLeftClose size={16}/></button><CorpusTreePanel root={treeQuery.data.root} selectedDocumentId={documentId}/><div role="separator" aria-label="Resize corpus tree" onPointerDown={beginResize('left')} className="absolute inset-y-0 right-0 hidden w-1 cursor-col-resize bg-transparent hover:bg-primary/25 xl:block"/></aside>:null}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <div className="mb-2 flex shrink-0 flex-col gap-2 border-b border-slate-200 bg-white px-3 py-2 lg:flex-row lg:items-center lg:justify-between">
+      <div className="mb-2 flex shrink-0 flex-col gap-2 border-b border-border bg-card/92 px-3 py-2 shadow-xs lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <button type="button" onClick={goBack} className="ce-icon-button h-9 w-9 shrink-0" aria-label="Back to Knowledge Center">
             <ArrowLeft size={18} />
           </button>
           <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h1 className="safe-text min-w-0 text-base font-semibold text-slate-950 sm:text-lg">{title}</h1>
+              <h1 className="safe-text min-w-0 text-base font-semibold text-foreground sm:text-lg">{title}</h1>
               <span className="ce-badge px-2 py-1 text-[11px]">{typeLabel}</span>
               <FileIndexingStatus status={document?.indexing_status || 'pending'} stage={document?.indexing_stage}
                 safeMessage={document?.indexing_safe_message} retryAllowed={document?.retry_allowed}
                 documentId={document?.id} fileName={document?.name} />
             </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
               <span>{formatBytes(document?.size_bytes)}</span>
               <span>{effectivePageCount ? `${effectivePageCount} ${preview?.slides?.length ? 'slides' : 'pages'}` : 'Preview workspace'}</span>
               <span>Updated {formatDate(document?.updated_at || document?.modified_at)}</span>
@@ -349,13 +349,13 @@ export default function DocumentWorkspacePage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <label className="hidden h-9 min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-500 md:flex">
+          <label className="hidden h-9 min-w-0 items-center gap-2 rounded-md border border-border bg-muted px-3 text-sm text-muted-foreground md:flex">
             <Search size={15} />
             <input
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search preview"
-              className="w-36 bg-transparent text-slate-800 placeholder:text-slate-400"
+              className="w-36 bg-transparent text-foreground placeholder:text-muted-foreground"
               type="search"
             />
           </label>
@@ -391,12 +391,12 @@ export default function DocumentWorkspacePage() {
         />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <main className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <main className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
             {previewQuery.isLoading ? (
-              <div className="flex h-full min-h-[28rem] items-center justify-center text-sm text-slate-500">Loading preview...</div>
+              <div className="flex h-full min-h-[28rem] items-center justify-center text-sm text-muted-foreground">Loading preview...</div>
             ) : previewQuery.isError ? (
               <div className="flex h-full min-h-[28rem] items-center justify-center p-6">
-                <div className="max-w-lg rounded-xl border border-amber-200 bg-amber-50 p-5 text-center text-sm text-amber-900">
+                <div className="max-w-lg rounded-xl border border-warning/30 bg-warning/10 p-5 text-center text-sm text-warning-foreground">
                   <AlertTriangle className="mx-auto mb-3" size={28} />
                   <p className="font-semibold">Preview unavailable</p>
                   <p className="mt-2 leading-6">The metadata loaded, but the preview endpoint did not return a usable inline preview. Use Open or Download to inspect the source document.</p>
@@ -405,7 +405,7 @@ export default function DocumentWorkspacePage() {
             ) : (
               <div className="flex min-h-0 flex-1 flex-col">
                 {preview?.preview_notice ? (
-                  <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <div className="border-b border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
                     {preview.preview_notice}
                   </div>
                 ) : null}
@@ -429,7 +429,7 @@ export default function DocumentWorkspacePage() {
       )}
       </div>
       {rightOpen&&!documentAssistantPersistent?<div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px]" aria-hidden="true" onClick={closeDocumentAssistant} data-testid="document-assistant-overlay"/>:null}
-      {rightOpen&&document?<aside ref={rightPanelRef} className="fixed inset-y-0 right-0 z-50 h-full max-w-[94vw] shrink-0 border-l border-slate-200 bg-white shadow-xl lg:relative lg:inset-auto lg:z-auto lg:shadow-none" style={{width:rightWidth}} data-testid="document-assistant-panel" role={documentAssistantPersistent?undefined:'dialog'} aria-modal={documentAssistantPersistent?undefined:true} aria-label={documentAssistantPersistent?undefined:'Document AI Assistant'}><div role="separator" aria-label="Resize document assistant" onPointerDown={beginResize('right')} className="absolute inset-y-0 left-0 hidden w-1 cursor-col-resize bg-transparent hover:bg-primary/25 lg:block"/><button onClick={closeDocumentAssistant} className="absolute right-2 top-2 z-10 ce-icon-button lg:hidden" aria-label="Close document assistant"><PanelRightClose size={16}/></button><DocumentAssistantPanel document={document} preview={preview} onAsk={useInAssistant} onCitation={navigateCitation}/></aside>:null}
+      {rightOpen&&document?<aside ref={rightPanelRef} className="fixed inset-y-0 right-0 z-50 h-full max-w-[94vw] shrink-0 border-l border-border bg-card shadow-xl lg:relative lg:inset-auto lg:z-auto lg:shadow-none" style={{width:rightWidth}} data-testid="document-assistant-panel" role={documentAssistantPersistent?undefined:'dialog'} aria-modal={documentAssistantPersistent?undefined:true} aria-label={documentAssistantPersistent?undefined:'Document AI Assistant'}><div role="separator" aria-label="Resize document assistant" onPointerDown={beginResize('right')} className="absolute inset-y-0 left-0 hidden w-1 cursor-col-resize bg-transparent hover:bg-primary/25 lg:block"/><button onClick={closeDocumentAssistant} className="absolute right-2 top-2 z-10 ce-icon-button lg:hidden" aria-label="Close document assistant"><PanelRightClose size={16}/></button><DocumentAssistantPanel document={document} preview={preview} onAsk={useInAssistant} onCitation={navigateCitation}/></aside>:null}
       </div>
     </div>
   );

@@ -10,16 +10,16 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: 
 };
 
 const CATEGORY_COLORS = [
-  'from-blue-50 to-blue-100 border-blue-200',
-  'from-amber-50 to-amber-100 border-amber-200',
+  'from-blue-50 to-blue-100 border-info/30',
+  'from-amber-50 to-amber-100 border-warning/30',
   'from-yellow-50 to-yellow-100 border-yellow-200',
   'from-cyan-50 to-cyan-100 border-cyan-200',
-  'from-red-50 to-red-100 border-red-200',
+  'from-red-50 to-red-100 border-destructive/30',
   'from-indigo-50 to-indigo-100 border-indigo-200',
-  'from-green-50 to-green-100 border-green-200',
+  'from-green-50 to-green-100 border-success/30',
 ];
 
-const ICON_COLORS = ['text-blue-600', 'text-amber-600', 'text-yellow-600', 'text-cyan-600', 'text-red-600', 'text-indigo-600', 'text-green-600'];
+const ICON_COLORS = ['text-info', 'text-warning', 'text-yellow-600', 'text-cyan-600', 'text-destructive', 'text-indigo-600', 'text-success'];
 
 export default function KnowledgeBasePage() {
   const [search, setSearch] = useState('');
@@ -41,13 +41,13 @@ export default function KnowledgeBasePage() {
         <select
           value={selectedCategory}
           onChange={e => setSelectedCategory(e.target.value)}
-          className="rounded-lg border border-[#ddecd6] bg-white px-3 py-2 text-sm text-[#1a2e14] transition-colors focus:ring-2 focus:ring-[#4a7c3f]/30"
+          className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground transition-colors focus:ring-2 focus:ring-ring/30"
           data-testid="filter-category"
         >
           <option value="">All Categories</option>
           {KB_CATEGORIES.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
         </select>
-        <select className="rounded-lg border border-[#ddecd6] bg-white px-3 py-2 text-sm text-[#1a2e14] transition-colors focus:ring-2 focus:ring-[#4a7c3f]/30" data-testid="filter-sort">
+        <select className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground transition-colors focus:ring-2 focus:ring-ring/30" data-testid="filter-sort">
           <option>Sort: Popular</option>
           <option>Sort: Recent</option>
           <option>Sort: A–Z</option>
@@ -56,7 +56,7 @@ export default function KnowledgeBasePage() {
 
       {/* Categories Grid */}
       <div className="mb-6">
-        <h2 className="text-sm font-semibold text-[#1a2e14] mb-3">Categories</h2>
+        <h2 className="text-sm font-semibold text-foreground mb-3">Categories</h2>
         <div className="fluid-grid-sm">
           {KB_CATEGORIES.map((cat, idx) => {
             const IconComp = ICON_MAP[cat.icon] || Monitor;
@@ -68,8 +68,8 @@ export default function KnowledgeBasePage() {
                 data-testid={`category-card-${cat.id}`}
               >
                 <IconComp size={20} className={`${ICON_COLORS[idx % ICON_COLORS.length]} mb-2`} />
-                <p className="text-xs font-semibold text-[#1a2e14] leading-tight">{cat.name}</p>
-                <p className="text-[10px] text-[#5a7a52] mt-1">{cat.count} articles</p>
+                <p className="text-xs font-semibold text-foreground leading-tight">{cat.name}</p>
+                <p className="text-[10px] text-muted-foreground mt-1">{cat.count} articles</p>
               </button>
             );
           })}
@@ -77,27 +77,27 @@ export default function KnowledgeBasePage() {
       </div>
 
       {/* Popular Articles */}
-      <div className="responsive-card border border-[#e2eedd] bg-white shadow-sm">
-        <div className="flex items-center justify-between gap-3 border-b border-[#e2eedd] p-4">
-          <h2 className="text-sm font-semibold text-[#1a2e14]">Popular Articles</h2>
-          <span className="text-xs text-[#5a7a52]">{filteredArticles.length} articles</span>
+      <div className="responsive-card border border-border bg-card shadow-sm">
+        <div className="flex items-center justify-between gap-3 border-b border-border p-4">
+          <h2 className="text-sm font-semibold text-foreground">Popular Articles</h2>
+          <span className="text-xs text-muted-foreground">{filteredArticles.length} articles</span>
         </div>
-        <div className="divide-y divide-[#f0f7ed]">
+        <div className="divide-y divide-border">
           {filteredArticles.length === 0 ? (
             <EmptyState />
           ) : (
             filteredArticles.map((article) => (
               <div
                 key={article.id}
-                className="group flex flex-col gap-2 px-4 py-3 transition-colors hover:bg-[#f8fdf6] sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+                className="group flex flex-col gap-2 px-4 py-3 transition-colors hover:bg-muted sm:flex-row sm:items-center sm:justify-between sm:gap-4"
                 data-testid={`article-${article.id}`}
               >
                 <div className="min-w-0 flex-1">
-                  <p className="safe-text flex items-center gap-1.5 text-sm font-medium text-[#1a2e14] transition-colors group-hover:text-[#4a7c3f]">
+                  <p className="safe-text flex items-center gap-1.5 text-sm font-medium text-foreground transition-colors group-hover:text-primary">
                     {article.title}
                     <ExternalLink size={11} className="text-[#9ab88e] flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </p>
-                  <span className="text-[11px] text-[#5a7a52] mt-0.5 inline-block">{article.category}</span>
+                  <span className="text-[11px] text-muted-foreground mt-0.5 inline-block">{article.category}</span>
                 </div>
                 <span className="text-xs text-[#9ab88e] flex-shrink-0 whitespace-nowrap">Viewed {article.views.toLocaleString()} times</span>
               </div>
