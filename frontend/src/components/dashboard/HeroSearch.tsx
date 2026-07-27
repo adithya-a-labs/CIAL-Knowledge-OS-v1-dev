@@ -23,16 +23,16 @@ export default function HeroSearch() {
   };
 
   return (
-    <div className="responsive-card overflow-hidden border border-[#e2eedd] bg-white shadow-sm" data-testid="hero-search">
+    <div className="responsive-card overflow-hidden border border-border bg-card shadow-sm" data-testid="hero-search">
       <div className="grid grid-cols-1 lg:grid-cols-5">
         {/* Left: Greeting + Search */}
         <div className="p-4 sm:p-6 lg:col-span-3 lg:p-8">
-          <h1 className="safe-text text-2xl font-bold leading-tight text-[#1a2e14] sm:text-3xl" data-testid="text-welcome">
-            Welcome back, <span className="text-[#4a7c3f]">{firstName}</span> 👋
+          <h1 className="safe-text text-2xl font-bold leading-tight text-foreground sm:text-3xl" data-testid="text-welcome">
+            Welcome back, <span className="text-primary">{firstName}</span> 👋
           </h1>
-          <p className="text-sm text-[#5a7a52] mt-1">How can I help you today?</p>
+          <p className="text-sm text-muted-foreground mt-1">How can I help you today?</p>
 
-          <div className="mt-5 flex min-w-0 items-center gap-2 rounded-xl border border-[#ddecd6] bg-[#f8fdf6] px-3 py-3 transition-all focus-within:border-[#4a7c3f] focus-within:ring-2 focus-within:ring-[#4a7c3f]/30 sm:px-4">
+          <div className="mt-5 flex min-w-0 items-center gap-2 rounded-xl border border-border bg-muted px-3 py-3 transition-all focus-within:border-[#4a7c3f] focus-within:ring-2 focus-within:ring-[#4a7c3f]/30 sm:px-4">
             <Search size={16} className="text-[#9ab88e] flex-shrink-0" />
             <input
               type="text"
@@ -40,12 +40,12 @@ export default function HeroSearch() {
               onChange={e => setSearchQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSearch()}
               placeholder="Ask anything about CIAL knowledge base..."
-              className="min-w-0 flex-1 bg-transparent text-sm text-[#1a2e14] outline-none placeholder:text-[#9ab88e]"
+              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-[#9ab88e]"
               data-testid="input-hero-search"
             />
             <button
               onClick={() => {}}
-              className="text-[#9ab88e] hover:text-[#4a7c3f] transition-colors"
+              className="text-[#9ab88e] hover:text-primary transition-colors"
               data-testid="button-voice-search"
             >
               <Mic size={16} />
@@ -65,7 +65,7 @@ export default function HeroSearch() {
               <button
                 key={q}
                 onClick={() => setSearchQuery(q)}
-                className="px-3 py-1.5 rounded-full bg-[#f0f7ed] border border-[#ddecd6] text-xs text-[#4a7c3f] hover:bg-[#e2f0da] transition-colors"
+                className="px-3 py-1.5 rounded-full bg-accent border border-border text-xs text-primary hover:bg-accent transition-colors"
                 data-testid={`chip-search-${q.toLowerCase().replace(/\s+/g, '-').slice(0, 20)}`}
               >
                 {q}
@@ -88,7 +88,7 @@ export default function HeroSearch() {
           <div className="absolute bottom-6 left-4 w-8 h-12 rounded-t-full bg-[#2d4f22]" />
           <div className="absolute bottom-6 left-10 w-6 h-10 rounded-t-full bg-[#3d6834]" />
           <div className="absolute top-4 right-4 text-white/80 font-bold text-xl tracking-widest">CIAL</div>
-          <div className="absolute top-4 left-8 w-14 h-14 rounded-full bg-white/20 blur-md" />
+          <div className="absolute top-4 left-8 w-14 h-14 rounded-full bg-card/20 blur-md" />
         </div>
       </div>
     </div>

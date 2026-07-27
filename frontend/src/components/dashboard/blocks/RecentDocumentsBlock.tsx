@@ -13,17 +13,17 @@ export default function RecentDocumentsBlock() {
       viewAllLabel="View All"
       onViewAll={() => setLocation('/documents')}
     >
-      <div className="divide-y divide-[#f0f7ed]">
+      <div className="divide-y divide-border">
         {recent.map(doc => (
           <div key={doc.id} className="flex items-center gap-3 py-2.5 group cursor-pointer" data-testid={`doc-row-${doc.id}`}>
-            <div className="w-7 h-7 rounded-md bg-[#f0f7ed] flex items-center justify-center flex-shrink-0">
-              <FileText size={13} className="text-[#4a7c3f]" />
+            <div className="w-7 h-7 rounded-md bg-accent flex items-center justify-center flex-shrink-0">
+              <FileText size={13} className="text-primary" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-[#1a2e14] truncate group-hover:text-[#4a7c3f] transition-colors">{doc.name}</p>
+              <p className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">{doc.name}</p>
               <p className="text-xs text-[#9ab88e]">{doc.department} · {doc.lastUpdated}</p>
             </div>
-            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${DOC_TYPE_COLORS[doc.type] ?? 'bg-gray-100 text-gray-600'}`}>
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${DOC_TYPE_COLORS[doc.type] ?? 'bg-muted text-muted-foreground'}`}>
               {doc.type}
             </span>
           </div>

@@ -3,8 +3,8 @@ import { Trophy } from 'lucide-react';
 import DashboardBlock from '@/components/common/DashboardBlock';
 import { EXPERTS } from '@/data/expertData';
 
-const RANK_COLOR = ['text-amber-500', 'text-gray-400', 'text-amber-700'];
-const RANK_BG = ['bg-amber-50', 'bg-gray-50', 'bg-amber-50/50'];
+const RANK_COLOR = ['text-amber-500', 'text-muted-foreground', 'text-warning-foreground'];
+const RANK_BG = ['bg-warning/10', 'bg-muted', 'bg-warning/10'];
 
 export default function TopContributorsBlock() {
   const [, navigate] = useLocation();
@@ -26,10 +26,10 @@ export default function TopContributorsBlock() {
               {expert.initials}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-[#1a2e14] truncate">{expert.name}</p>
-              <p className="text-[10px] text-[#5a7a52] truncate">{expert.department}</p>
+              <p className="text-xs font-semibold text-foreground truncate">{expert.name}</p>
+              <p className="text-[10px] text-muted-foreground truncate">{expert.department}</p>
             </div>
-            <span className="text-xs font-bold text-[#4a7c3f]">{expert.knowledgeScore}</span>
+            <span className="text-xs font-bold text-primary">{expert.knowledgeScore}</span>
           </div>
         ))}
       </div>

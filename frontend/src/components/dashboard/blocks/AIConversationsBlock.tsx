@@ -23,22 +23,22 @@ export default function AIConversationsBlock() {
           <button
             key={conv.id}
             onClick={() => setLocation(assistantConversationPath(conv.id))}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-[#f8fdf6] border border-[#e2eedd] hover:border-[#4a7c3f] transition-colors group text-left"
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-muted border border-border hover:border-primary transition-colors group text-left"
             data-testid={`conv-item-${conv.id}`}
           >
-            <div className="w-7 h-7 rounded-full bg-[#e0f0d8] flex items-center justify-center flex-shrink-0">
-              <MessageSquare size={13} className="text-[#4a7c3f]" />
+            <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center flex-shrink-0">
+              <MessageSquare size={13} className="text-primary" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-[#1a2e14] truncate group-hover:text-[#4a7c3f] transition-colors">{conv.title}</p>
+              <p className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">{conv.title}</p>
               <p className="flex items-center gap-1 text-[11px] text-[#9ab88e] mt-0.5">
                 <Clock size={10} /> {new Date(conv.updated_at).toLocaleDateString()}
               </p>
             </div>
-            <ArrowRight size={14} className="text-[#9ab88e] flex-shrink-0 group-hover:text-[#4a7c3f] transition-colors" />
+            <ArrowRight size={14} className="text-[#9ab88e] flex-shrink-0 group-hover:text-primary transition-colors" />
           </button>
         ))}
-        {conversations.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-500">No conversations yet.</p>}
+        {conversations.length === 0 && <p className="px-4 py-6 text-center text-sm text-muted-foreground">No conversations yet.</p>}
       </div>
     </DashboardBlock>
   );

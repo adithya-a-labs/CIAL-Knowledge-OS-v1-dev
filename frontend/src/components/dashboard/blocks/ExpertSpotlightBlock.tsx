@@ -21,13 +21,13 @@ export default function ExpertSpotlightBlock() {
               {expert.initials}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-[#1a2e14] truncate">{expert.name}</p>
-              <p className="text-[10px] text-[#5a7a52] truncate">{expert.expertiseTags[0]}</p>
+              <p className="text-xs font-semibold text-foreground truncate">{expert.name}</p>
+              <p className="text-[10px] text-muted-foreground truncate">{expert.expertiseTags[0]}</p>
             </div>
             <div className="flex flex-col items-end gap-0.5">
               <div className="flex items-center gap-0.5 text-amber-500">
                 <Star size={10} className="fill-amber-400" />
-                <span className="text-[10px] font-bold text-[#1a2e14]">{expert.knowledgeScore}</span>
+                <span className="text-[10px] font-bold text-foreground">{expert.knowledgeScore}</span>
               </div>
               <div className="flex items-center gap-2 text-[9px] text-[#7a9a72]">
                 <span className="flex items-center gap-0.5"><FileText size={9} />{expert.documentsContributed}</span>
@@ -36,7 +36,7 @@ export default function ExpertSpotlightBlock() {
             </div>
           </div>
         ))}
-        <Link href="/experts" className="block text-center text-xs text-[#4a7c3f] hover:underline font-medium mt-1">
+        <Link href="/experts" className="block text-center text-xs text-primary hover:underline font-medium mt-1">
           Find more experts →
         </Link>
       </div>
