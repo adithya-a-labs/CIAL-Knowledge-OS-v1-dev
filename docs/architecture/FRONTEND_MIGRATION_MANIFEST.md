@@ -1,5 +1,35 @@
 # Frontend Migration Manifest
 
+## Current integrated frontend appearance state
+
+Verified on 2026-07-28 against the integrated application in `frontend/`:
+
+- Light, System, and Dark are implemented with `next-themes`; System is the
+  default and follows live operating-system color-scheme changes.
+- The browser-scoped preference is stored as `cial-theme`, is applied before
+  application startup, and persists through routes, reloads, direct URLs, and
+  authentication transitions.
+- `frontend/src/index.css` is the semantic token source of truth. Dark mode is a
+  validated nighttime botanical expression: the application canvas remains
+  absolute black while sidebar, card, raised, hover, active, and border roles
+  use progressively lighter green-black tokens.
+- One shared, keyboard-accessible Appearance control is present in expanded,
+  collapsed, and mobile navigation.
+- Native source documents remain visually faithful: PDF/image content is not
+  inverted, and intentional document-paper surfaces are explicitly marked.
+- Assistant markdown, notes, portals, Knowledge Center, native document chrome,
+  mobile navigation, auth, and role-gated admin screens were included in the
+  refinement audit. Native source pages remain unfiltered.
+- The detailed implementation contract is
+  [`frontend/docs/design/THEMING.md`](../../frontend/docs/design/THEMING.md).
+  Automated coverage lives in `scripts/verify_dark_mode.mjs` and writes its
+  default report/screenshots to `outputs/playwright/dark-mode/`; the validated
+  refinement evidence is under `outputs/playwright/dark-mode-refinement/`.
+
+The remaining sections preserve the original source-repository migration
+inventory; this verified integrated state supersedes historical light-only
+statements in that inventory.
+
 ## 1. Executive Summary
 
 This repository is a Replit/pnpm workspace containing a frontend artifact, mockup sandbox, backend/API scaffolding, generated build output, local Replit state, and design documentation.
@@ -190,7 +220,7 @@ Dependency summary:
 | Forms/validation | `react-hook-form`, `@hookform/resolvers`, `zod` |
 | Dates | `date-fns` |
 | Notifications | local Radix toast components, `sonner` declared/available |
-| Theme | `next-themes` declared, but app currently states light-only CSS |
+| Theme | Integrated Light/System/Dark system implemented with `next-themes`; see `frontend/docs/design/THEMING.md` |
 | Animation | `framer-motion` declared, `tw-animate-css` imported |
 | Replit development | `@replit/vite-plugin-cartographer`, `@replit/vite-plugin-dev-banner`, `@replit/vite-plugin-runtime-error-modal` |
 

@@ -1,5 +1,12 @@
 # Frontend Migration Manifest
 
+> Integrated appearance status (verified 2026-07-28): the production frontend
+> implements persistent Light/System/Dark behavior, semantic tokens, pre-paint
+> startup resolution, shared sidebar/mobile controls, and the validated
+> absolute-black plus green-black botanical dark hierarchy. The canonical
+> contract is [Appearance and Theme System](design/THEMING.md). The inventory
+> below is retained as migration history.
+
 ## 1. Executive Summary
 
 This repository is a Replit/pnpm workspace containing a frontend artifact, mockup sandbox, backend/API scaffolding, generated build output, local Replit state, and design documentation.
@@ -190,7 +197,7 @@ Dependency summary:
 | Forms/validation | `react-hook-form`, `@hookform/resolvers`, `zod` |
 | Dates | `date-fns` |
 | Notifications | local Radix toast components, `sonner` declared/available |
-| Theme | `next-themes` declared, but app currently states light-only CSS |
+| Theme | Light/System/Dark implemented with `next-themes`; see `design/THEMING.md` |
 | Animation | `framer-motion` declared, `tw-animate-css` imported |
 | Replit development | `@replit/vite-plugin-cartographer`, `@replit/vite-plugin-dev-banner`, `@replit/vite-plugin-runtime-error-modal` |
 

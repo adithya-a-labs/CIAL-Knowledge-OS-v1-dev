@@ -17,7 +17,7 @@ test('document workspace retains one persistent global navigation rail', () => {
   assert.doesNotMatch(shell, /!isDocumentWorkspace\?<Sidebar/);
   assert.match(shell, /globalNavCollapsed \? 'lg:pl-16' : 'lg:pl-60'/);
   assert.match(sidebar, /collapsed \? 'w-16' : 'w-60'/);
-  assert.match(sidebar, /duration-200 ease-out/);
+  assert.match(sidebar, /duration-\[180ms\] ease-out/);
 });
 
 test('collapsed navigation is labelled, tooltip-enabled, and route-aware', () => {

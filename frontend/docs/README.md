@@ -6,5 +6,6 @@
 - [Component Library](design/COMPONENT_LIBRARY.md)
 - [UX Principles](design/UX_PRINCIPLES.md)
 - [Animation Guidelines](design/ANIMATION_GUIDELINES.md)
+- [Appearance and Theme System](design/THEMING.md)
 - [Page Patterns](design/PAGE_PATTERNS.md)
 - [Iconography](design/ICONOGRAPHY.md)

@@ -182,6 +182,17 @@ Do not hardcode final colors unless existing design tokens are already present. 
 
 Use color as a signal, not as decoration. Prefer a restrained palette with one meaningful accent at a time.
 
+### Appearance modes
+
+The product supports Light, System, and Dark appearance preferences. The
+semantic palette, persistence contract, absolute-black dark canvas, sidebar
+control, accessibility requirements, and validation expectations are defined in
+[Appearance and Theme System](THEMING.md). That document is authoritative for
+theme behavior; this design language remains authoritative for product tone and
+color intent. Dark mode uses a nighttime botanical expression: absolute-black
+canvas, green-black surface hierarchy, soft near-white typography, and
+restrained CIAL-green emphasis rather than a literal inversion of light mode.
+
 ## 5. Typography Rules
 
 Typography should feel clear, composed, and quietly confident.
@@ -241,6 +252,11 @@ Avoid:
 - floating everything
 
 The interface should feel tactile and refined, not theatrical.
+
+The dark AI composer is the sole narrow exception: a restrained liquid-glass
+surface may float over the conversation to preserve focus and avoid an opaque
+footer slab. This exception does not authorize glass styling for general cards,
+navigation, or page chrome.
 
 ## 9. Layout Rules
 
@@ -368,7 +384,8 @@ Allowed motion:
 - short loading and state changes
 
 Timing:
-- 150–250ms for most UI transitions
+- 140–180ms for theme-sensitive controls and navigation
+- up to 250ms only for larger panel choreography already defined elsewhere
 
 Avoid:
 - bouncing
