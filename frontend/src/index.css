@@ -257,11 +257,27 @@
 
 /* CIAL Knowledge OS - botanical nighttime mode */
 .dark {
-  --button-outline: rgba(138, 209, 103, .13);
-  --badge-outline: rgba(138, 209, 103, .1);
+  --button-outline: rgba(119, 173, 102, .13);
+  --badge-outline: rgba(119, 173, 102, .1);
   --opaque-button-border-intensity: 8;
-  --elevate-1: rgba(138, 209, 103, .035);
-  --elevate-2: rgba(138, 209, 103, .065);
+  --elevate-1: rgba(104, 169, 79, .03);
+  --elevate-2: rgba(104, 169, 79, .055);
+
+  /* Controlled botanical hierarchy: surface area determines green intensity. */
+  --dark-green-primary: 103 36% 49%;
+  --dark-green-active: 106 30% 54%;
+  --dark-green-muted: 106 27% 44%;
+  --dark-green-border: 109 36% 27%;
+  --dark-green-surface: 116 38% 8%;
+  --dark-green-surface-subtle: 113 36% 5%;
+  --dark-green-text-soft: 106 30% 70%;
+  --dark-green-utility: 105 31% 51%;
+  --dark-user-message-start: 108 33% 30%;
+  --dark-user-message-end: 107 34% 35%;
+  --dark-citation-surface: 113 36% 9%;
+  --dark-citation-text: 105 35% 58%;
+  --dark-grounded-identity: 106 36% 45%;
+  --dark-utility-foreground: 97 15% 90%;
 
   /* Absolute-black canvas with green-tinted near-black hierarchy. */
   --background: 0 0% 0%;
@@ -270,9 +286,9 @@
   --border: 109 18% 12%;
   --border-strong: 113 18% 19%;
   --input: 113 18% 19%;
-  --ring: 103 47% 56%;
+  --ring: var(--dark-green-active);
   --surface-raised: 108 24% 4%;
-  --brand-strong: 100 54% 61%;
+  --brand-strong: var(--dark-green-primary);
 
   --card: 120 17% 2%;
   --card-foreground: 90 20% 96%;
@@ -281,24 +297,24 @@
   --sidebar: 120 33% 1%;
   --sidebar-foreground: 104 7% 67%;
   --sidebar-border: 109 18% 12%;
-  --sidebar-primary: 103 47% 56%;
+  --sidebar-primary: var(--dark-green-primary);
   --sidebar-primary-foreground: 0 0% 0%;
-  --sidebar-accent: 113 33% 9%;
-  --sidebar-accent-foreground: 100 54% 61%;
-  --sidebar-ring: 103 47% 56%;
+  --sidebar-accent: var(--dark-green-surface);
+  --sidebar-accent-foreground: var(--dark-green-text-soft);
+  --sidebar-ring: var(--dark-green-active);
 
   --popover: 108 24% 4%;
   --popover-foreground: 90 20% 96%;
   --popover-border: 113 18% 19%;
 
-  --primary: 103 47% 56%;
+  --primary: var(--dark-green-primary);
   --primary-foreground: 0 0% 0%;
   --secondary: 108 24% 4%;
   --secondary-foreground: 104 7% 67%;
   --muted: 113 25% 6%;
   --muted-foreground: 104 4% 48%;
-  --accent: 113 33% 9%;
-  --accent-foreground: 100 54% 61%;
+  --accent: var(--dark-green-surface);
+  --accent-foreground: var(--dark-green-text-soft);
   --destructive: 0 72% 58%;
   --destructive-foreground: 0 0% 100%;
 
@@ -308,8 +324,8 @@
   --warning-foreground: 42 100% 75%;
   --info: 210 82% 63%;
   --info-foreground: 210 92% 78%;
-  --citation: 103 55% 58%;
-  --citation-foreground: 103 62% 78%;
+  --citation: var(--dark-citation-text);
+  --citation-foreground: var(--dark-green-text-soft);
   --code-block: 108 24% 4%;
   --selection: 113 33% 13%;
   --link: 101 53% 67%;
@@ -460,20 +476,99 @@
 
   .dark [data-testid="sidebar"] [aria-current="page"] {
     position: relative;
-    background: hsl(var(--sidebar-accent) / .9);
+    color: hsl(var(--dark-green-text-soft));
+    background: hsl(var(--dark-green-surface));
     box-shadow:
       inset 0 1px 0 hsl(90 20% 96% / .025),
-      inset 0 0 0 1px hsl(var(--primary) / .11);
+      inset 0 0 0 1px hsl(var(--dark-green-border) / .48);
   }
 
-  .dark [data-testid="sidebar"] [aria-current="page"]::before {
+  .dark :is([data-testid="sidebar"], [data-testid="mobile-sidebar"]) [aria-current="page"] > svg {
+    color: hsl(var(--dark-green-active));
+  }
+
+  .dark :is([data-testid="sidebar"], [data-testid="mobile-sidebar"]) [aria-current="page"]::before {
     content: "";
     position: absolute;
     inset-block: .68rem;
     left: 0;
     width: 2px;
     border-radius: 999px;
-    background: hsl(var(--brand-strong));
+    background: hsl(var(--dark-green-primary));
+  }
+
+  .dark [data-testid="mobile-sidebar"] [aria-current="page"] {
+    position: relative;
+    color: hsl(var(--dark-green-text-soft));
+    background: hsl(var(--dark-green-surface));
+    box-shadow: inset 0 0 0 1px hsl(var(--dark-green-border) / .48);
+  }
+
+  .dark .sidebar-utility-action {
+    color: hsl(var(--dark-utility-foreground));
+  }
+
+  .dark .sidebar-utility-action:hover {
+    color: hsl(var(--dark-utility-foreground));
+  }
+
+  .dark .sidebar-utility-icon {
+    color: hsl(var(--dark-green-utility));
+  }
+
+  .dark .sidebar-utility-action:hover .sidebar-utility-icon {
+    color: hsl(var(--dark-green-active));
+  }
+
+  .dark .brand-wordmark {
+    color: hsl(var(--dark-green-primary));
+  }
+
+  .dark .user-message-bubble {
+    color: hsl(var(--foreground));
+    background: linear-gradient(
+      135deg,
+      hsl(var(--dark-user-message-start)),
+      hsl(var(--dark-user-message-end))
+    );
+    box-shadow:
+      inset 0 1px 0 hsl(90 20% 96% / .08),
+      0 5px 14px rgba(0, 0, 0, .34);
+  }
+
+  .dark .inline-citation {
+    color: hsl(var(--dark-citation-text));
+    border-color: hsl(var(--dark-green-border));
+    background: hsl(var(--dark-citation-surface));
+  }
+
+  .dark .inline-citation:hover {
+    color: hsl(var(--dark-green-text-soft));
+    border-color: hsl(var(--dark-green-muted));
+    background: hsl(var(--dark-green-surface));
+  }
+
+  .dark .grounded-response-icon {
+    color: white;
+    background: hsl(var(--dark-grounded-identity));
+  }
+
+  .dark .composer-context-icon {
+    color: hsl(var(--dark-green-muted));
+  }
+
+  .dark .composer-send:not(:disabled) {
+    background: hsl(var(--dark-green-primary));
+  }
+
+  .dark .composer-send:not(:disabled):hover {
+    background: hsl(var(--dark-green-active));
+  }
+
+  .dark :where(.composer-send, .inline-citation, .sidebar-utility-action, .conversation-history-entry):focus-visible,
+  .dark :is([data-testid="sidebar"], [data-testid="mobile-sidebar"]) [aria-current="page"]:focus-visible {
+    outline: 2px solid hsl(var(--dark-green-active));
+    outline-offset: 2px;
   }
 
   .dark :where(button, a, [role="button"]) {
