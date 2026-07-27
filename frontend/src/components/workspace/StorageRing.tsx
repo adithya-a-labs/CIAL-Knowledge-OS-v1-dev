@@ -47,8 +47,8 @@ export default function StorageRing({
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-2xl font-bold text-[#1a2e14]">{percent}%</span>
-        <span className="text-[10px] text-[#5a7a52] mt-0.5">
+        <span className="text-2xl font-bold text-foreground">{percent}%</span>
+        <span className="text-[10px] text-muted-foreground mt-0.5">
           {usedGB} / {totalGB} GB
         </span>
       </div>

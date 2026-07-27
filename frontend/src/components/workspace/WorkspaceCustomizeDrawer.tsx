@@ -36,21 +36,21 @@ export default function WorkspaceCustomizeDrawer({ open, value, saving, fallback
           <SheetTitle>Customize workspace</SheetTitle>
           <SheetDescription>Choose defaults and arrange widgets. Security and ownership rules cannot be changed here.</SheetDescription>
         </SheetHeader>
-        {fallback ? <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">API unavailable — saving to this browser only.</p> : null}
+        {fallback ? <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">API unavailable — saving to this browser only.</p> : null}
         <div className="flex-1 space-y-6 py-4">
           <div className="grid grid-cols-2 gap-3">
-            <label className="space-y-2 text-xs font-semibold text-slate-700">Default tab
-              <select value={value.defaultTab} onChange={(event) => patch({ defaultTab: event.target.value as WorkspacePreferences['defaultTab'] })} className="h-9 w-full rounded-md border bg-white px-2 text-sm font-normal">
+            <label className="space-y-2 text-xs font-semibold text-foreground">Default tab
+              <select value={value.defaultTab} onChange={(event) => patch({ defaultTab: event.target.value as WorkspacePreferences['defaultTab'] })} className="h-9 w-full rounded-md border bg-card px-2 text-sm font-normal">
                 {['overview', 'files', 'notes', 'saved', 'activity'].map((tab) => <option key={tab} value={tab}>{tab[0].toUpperCase() + tab.slice(1)}</option>)}
               </select>
             </label>
-            <label className="space-y-2 text-xs font-semibold text-slate-700">Default view
-              <select value={value.defaultView} onChange={(event) => patch({ defaultView: event.target.value as WorkspacePreferences['defaultView'] })} className="h-9 w-full rounded-md border bg-white px-2 text-sm font-normal">
+            <label className="space-y-2 text-xs font-semibold text-foreground">Default view
+              <select value={value.defaultView} onChange={(event) => patch({ defaultView: event.target.value as WorkspacePreferences['defaultView'] })} className="h-9 w-full rounded-md border bg-card px-2 text-sm font-normal">
                 <option value="list">List</option><option value="grid">Grid</option>
               </select>
             </label>
-            <label className="col-span-2 space-y-2 text-xs font-semibold text-slate-700">Density
-              <select value={value.density} onChange={(event) => patch({ density: event.target.value as WorkspacePreferences['density'] })} className="h-9 w-full rounded-md border bg-white px-2 text-sm font-normal">
+            <label className="col-span-2 space-y-2 text-xs font-semibold text-foreground">Density
+              <select value={value.density} onChange={(event) => patch({ density: event.target.value as WorkspacePreferences['density'] })} className="h-9 w-full rounded-md border bg-card px-2 text-sm font-normal">
                 <option value="compact">Compact</option><option value="comfortable">Comfortable</option><option value="spacious">Spacious</option>
               </select>
             </label>
@@ -60,7 +60,7 @@ export default function WorkspaceCustomizeDrawer({ open, value, saving, fallback
             <Switch id="right-rail" checked={value.rightRailVisible} onCheckedChange={(checked) => patch({ rightRailVisible: checked })} />
           </div>
           <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Widgets and order</p>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Widgets and order</p>
             <div className="space-y-2">
               {value.widgetOrder.map((id, index) => (
                 <div key={id} className="flex items-center gap-2 rounded-lg border px-3 py-2">
@@ -72,7 +72,7 @@ export default function WorkspaceCustomizeDrawer({ open, value, saving, fallback
               ))}
             </div>
           </div>
-          <label className="space-y-2 text-xs font-semibold text-slate-700">Recent-item limit
+          <label className="space-y-2 text-xs font-semibold text-foreground">Recent-item limit
             <input type="number" min={3} max={20} value={value.recentItemLimit} onChange={(event) => patch({ recentItemLimit: Math.max(3, Math.min(20, Number(event.target.value))) })} className="h-9 w-full rounded-md border px-3 text-sm font-normal" />
           </label>
         </div>

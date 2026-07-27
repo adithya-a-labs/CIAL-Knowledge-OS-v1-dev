@@ -12,7 +12,7 @@ export default function WorkspaceUploadButton({ onClick, className = '' }: Works
 
   if (full) {
     return (
-      <div className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-700 text-sm font-medium ${className}`}>
+      <div className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-warning/10 border border-warning/30 text-warning-foreground text-sm font-medium ${className}`}>
         <AlertTriangle size={15} />
         Storage full — cannot upload
       </div>

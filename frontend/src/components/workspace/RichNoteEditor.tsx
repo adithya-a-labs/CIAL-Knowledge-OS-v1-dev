@@ -99,14 +99,14 @@ export function tiptapToMarkdown(doc: JSONContent): string {
 }
 
 function Tool({ active, label, onClick, children }: { active?: boolean; label: string; onClick: () => void; children: React.ReactNode }) {
-  return <button type="button" aria-label={label} title={label} onClick={onClick} className={cn('rounded p-1.5 text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary', active && 'bg-[#eaf3e5] text-primary')}>{children}</button>;
+  return <button type="button" aria-label={label} title={label} onClick={onClick} className={cn('rounded p-1.5 text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary', active && 'bg-accent text-primary')}>{children}</button>;
 }
 
 export default function RichNoteEditor({ noteId, contentJson, markdown, citationBlockId, onChange }: { noteId: string; contentJson: Record<string, unknown> | null; markdown: string; citationBlockId?: string | null; onChange: (change: ChangePayload) => void }) {
   const editor = useEditor({
     extensions: [StarterKit.configure({ link: false, underline: false }), Underline, Link.configure({ openOnClick: false, HTMLAttributes: { rel: 'noopener noreferrer' } }), TaskList, TaskItem.configure({ nested: true }), Placeholder.configure({ placeholder: 'Start writing…' }), StableBlockId],
     content: contentJson?.type === 'doc' ? contentJson as JSONContent : markdownToTiptap(markdown),
-    editorProps: { attributes: { class: 'cial-note-editor min-h-[26rem] px-1 py-2 text-[15px] leading-7 text-slate-800 outline-none' } },
+    editorProps: { attributes: { class: 'cial-note-editor min-h-[26rem] px-1 py-2 text-[15px] leading-7 text-foreground outline-none' } },
     onUpdate: ({ editor: instance, transaction }) => { if (transaction.getMeta('addToHistory') === false) return; const json = instance.getJSON(); onChange({ content_json: json as Record<string, unknown>, content_markdown: tiptapToMarkdown(json), plain_text: instance.getText({ blockSeparator: '\n' }) }); },
   }, [noteId]);
 
@@ -117,11 +117,11 @@ export default function RichNoteEditor({ noteId, contentJson, markdown, citation
   if (!editor) return null;
   const setLink = () => { const current = editor.getAttributes('link').href as string | undefined; const href = window.prompt('Link URL', current ?? 'https://'); if (href === null) return; if (!href.trim()) editor.chain().focus().unsetLink().run(); else editor.chain().focus().extendMarkRange('link').setLink({ href: href.trim() }).run(); };
   return <div className="relative">
-    <div className="mb-2 flex flex-wrap items-center gap-1 border-b border-slate-100 pb-2" aria-label="Editor controls">
+    <div className="mb-2 flex flex-wrap items-center gap-1 border-b border-border pb-2" aria-label="Editor controls">
       <Tool label="Undo" onClick={() => editor.chain().focus().undo().run()}><Undo2 size={15}/></Tool><Tool label="Redo" onClick={() => editor.chain().focus().redo().run()}><Redo2 size={15}/></Tool>
       <Tool label="Bulleted list" active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()}><List size={15}/></Tool><Tool label="Numbered list" active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()}><ListOrdered size={15}/></Tool><Tool label="Code block" active={editor.isActive('codeBlock')} onClick={() => editor.chain().focus().toggleCodeBlock().run()}><Code size={15}/></Tool>
     </div>
-    <BubbleMenu editor={editor}><div className="flex items-center gap-0.5 rounded-lg border border-slate-200 bg-white p-1 shadow-md"><Tool label="Bold" active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()}><Bold size={14}/></Tool><Tool label="Italic" active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()}><Italic size={14}/></Tool><Tool label="Underline" active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()}><UnderlineIcon size={14}/></Tool><Tool label="Strikethrough" active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()}><Strikethrough size={14}/></Tool><Tool label="Link" active={editor.isActive('link')} onClick={setLink}><Link2 size={14}/></Tool></div></BubbleMenu>
+    <BubbleMenu editor={editor}><div className="flex items-center gap-0.5 rounded-lg border border-border bg-card p-1 shadow-md"><Tool label="Bold" active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()}><Bold size={14}/></Tool><Tool label="Italic" active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()}><Italic size={14}/></Tool><Tool label="Underline" active={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()}><UnderlineIcon size={14}/></Tool><Tool label="Strikethrough" active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()}><Strikethrough size={14}/></Tool><Tool label="Link" active={editor.isActive('link')} onClick={setLink}><Link2 size={14}/></Tool></div></BubbleMenu>
     <EditorContent editor={editor}/>
   </div>;
 }
