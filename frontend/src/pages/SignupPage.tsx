@@ -51,7 +51,7 @@ export default function SignupPage() {
       footer={
         <p>
           Already have an account?{' '}
-          <Link href="/login" className="font-semibold text-[#25611f] transition hover:text-[#1d4f18]">
+          <Link href="/login" className="font-semibold text-primary transition hover:text-primary/80">
             Log in
           </Link>
         </p>
@@ -59,7 +59,7 @@ export default function SignupPage() {
     >
       <form className="space-y-4" onSubmit={handleSubmit}>
         <div className="space-y-2">
-          <label htmlFor="signup-name" className="text-sm font-medium text-slate-800">
+          <label htmlFor="signup-name" className="text-sm font-medium text-foreground">
             Full Name
           </label>
           <input
@@ -68,14 +68,14 @@ export default function SignupPage() {
             autoComplete="name"
             value={form.fullName}
             onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))}
-            className="h-12 w-full rounded-xl border border-[#d7e1d2] bg-white px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#2f6d25] focus:ring-4 focus:ring-[#2f6d25]/10"
+            className="h-12 w-full rounded-xl border border-input bg-background px-4 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-4 focus:ring-ring/15"
             placeholder="Ananya Nair"
             data-testid="signup-name"
           />
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="signup-email" className="text-sm font-medium text-slate-800">
+          <label htmlFor="signup-email" className="text-sm font-medium text-foreground">
             Email Address
           </label>
           <input
@@ -84,14 +84,14 @@ export default function SignupPage() {
             autoComplete="email"
             value={form.email}
             onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
-            className="h-12 w-full rounded-xl border border-[#d7e1d2] bg-white px-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#2f6d25] focus:ring-4 focus:ring-[#2f6d25]/10"
+            className="h-12 w-full rounded-xl border border-input bg-background px-4 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-4 focus:ring-ring/15"
             placeholder="name@cial.in"
             data-testid="signup-email"
           />
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="signup-password" className="text-sm font-medium text-slate-800">
+          <label htmlFor="signup-password" className="text-sm font-medium text-foreground">
             Password
           </label>
           <div className="relative">
@@ -101,14 +101,14 @@ export default function SignupPage() {
               autoComplete="new-password"
               value={form.password}
               onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
-              className="h-12 w-full rounded-xl border border-[#d7e1d2] bg-white px-4 pr-12 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#2f6d25] focus:ring-4 focus:ring-[#2f6d25]/10"
+              className="h-12 w-full rounded-xl border border-input bg-background px-4 pr-12 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus:border-ring focus:ring-4 focus:ring-ring/15"
               placeholder="At least 8 characters"
               data-testid="signup-password"
             />
             <button
               type="button"
               onClick={() => setShowPassword((current) => !current)}
-              className="absolute right-3 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:bg-[#f4f7f2] hover:text-slate-800"
+              className="absolute right-3 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted hover:text-foreground"
               aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
               {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -117,7 +117,7 @@ export default function SignupPage() {
         </div>
 
         {errorMessage ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" data-testid="signup-error">
+          <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive" data-testid="signup-error">
             {errorMessage}
           </div>
         ) : null}
@@ -125,7 +125,7 @@ export default function SignupPage() {
         <button
           type="submit"
           disabled={submitting}
-          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#25611f] px-4 text-sm font-semibold text-white transition hover:bg-[#1f521a] disabled:cursor-not-allowed disabled:opacity-70"
+          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-70"
           data-testid="signup-submit"
         >
           {submitting ? <LoaderCircle size={16} className="animate-spin" /> : null}

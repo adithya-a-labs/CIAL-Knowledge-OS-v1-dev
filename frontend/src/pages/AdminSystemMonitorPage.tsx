@@ -24,16 +24,16 @@ import type {
 
 const statusStyles: Record<OperationsStatus, string> = {
   green: 'border-emerald-200 bg-emerald-50 text-emerald-700',
-  blue: 'border-blue-200 bg-blue-50 text-blue-700',
-  yellow: 'border-amber-200 bg-amber-50 text-amber-700',
-  red: 'border-red-200 bg-red-50 text-red-700',
+  blue: 'border-info/30 bg-info/10 text-info-foreground',
+  yellow: 'border-warning/30 bg-warning/10 text-warning-foreground',
+  red: 'border-destructive/30 bg-destructive/10 text-destructive',
 };
 
 const dotStyles: Record<OperationsStatus, string> = {
   green: 'bg-emerald-500',
-  blue: 'bg-blue-500',
-  yellow: 'bg-amber-500',
-  red: 'bg-red-500',
+  blue: 'bg-info/100',
+  yellow: 'bg-warning/100',
+  red: 'bg-destructive/100',
 };
 
 function componentStatus(component: OperationsComponent | undefined): OperationsStatus {
@@ -85,12 +85,12 @@ function Metric({
   detail?: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+    <div className="rounded-xl border border-border bg-muted/70 p-3">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </div>
-      <div className="mt-1 text-lg font-semibold text-slate-950">{value}</div>
-      {detail ? <div className="mt-1 truncate text-xs text-slate-500">{detail}</div> : null}
+      <div className="mt-1 text-lg font-semibold text-foreground">{value}</div>
+      {detail ? <div className="mt-1 truncate text-xs text-muted-foreground">{detail}</div> : null}
     </div>
   );
 }
@@ -111,15 +111,15 @@ function OverviewCard({
   updated?: string | null;
 }) {
   return (
-    <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-colors">
+    <article className="rounded-2xl border border-border bg-card p-4 shadow-sm transition-colors">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="rounded-xl bg-[#eef6eb] p-2.5 text-[#2f6d25]">
+          <div className="rounded-xl bg-accent p-2.5 text-primary">
             <Icon size={19} />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-slate-950">{name}</h3>
-            <p className="mt-0.5 text-xs text-slate-500">{detail}</p>
+            <h3 className="text-sm font-semibold text-foreground">{name}</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">{detail}</p>
           </div>
         </div>
         <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-bold uppercase ${statusStyles[status]}`}>
@@ -127,7 +127,7 @@ function OverviewCard({
           {status}
         </span>
       </div>
-      <div className="mt-4 flex justify-between border-t border-slate-100 pt-3 text-xs text-slate-500">
+      <div className="mt-4 flex justify-between border-t border-border pt-3 text-xs text-muted-foreground">
         <span>{latency === undefined ? 'Live telemetry' : `${formatNumber(latency, ' ms')} latency`}</span>
         <span>{updated ? `Updated ${formatTime(updated)}` : 'Awaiting sample'}</span>
       </div>
@@ -152,15 +152,15 @@ function Pipeline({ data }: { data: AdminSystemMonitor }) {
         const active = activeStates.has(state);
         return (
           <div key={state} className="relative">
-            <div className={`h-full rounded-xl border p-3 transition ${active ? 'border-blue-300 bg-blue-50 shadow-sm' : 'border-slate-200 bg-slate-50'}`}>
+            <div className={`h-full rounded-xl border p-3 transition ${active ? 'border-info/40 bg-info/10 shadow-sm' : 'border-border bg-muted'}`}>
               <div className="flex items-center justify-between">
-                <span className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${active ? 'bg-blue-600 text-white' : 'bg-white text-slate-500 ring-1 ring-slate-200'}`}>
+                <span className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${active ? 'bg-blue-600 text-white' : 'bg-card text-muted-foreground ring-1 ring-border'}`}>
                   {index + 1}
                 </span>
-                {active ? <Activity className="h-4 w-4 animate-pulse text-blue-600" /> : null}
+                {active ? <Activity className="h-4 w-4 animate-pulse text-info" /> : null}
               </div>
-              <div className="mt-3 text-xs font-semibold text-slate-800">{label}</div>
-              <div className="mt-1 text-[11px] text-slate-500">{active ? 'Active now' : 'Waiting'}</div>
+              <div className="mt-3 text-xs font-semibold text-foreground">{label}</div>
+              <div className="mt-1 text-[11px] text-muted-foreground">{active ? 'Active now' : 'Waiting'}</div>
             </div>
           </div>
         );
@@ -186,9 +186,9 @@ function AuthorizedMonitor() {
     return (
       <section className="flex min-h-[65vh] items-center justify-center">
         <div className="text-center">
-          <RefreshCw className="mx-auto h-8 w-8 animate-spin text-[#2f6d25]" />
-          <h1 className="mt-4 text-lg font-semibold text-slate-950">Connecting to operations telemetry</h1>
-          <p className="mt-2 text-sm text-slate-500">{error ?? 'Authenticating the live monitor stream…'}</p>
+          <RefreshCw className="mx-auto h-8 w-8 animate-spin text-primary" />
+          <h1 className="mt-4 text-lg font-semibold text-foreground">Connecting to operations telemetry</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{error ?? 'Authenticating the live monitor stream…'}</p>
         </div>
       </section>
     );
@@ -212,11 +212,11 @@ function AuthorizedMonitor() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${telemetryStale ? 'border-amber-300/50 bg-amber-300/15 text-amber-50' : 'border-white/20 bg-white/10 text-white'}`}>
+            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${telemetryStale ? 'border-warning/40/50 bg-amber-300/15 text-amber-50' : 'border-white/20 bg-card/10 text-white'}`}>
               <span className={`h-2 w-2 rounded-full ${connection === 'live' && !telemetryStale ? 'bg-emerald-300 animate-pulse' : 'bg-amber-300'}`} />
               {telemetryStale ? 'Stale telemetry' : connection === 'live' ? 'Live stream connected' : connection}
             </span>
-            <button type="button" onClick={reconnect} className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">
+            <button type="button" onClick={reconnect} className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-card/10 px-3 py-2 text-xs font-semibold text-white hover:bg-card/15">
               <RefreshCw size={14} /> Reconnect
             </button>
           </div>
@@ -224,7 +224,7 @@ function AuthorizedMonitor() {
       </header>
 
       {error || telemetryStale ? (
-        <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div role="status" className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-foreground">
           {error || 'One or more telemetry sources are stale. Last known values remain visible.'}
         </div>
       ) : null}
@@ -239,10 +239,10 @@ function AuthorizedMonitor() {
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1.7fr_1fr]">
-        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <article className="rounded-2xl border border-border bg-card p-5 shadow-sm">
           <div className="flex items-center justify-between">
-            <div><h2 className="font-semibold text-slate-950">Live indexing pipeline</h2><p className="mt-1 text-xs text-slate-500">Durable job state and publication flow</p></div>
-            <span className="text-xs font-medium text-slate-500">Generation {data.indexing.active_published_generation}</span>
+            <div><h2 className="font-semibold text-foreground">Live indexing pipeline</h2><p className="mt-1 text-xs text-muted-foreground">Durable job state and publication flow</p></div>
+            <span className="text-xs font-medium text-muted-foreground">Generation {data.indexing.active_published_generation}</span>
           </div>
           <div className="mt-5"><Pipeline data={data} /></div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -253,16 +253,16 @@ function AuthorizedMonitor() {
           </div>
         </article>
 
-        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center gap-2"><Gauge size={18} className="text-[#2f6d25]" /><h2 className="font-semibold text-slate-950">GPU monitoring</h2></div>
+        <article className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex items-center gap-2"><Gauge size={18} className="text-primary" /><h2 className="font-semibold text-foreground">GPU monitoring</h2></div>
           <div className="mt-5 space-y-4">
             <div>
-              <div className="flex justify-between text-xs"><span className="text-slate-500">Utilisation</span><span className="font-semibold">{formatNumber(data.gpu.utilization_percent, '%')}</span></div>
-              <div className="mt-2 h-2 rounded-full bg-slate-100"><div className="h-2 rounded-full bg-[#4a8a3d] transition-all" style={{ width: `${Math.min(data.gpu.utilization_percent ?? 0, 100)}%` }} /></div>
+              <div className="flex justify-between text-xs"><span className="text-muted-foreground">Utilisation</span><span className="font-semibold">{formatNumber(data.gpu.utilization_percent, '%')}</span></div>
+              <div className="mt-2 h-2 rounded-full bg-muted"><div className="h-2 rounded-full bg-[#4a8a3d] transition-all" style={{ width: `${Math.min(data.gpu.utilization_percent ?? 0, 100)}%` }} /></div>
             </div>
             <div>
-              <div className="flex justify-between text-xs"><span className="text-slate-500">VRAM</span><span className="font-semibold">{data.gpu.memory_used_mb === null ? 'Unavailable' : `${data.gpu.memory_used_mb} / ${data.gpu.memory_total_mb} MB`}</span></div>
-              <div className="mt-2 h-2 rounded-full bg-slate-100"><div className="h-2 rounded-full bg-blue-500 transition-all" style={{ width: `${data.gpu.memory_total_mb ? Math.min((data.gpu.memory_used_mb ?? 0) / data.gpu.memory_total_mb * 100, 100) : 0}%` }} /></div>
+              <div className="flex justify-between text-xs"><span className="text-muted-foreground">VRAM</span><span className="font-semibold">{data.gpu.memory_used_mb === null ? 'Unavailable' : `${data.gpu.memory_used_mb} / ${data.gpu.memory_total_mb} MB`}</span></div>
+              <div className="mt-2 h-2 rounded-full bg-muted"><div className="h-2 rounded-full bg-info/100 transition-all" style={{ width: `${data.gpu.memory_total_mb ? Math.min((data.gpu.memory_used_mb ?? 0) / data.gpu.memory_total_mb * 100, 100) : 0}%` }} /></div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <Metric label="Precision" value={data.gpu.precision} />
@@ -287,19 +287,19 @@ function AuthorizedMonitor() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
-        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center gap-2"><Cpu size={18} className="text-[#2f6d25]" /><h2 className="font-semibold">Worker monitoring</h2></div>
+        <article className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex items-center gap-2"><Cpu size={18} className="text-primary" /><h2 className="font-semibold">Worker monitoring</h2></div>
           <div className="mt-4 grid grid-cols-2 gap-2">
             <Metric label="CPU workers" value={data.cpu.extraction_workers} />
             <Metric label="GPU workers" value={data.indexing.active_workers} />
             <Metric label="OCR workers" value={data.cpu.ocr_workers} />
             <Metric label="Active tasks" value={data.cpu.current_tasks} />
           </div>
-          <p className="mt-4 text-xs text-slate-500">Heartbeat {formatTime(data.indexing.worker_heartbeat_at)} · CPU {formatNumber(data.cpu.utilization_percent, '%')}</p>
+          <p className="mt-4 text-xs text-muted-foreground">Heartbeat {formatTime(data.indexing.worker_heartbeat_at)} · CPU {formatNumber(data.cpu.utilization_percent, '%')}</p>
         </article>
 
-        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-2">
-          <div className="flex items-center gap-2"><Activity size={18} className="text-[#2f6d25]" /><h2 className="font-semibold">Query pipeline</h2></div>
+        <article className="rounded-2xl border border-border bg-card p-5 shadow-sm lg:col-span-2">
+          <div className="flex items-center gap-2"><Activity size={18} className="text-primary" /><h2 className="font-semibold">Query pipeline</h2></div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
             <Metric label="Active" value={q.active_chat_requests} />
             <Metric label="Current stage" value={q.current_stage ?? 'Idle'} detail={q.current_stage_duration_ms === null ? undefined : `${q.current_stage_duration_ms} ms active`} />
@@ -328,7 +328,7 @@ function AuthorizedMonitor() {
             <Metric label="CPU offload" value={q.generation_metrics?.cpu_offload_detected === null || q.generation_metrics?.cpu_offload_detected === undefined ? 'Unavailable' : q.generation_metrics.cpu_offload_detected ? 'detected' : 'none'} />
           </div>
           {q.failed_stage ? (
-            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <div className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
               Failed stage: <strong>{q.failed_stage}</strong>
               {q.timeout_reason ? ` · Timeout: ${q.timeout_reason}` : ''}
             </div>
@@ -337,8 +337,8 @@ function AuthorizedMonitor() {
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[1fr_1.35fr]">
-        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center gap-2"><Box size={18} className="text-[#2f6d25]" /><h2 className="font-semibold">Queue management</h2></div>
+        <article className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex items-center gap-2"><Box size={18} className="text-primary" /><h2 className="font-semibold">Queue management</h2></div>
           <div className="mt-4 grid grid-cols-3 gap-2">
             <Metric label="Pending" value={data.indexing.pending_jobs} />
             <Metric label="Processing" value={data.indexing.active_jobs_count} />
@@ -346,23 +346,23 @@ function AuthorizedMonitor() {
           </div>
           <div className="mt-4 space-y-2">
             {Object.entries(data.indexing.priority_queues).map(([name, count]) => (
-              <div key={name} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-xs"><span className="font-medium text-slate-700">{name.replaceAll('_', ' ')}</span><span className="font-bold text-slate-950">{count}</span></div>
+              <div key={name} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-xs"><span className="font-medium text-foreground">{name.replaceAll('_', ' ')}</span><span className="font-bold text-foreground">{count}</span></div>
             ))}
-            {!Object.keys(data.indexing.priority_queues).length ? <p className="py-3 text-center text-xs text-slate-500">No queued operations.</p> : null}
+            {!Object.keys(data.indexing.priority_queues).length ? <p className="py-3 text-center text-xs text-muted-foreground">No queued operations.</p> : null}
           </div>
         </article>
 
-        <article className="overflow-hidden rounded-2xl border border-slate-200 bg-[#101814] text-slate-100 shadow-sm">
-          <div className="flex items-center justify-between border-b border-white/10 px-5 py-4"><div className="flex items-center gap-2"><Activity size={17} className="text-emerald-400" /><h2 className="font-semibold">Live event stream</h2></div><span className="text-[11px] uppercase tracking-wider text-slate-400">{data.events.length} retained</span></div>
+        <article className="overflow-hidden rounded-2xl border border-border bg-[#101814] text-slate-100 shadow-sm">
+          <div className="flex items-center justify-between border-b border-white/10 px-5 py-4"><div className="flex items-center gap-2"><Activity size={17} className="text-emerald-400" /><h2 className="font-semibold">Live event stream</h2></div><span className="text-[11px] uppercase tracking-wider text-muted-foreground">{data.events.length} retained</span></div>
           <div className="max-h-[390px] overflow-y-auto">
             {data.events.map((event) => (
               <div key={event.id} className="grid grid-cols-[78px_10px_1fr] gap-3 border-b border-white/5 px-5 py-3 text-xs">
-                <time className="font-mono text-slate-500">{formatTime(event.timestamp)}</time>
+                <time className="font-mono text-muted-foreground">{formatTime(event.timestamp)}</time>
                 <span className={`mt-1 h-2 w-2 rounded-full ${event.severity === 'error' ? 'bg-red-400' : event.severity === 'warning' ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-                <div><div className="font-mono text-emerald-300">{event.type}</div><div className="mt-1 text-slate-300">{event.message}</div></div>
+                <div><div className="font-mono text-emerald-300">{event.type}</div><div className="mt-1 text-muted-foreground/50">{event.message}</div></div>
               </div>
             ))}
-            {!data.events.length ? <div className="px-5 py-10 text-center text-sm text-slate-400">Waiting for runtime state transitions…</div> : null}
+            {!data.events.length ? <div className="px-5 py-10 text-center text-sm text-muted-foreground">Waiting for runtime state transitions…</div> : null}
           </div>
         </article>
       </div>
