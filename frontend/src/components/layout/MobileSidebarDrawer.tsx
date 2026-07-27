@@ -103,7 +103,7 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
           <div className="flex items-center gap-3">
             <img src={THEME.logoPath} alt="CIAL Logo" className="h-9 w-auto object-contain" />
             <div>
-              <div className="text-lg font-semibold text-primary">CIAL</div>
+              <div className="brand-wordmark text-lg font-semibold text-primary">CIAL</div>
               <div className="text-xs text-muted-foreground">Knowledge OS</div>
             </div>
           </div>
@@ -131,6 +131,7 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
                   className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
                     active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
                   }`}
+                  aria-current={active ? 'page' : undefined}
                 >
                   <Icon size={18} className={active ? 'text-primary' : 'text-muted-foreground'} />
                   <span>{item.label}</span>
@@ -163,10 +164,10 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
               onClose();
               startNewConversation(navigate);
             }}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-foreground hover:bg-sidebar-accent"
+            className="sidebar-utility-action flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-foreground hover:bg-sidebar-accent"
             aria-label="Start a new conversation"
           >
-            <MessageSquarePlus size={18} className="text-primary" />
+            <MessageSquarePlus size={18} className="sidebar-utility-icon text-primary" />
             New Conversation
           </Link>
           <button className="relative flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-sidebar-foreground/80 transition hover:bg-sidebar-accent">
