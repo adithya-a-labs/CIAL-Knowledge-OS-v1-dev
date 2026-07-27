@@ -10,13 +10,13 @@ export type FileIndexingState = 'pending' | 'indexing' | 'indexed' | 'failed' | 
 export function indexingStatusPresentation(status: FileIndexingState) {
   if (status === 'indexed') return { label: 'Ready', Icon: CheckCircle2, tone: 'text-emerald-700 bg-emerald-50' };
   if (status === 'failed') return { label: 'Failed', Icon: CircleAlert, tone: 'text-rose-700 bg-rose-50' };
-  if (status === 'deleted' || status === 'superseded') return { label: 'Unavailable', Icon: Ban, tone: 'text-slate-500 bg-slate-100' };
-  if (status === 'extracting') return { label: 'Extracting', Icon: LoaderCircle, tone: 'text-amber-700 bg-amber-50', spinning: true };
-  if (status === 'chunked') return { label: 'Preparing', Icon: LoaderCircle, tone: 'text-amber-700 bg-amber-50', spinning: true };
-  if (status === 'embedding') return { label: 'Embedding', Icon: LoaderCircle, tone: 'text-amber-700 bg-amber-50', spinning: true };
-  if (status === 'writing' || status === 'verifying') return { label: 'Indexing', Icon: LoaderCircle, tone: 'text-amber-700 bg-amber-50', spinning: true };
-  if (status === 'indexing' || status === 'claimed') return { label: 'Preparing', Icon: LoaderCircle, tone: 'text-amber-700 bg-amber-50', spinning: true };
-  return { label: 'Queued', Icon: Clock3, tone: 'text-slate-600 bg-slate-100' };
+  if (status === 'deleted' || status === 'superseded') return { label: 'Unavailable', Icon: Ban, tone: 'text-muted-foreground bg-muted' };
+  if (status === 'extracting') return { label: 'Extracting', Icon: LoaderCircle, tone: 'text-warning-foreground bg-warning/10', spinning: true };
+  if (status === 'chunked') return { label: 'Preparing', Icon: LoaderCircle, tone: 'text-warning-foreground bg-warning/10', spinning: true };
+  if (status === 'embedding') return { label: 'Embedding', Icon: LoaderCircle, tone: 'text-warning-foreground bg-warning/10', spinning: true };
+  if (status === 'writing' || status === 'verifying') return { label: 'Indexing', Icon: LoaderCircle, tone: 'text-warning-foreground bg-warning/10', spinning: true };
+  if (status === 'indexing' || status === 'claimed') return { label: 'Preparing', Icon: LoaderCircle, tone: 'text-warning-foreground bg-warning/10', spinning: true };
+  return { label: 'Queued', Icon: Clock3, tone: 'text-muted-foreground bg-muted' };
 }
 
 interface FileIndexingStatusProps {

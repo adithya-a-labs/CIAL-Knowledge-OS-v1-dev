@@ -85,8 +85,8 @@ function CorpusTree({
           if (node.children.length > 0) onToggle(path);
         }}
         className={cn(
-          'flex w-full items-center gap-1.5 rounded-lg py-1.5 pr-2 text-left text-sm transition-colors hover:bg-slate-100',
-          active ? 'bg-[#f0f7ed] font-semibold text-primary' : 'text-slate-600',
+          'flex w-full items-center gap-1.5 rounded-lg py-1.5 pr-2 text-left text-sm transition-colors hover:bg-muted',
+          active ? 'bg-accent font-semibold text-primary' : 'text-muted-foreground',
         )}
         style={{ paddingLeft: `${8 + depth * 14}px` }}
       >
@@ -116,16 +116,16 @@ function FolderCard({
   onToggle: () => void;
 }) {
   return (
-    <article className={cn('rounded-xl border border-slate-200 bg-white p-3 shadow-sm', selected && 'border-primary ring-2 ring-primary/15')}>
+    <article className={cn('rounded-xl border border-border bg-card p-3 shadow-sm', selected && 'border-primary ring-2 ring-primary/15')}>
       <div className="flex items-start gap-3">
         {selectable ? (
-          <input type="checkbox" checked={selected} onChange={onToggle} className="mt-3 h-4 w-4 rounded border-slate-300 text-primary" aria-label={`Select ${folder.name || 'Corpus root'}`} />
+          <input type="checkbox" checked={selected} onChange={onToggle} className="mt-3 h-4 w-4 rounded border-border text-primary" aria-label={`Select ${folder.name || 'Corpus root'}`} />
         ) : null}
         <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600"><Folder size={21} /></span>
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-warning/10 text-warning"><Folder size={21} /></span>
           <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold text-slate-950">{folder.name || 'Corpus root'}</span>
-            <span className="block truncate text-xs text-slate-500">{folder.relative_path || 'Root'} / {folder.document_count} files</span>
+            <span className="block truncate text-sm font-semibold text-foreground">{folder.name || 'Corpus root'}</span>
+            <span className="block truncate text-xs text-muted-foreground">{folder.relative_path || 'Root'} / {folder.document_count} files</span>
           </span>
         </button>
       </div>
@@ -154,27 +154,27 @@ function FileCard({
 
   if (viewMode === 'grid') {
     return (
-      <article className={cn('rounded-[1.35rem] border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300 hover:shadow-md', selected && 'border-primary ring-2 ring-primary/15')}>
+      <article className={cn('rounded-[1.35rem] border border-border bg-card p-3 shadow-sm transition hover:border-border hover:shadow-md', selected && 'border-primary ring-2 ring-primary/15')}>
         <div className="flex items-start gap-3">
           {selectable ? (
-            <input type="checkbox" checked={selected} onChange={onToggle} className="mt-1 h-4 w-4 rounded border-slate-300 text-primary" aria-label={`Select ${file.name}`} />
+            <input type="checkbox" checked={selected} onChange={onToggle} className="mt-1 h-4 w-4 rounded border-border text-primary" aria-label={`Select ${file.name}`} />
           ) : null}
           <button type="button" onClick={onOpen} className="min-w-0 flex-1 text-left">
-            <div className="mb-3 aspect-[4/3] overflow-hidden rounded-[1rem] border border-slate-200 bg-slate-50">
+            <div className="mb-3 aspect-[4/3] overflow-hidden rounded-[1rem] border border-border bg-muted">
               <img src={thumbnailUrl} alt="" loading="lazy" className="h-full w-full object-cover" onError={(event) => { event.currentTarget.style.display = 'none'; }} />
             </div>
             <div className="flex items-start gap-2">
               <Icon size={16} className="mt-0.5 shrink-0 text-primary" />
-              <h3 className="line-clamp-2 min-h-10 text-sm font-semibold text-slate-950">{file.name}</h3>
+              <h3 className="line-clamp-2 min-h-10 text-sm font-semibold text-foreground">{file.name}</h3>
             </div>
-            <p className="mt-2 truncate text-xs text-slate-500">{file.relative_path}</p>
-            <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">
+            <p className="mt-2 truncate text-xs text-muted-foreground">{file.relative_path}</p>
+            <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">
               {file.page_count ? `${file.page_count} pages available for inline preview.` : 'Open to inspect the live document preview and metadata.'}
             </p>
           </button>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-          <span className="rounded-full bg-[hsl(210_20%_98%)] px-2 py-1 font-semibold text-slate-700">{typeLabel}</span>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="rounded-full bg-muted px-2 py-1 font-semibold text-foreground">{typeLabel}</span>
           <span>{formatBytes(file.size_bytes)}</span>
           <span>{formatDate(file.modified_at)}</span>
           <FileIndexingStatus status={file.indexing_status} stage={file.indexing_stage} safeMessage={file.indexing_safe_message}
@@ -185,9 +185,9 @@ function FileCard({
   }
 
   return (
-    <div className={cn('grid min-w-[48rem] grid-cols-[2rem_minmax(18rem,1fr)_7rem_8rem_8rem_8rem] items-center border-b border-slate-100 px-3 py-2.5 text-sm last:border-b-0 hover:bg-slate-50', selected && 'bg-[#f0f7ed]/80')}>
-      {selectable ? <input type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 rounded border-slate-300 text-primary" aria-label={`Select ${file.name}`} /> : <span />}
-      <button type="button" onClick={onOpen} className="flex min-w-0 items-center gap-3 text-left"><Icon size={16} className="text-primary" /><span className="truncate font-medium text-slate-800">{file.name}</span></button>
+    <div className={cn('grid min-w-[48rem] grid-cols-[2rem_minmax(18rem,1fr)_7rem_8rem_8rem_8rem] items-center border-b border-border px-3 py-2.5 text-sm last:border-b-0 hover:bg-muted', selected && 'bg-accent/80')}>
+      {selectable ? <input type="checkbox" checked={selected} onChange={onToggle} className="h-4 w-4 rounded border-border text-primary" aria-label={`Select ${file.name}`} /> : <span />}
+      <button type="button" onClick={onOpen} className="flex min-w-0 items-center gap-3 text-left"><Icon size={16} className="text-primary" /><span className="truncate font-medium text-foreground">{file.name}</span></button>
       <span>{typeLabel}</span>
       <span>{formatBytes(file.size_bytes)}</span>
       <span>{formatDate(file.modified_at)}</span>
@@ -260,8 +260,8 @@ export default function CorpusExplorer({
     <div className={cn('flex h-full min-h-0 flex-col overflow-hidden', className)} data-testid={`corpus-explorer-${mode}`}>
       <div className="grid gap-3 xl:grid-cols-[minmax(18rem,1fr)_auto]">
         <label className="relative block min-w-0">
-          <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
-          <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search Corpus..." className="h-12 w-full rounded-xl border border-slate-200 bg-white px-12 text-sm font-medium text-slate-800 shadow-sm focus:border-primary focus:ring-2 focus:ring-primary/15" data-testid="input-corpus-search" />
+          <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search Corpus..." className="h-12 w-full rounded-xl border border-border bg-card px-12 text-sm font-medium text-foreground shadow-sm focus:border-primary focus:ring-2 focus:ring-primary/15" data-testid="input-corpus-search" />
         </label>
         <div className="flex flex-wrap items-center gap-2">
           {mode === 'browse' ? (
@@ -272,48 +272,48 @@ export default function CorpusExplorer({
           ) : (
             <>
               <button type="button" onClick={selectVisible} className="ce-action h-12 px-3"><CheckSquare size={16} />Select visible</button>
-              <button type="button" onClick={() => onSelectionChange([])} className="ce-action h-12 px-3 text-[#8a4c32] hover:bg-[#fff5f0]">Clear</button>
+              <button type="button" onClick={() => onSelectionChange([])} className="ce-action h-12 px-3 text-destructive hover:bg-destructive/10">Clear</button>
             </>
           )}
           <button type="button" onClick={() => { treeQuery.refetch(); folderQuery.refetch(); }} className="ce-action h-12 px-3" aria-label="Refresh Corpus"><RefreshCcw size={16} />Refresh</button>
         </div>
       </div>
 
-      {(treeQuery.isError||folderQuery.isError)&&<div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-800">The local knowledge service is unavailable. Retry when the backend is ready.</div>}
+      {(treeQuery.isError||folderQuery.isError)&&<div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive">The local knowledge service is unavailable. Retry when the backend is ready.</div>}
 
       <div className="mt-4 flex min-h-0 flex-1 gap-5 overflow-hidden">
-        <aside className="hidden w-72 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:flex xl:flex-col">
-          <div className="border-b border-slate-200 p-3 text-sm font-semibold text-slate-900">Corpus Tree</div>
+        <aside className="hidden w-72 shrink-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm xl:flex xl:flex-col">
+          <div className="border-b border-border p-3 text-sm font-semibold text-foreground">Corpus Tree</div>
           <div className="scrollbar-soft flex-1 overflow-y-auto p-3">
             {root ? (
               <CorpusTree node={root} activePath={activePath} expanded={expandedPaths} onToggle={(path) => setExpandedPaths((current) => { const next = new Set(current); next.has(path) ? next.delete(path) : next.add(path); return next; })} onSelect={setActivePath} />
             ) : (
-              <p className="text-sm text-slate-500">Corpus tree unavailable.</p>
+              <p className="text-sm text-muted-foreground">Corpus tree unavailable.</p>
             )}
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <main className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase text-slate-500">{mode === 'select' ? 'Manage Context' : 'Knowledge Center'}</p>
-              <h1 className="safe-text mt-1 truncate text-xl font-semibold text-slate-950">{folderResponse?.folder.name || 'Corpus root'}</h1>
-              <p className="safe-text mt-1 truncate text-xs text-slate-500">{folderResponse?.folder.relative_path || 'Root'} / {filteredFolders.length} folders / {filteredFiles.length} files</p>
+              <p className="text-xs font-semibold uppercase text-muted-foreground">{mode === 'select' ? 'Manage Context' : 'Knowledge Center'}</p>
+              <h1 className="safe-text mt-1 truncate text-xl font-semibold text-foreground">{folderResponse?.folder.name || 'Corpus root'}</h1>
+              <p className="safe-text mt-1 truncate text-xs text-muted-foreground">{folderResponse?.folder.relative_path || 'Root'} / {filteredFolders.length} folders / {filteredFiles.length} files</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <span className="ce-badge ce-badge-accent px-2.5 py-1 text-xs">{selectedDocs} docs / {selectedFolders} folders</span>
-              <select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700" aria-label="Sort Corpus items">
+              <select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} className="h-10 rounded-xl border border-border bg-card px-3 text-sm font-semibold text-foreground" aria-label="Sort Corpus items">
                 <option value="latest">Latest</option>
                 <option value="name">Name</option>
                 <option value="type">Type</option>
               </select>
-              <button type="button" onClick={() => setViewMode('grid')} className={cn('ce-icon-button', viewMode === 'grid' && 'bg-[#f0f7ed] text-primary')} aria-label="Grid view"><Grid3X3 size={16} /></button>
-              <button type="button" onClick={() => setViewMode('list')} className={cn('ce-icon-button', viewMode === 'list' && 'bg-[#f0f7ed] text-primary')} aria-label="List view"><List size={16} /></button>
+              <button type="button" onClick={() => setViewMode('grid')} className={cn('ce-icon-button', viewMode === 'grid' && 'bg-accent text-primary')} aria-label="Grid view"><Grid3X3 size={16} /></button>
+              <button type="button" onClick={() => setViewMode('list')} className={cn('ce-icon-button', viewMode === 'list' && 'bg-accent text-primary')} aria-label="List view"><List size={16} /></button>
             </div>
           </div>
 
           <div className="scrollbar-soft h-full overflow-y-auto p-4 pb-28">
-            {treeQuery.isLoading || folderQuery.isLoading ? <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">Loading Corpus...</div> : null}
+            {treeQuery.isLoading || folderQuery.isLoading ? <div className="rounded-xl border border-border bg-muted p-4 text-sm text-muted-foreground">Loading Corpus...</div> : null}
             {filteredFolders.length > 0 && (
               <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {filteredFolders.map((folder) => (
@@ -322,10 +322,10 @@ export default function CorpusExplorer({
               </div>
             )}
             {filteredFiles.length === 0 && filteredFolders.length === 0 ? (
-              <div className="flex min-h-56 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-10 text-center">
-                <Search size={24} className="text-slate-400" />
-                <h3 className="mt-3 text-sm font-semibold text-slate-800">No Corpus items found</h3>
-                <p className="mt-1 max-w-sm text-sm text-slate-500">Try another folder or search term.</p>
+              <div className="flex min-h-56 flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card px-4 py-10 text-center">
+                <Search size={24} className="text-muted-foreground" />
+                <h3 className="mt-3 text-sm font-semibold text-foreground">No Corpus items found</h3>
+                <p className="mt-1 max-w-sm text-sm text-muted-foreground">Try another folder or search term.</p>
               </div>
             ) : viewMode === 'grid' ? (
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -334,7 +334,7 @@ export default function CorpusExplorer({
                 ))}
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-slate-200">
+              <div className="overflow-x-auto rounded-xl border border-border">
                 {filteredFiles.map((file) => (
                   <FileCard key={file.id} file={file} selected={selectedIds.has(file.id)} viewMode="list" selectable={selectable && file.indexing_status === 'indexed'} onToggle={() => toggleSelection(corpusDocumentToContext(file))} onOpen={() => navigate(`/knowledge/document/${encodeURIComponent(file.id)}`)} />
                 ))}
@@ -345,7 +345,7 @@ export default function CorpusExplorer({
       </div>
 
       {mode === 'select' ? (
-        <div className="mt-3 flex shrink-0 flex-col gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-3 flex shrink-0 flex-col gap-2 rounded-xl border border-border bg-card px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-wrap gap-2">
             {selectedItems.slice(0, 4).map((item) => (
               <span key={item.id} className="ce-badge max-w-48 truncate px-2.5 py-1 text-xs">{item.title}</span>

@@ -14,31 +14,31 @@ export default function UploadModal({ open, onClose }: UploadModalProps) {
       className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
       data-testid="upload-modal"
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between p-5 border-b border-[#e2eedd]">
-          <h2 className="text-base font-semibold text-[#1a2e14]">Upload Document</h2>
+      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between p-5 border-b border-border">
+          <h2 className="text-base font-semibold text-foreground">Upload Document</h2>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-[#f0f7ed]"
+            className="p-1.5 rounded-lg hover:bg-accent"
             data-testid="button-close-modal"
           >
-            <X size={16} className="text-[#5a7a52]" />
+            <X size={16} className="text-muted-foreground" />
           </button>
         </div>
 
         <div className="p-5 space-y-4">
           {/* Drop zone */}
-          <div className="border-2 border-dashed border-[#ddecd6] rounded-xl p-8 text-center bg-[#f8fdf6]">
+          <div className="border-2 border-dashed border-border rounded-xl p-8 text-center bg-muted">
             <Upload size={24} className="text-[#9ab88e] mx-auto mb-2" />
-            <p className="text-sm text-[#5a7a52] font-medium">Drop files here or click to browse</p>
+            <p className="text-sm text-muted-foreground font-medium">Drop files here or click to browse</p>
             <p className="text-xs text-[#9ab88e] mt-1">PDF, DOC, DOCX, XLS up to 50MB</p>
           </div>
 
           {/* Document Name */}
           <div>
-            <label className="block text-xs font-medium text-[#1a2e14] mb-1.5">Document Name</label>
+            <label className="block text-xs font-medium text-foreground mb-1.5">Document Name</label>
             <input
-              className="w-full border border-[#ddecd6] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4a7c3f]/30 focus:border-[#4a7c3f]"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30 focus:border-ring"
               placeholder="Enter document name"
               data-testid="input-doc-name"
             />
@@ -46,9 +46,9 @@ export default function UploadModal({ open, onClose }: UploadModalProps) {
 
           {/* Category */}
           <div>
-            <label className="block text-xs font-medium text-[#1a2e14] mb-1.5">Category</label>
+            <label className="block text-xs font-medium text-foreground mb-1.5">Category</label>
             <select
-              className="w-full border border-[#ddecd6] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4a7c3f]/30"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
               data-testid="select-category"
             >
               <option value="">Select Category</option>
@@ -58,9 +58,9 @@ export default function UploadModal({ open, onClose }: UploadModalProps) {
 
           {/* Department */}
           <div>
-            <label className="block text-xs font-medium text-[#1a2e14] mb-1.5">Department</label>
+            <label className="block text-xs font-medium text-foreground mb-1.5">Department</label>
             <select
-              className="w-full border border-[#ddecd6] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4a7c3f]/30"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
               data-testid="select-department"
             >
               <option value="">Select Department</option>
@@ -70,9 +70,9 @@ export default function UploadModal({ open, onClose }: UploadModalProps) {
 
           {/* Type */}
           <div>
-            <label className="block text-xs font-medium text-[#1a2e14] mb-1.5">Type</label>
+            <label className="block text-xs font-medium text-foreground mb-1.5">Type</label>
             <select
-              className="w-full border border-[#ddecd6] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4a7c3f]/30"
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
               data-testid="select-type"
             >
               <option value="">Select Type</option>
@@ -81,10 +81,10 @@ export default function UploadModal({ open, onClose }: UploadModalProps) {
           </div>
         </div>
 
-        <div className="flex gap-3 p-5 border-t border-[#e2eedd]">
+        <div className="flex gap-3 p-5 border-t border-border">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2.5 border border-[#ddecd6] text-sm font-medium text-[#5a7a52] rounded-lg hover:bg-[#f0f7ed] transition-colors"
+            className="flex-1 px-4 py-2.5 border border-border text-sm font-medium text-muted-foreground rounded-lg hover:bg-accent transition-colors"
             data-testid="button-cancel-upload"
           >
             Cancel
