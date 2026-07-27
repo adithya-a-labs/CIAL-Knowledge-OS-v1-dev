@@ -31,7 +31,7 @@ export default function SourceViewerPanel({
 
   if (isDesktopViewport) {
     return (
-      <aside className="h-full min-h-0 w-full overflow-hidden bg-white" data-testid="source-viewer-panel">
+      <aside className="h-full min-h-0 w-full overflow-hidden bg-card" data-testid="source-viewer-panel">
         <DocumentViewerPanel source={source} sources={sources} onClose={onClose} onSelectSource={onSelectSource} />
       </aside>
     );
@@ -40,7 +40,7 @@ export default function SourceViewerPanel({
   return (
     <div className="fixed inset-0 z-50" data-testid="source-viewer-mobile">
       <button className="absolute inset-0 bg-black/45" onClick={onClose} aria-label="Close source viewer overlay" />
-      <div className="relative ml-auto flex h-full w-full max-w-[32rem] flex-col border-l border-border bg-white shadow-2xl">
+      <div className="relative ml-auto flex h-full w-full max-w-[32rem] flex-col border-l border-border bg-card shadow-2xl">
         <DocumentViewerPanel source={source} sources={sources} onClose={onClose} onSelectSource={onSelectSource} />
       </div>
     </div>

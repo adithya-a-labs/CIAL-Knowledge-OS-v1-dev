@@ -37,7 +37,7 @@ export default function ComposerMoreMenu({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-600 transition hover:bg-[#f1f6ee] hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-accent hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
           aria-label="Open more query settings"
           data-testid="button-composer-more"
         >

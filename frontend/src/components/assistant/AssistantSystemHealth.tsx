@@ -5,16 +5,16 @@ import { cn } from '@/lib/utils';
 
 const colors = {
   green: 'border-emerald-200 bg-emerald-50 text-emerald-800',
-  blue: 'border-blue-200 bg-blue-50 text-blue-800',
-  yellow: 'border-amber-200 bg-amber-50 text-amber-900',
-  red: 'border-red-200 bg-red-50 text-red-800',
+  blue: 'border-info/30 bg-info/10 text-info-foreground',
+  yellow: 'border-warning/30 bg-warning/10 text-warning-foreground',
+  red: 'border-destructive/30 bg-destructive/10 text-destructive',
 } as const;
 
 const dots = {
   green: 'bg-emerald-500',
-  blue: 'bg-blue-500',
-  yellow: 'bg-amber-500',
-  red: 'bg-red-500',
+  blue: 'bg-info/100',
+  yellow: 'bg-warning/100',
+  red: 'bg-destructive/100',
 } as const;
 
 export default function AssistantSystemHealth() {
@@ -44,27 +44,27 @@ export default function AssistantSystemHealth() {
       {expanded ? (
         <div
           id="assistant-system-health-details"
-          className="absolute right-0 top-10 z-40 w-[min(22rem,calc(100vw-1.5rem))] rounded-xl border border-slate-200 bg-white p-4 text-xs text-slate-700 shadow-xl"
+          className="absolute right-0 top-10 z-40 w-[min(22rem,calc(100vw-1.5rem))] rounded-xl border border-popover-border bg-popover p-4 text-xs text-popover-foreground shadow-xl"
         >
-          <div className="mb-3 flex items-center gap-2 font-semibold text-slate-950">
+          <div className="mb-3 flex items-center gap-2 font-semibold text-foreground">
             <Activity size={15} />
             AI Assistant runtime
           </div>
           {status ? (
             <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2">
-              <dt className="text-slate-500">Generation</dt>
+              <dt className="text-muted-foreground">Generation</dt>
               <dd className="truncate text-right font-medium">{status.index.generation || 'None published'}</dd>
-              <dt className="text-slate-500">Queue</dt>
+              <dt className="text-muted-foreground">Queue</dt>
               <dd className="text-right font-medium">{status.indexing.queue_depth} active</dd>
-              <dt className="text-slate-500">Worker</dt>
+              <dt className="text-muted-foreground">Worker</dt>
               <dd className="truncate text-right font-medium">{status.indexing.worker_state}</dd>
-              <dt className="text-slate-500">GPU</dt>
+              <dt className="text-muted-foreground">GPU</dt>
               <dd className="truncate text-right font-medium">
                 {status.gpu.available ? `${status.gpu.utilization_percent ?? 0}% · ${status.gpu.device}` : 'Not available'}
               </dd>
-              <dt className="text-slate-500">Model</dt>
+              <dt className="text-muted-foreground">Model</dt>
               <dd className="truncate text-right font-medium" title={status.models.ollama}>{status.models.ollama}</dd>
-              <dt className="text-slate-500">Checked</dt>
+              <dt className="text-muted-foreground">Checked</dt>
               <dd className="text-right font-medium">{new Date(status.timestamps.generated_at).toLocaleTimeString()}</dd>
             </dl>
           ) : (

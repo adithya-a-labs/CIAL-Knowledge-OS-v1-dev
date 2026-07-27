@@ -52,7 +52,7 @@ export default function DocumentPreviewRenderer({
 
   if (!preview) {
     return (
-      <div className="rounded-2xl border border-dashed border-border bg-[hsl(210_20%_98%)] p-5 text-center text-sm text-muted-foreground">
+      <div className="rounded-2xl border border-dashed border-border bg-muted p-5 text-center text-sm text-muted-foreground">
         Select a citation to open the document viewer.
       </div>
     );
@@ -63,19 +63,19 @@ export default function DocumentPreviewRenderer({
     const viewerSrc = `${viewerUrl}#page=${resolvedPage}`;
     const iframeKey = `${preview.document_id || preview.file_url || viewerUrl}-${resolvedPage}`;
     return (
-      <div className="flex h-full min-h-[28rem] flex-col overflow-hidden rounded-[1.5rem] border border-border bg-[hsl(210_20%_98%)]">
+      <div className="flex h-full min-h-[28rem] flex-col overflow-hidden rounded-[1.5rem] border border-border bg-muted">
         <iframe
           key={iframeKey}
           src={viewerSrc}
           title={title}
-          className="min-h-0 flex-1 bg-white"
+          className="min-h-0 flex-1 bg-card"
           data-testid="native-pdf-viewer"
           onLoad={() => {
             if (preview.page_count) onPageCountChange(preview.page_count);
             onActivePageChange(resolvedPage);
           }}
         />
-        <div className="border-t border-border bg-white px-4 py-2 text-xs text-muted-foreground">
+        <div className="border-t border-border bg-card px-4 py-2 text-xs text-muted-foreground">
           If the browser cannot display this PDF inline, use Open or Download from the document toolbar.
         </div>
       </div>
@@ -84,7 +84,7 @@ export default function DocumentPreviewRenderer({
 
   if (viewerIsPdf) {
     return (
-      <div className="flex h-full min-h-[24rem] items-center justify-center rounded-[1.5rem] border border-border bg-[hsl(210_20%_98%)] p-6 text-center">
+      <div className="flex h-full min-h-[24rem] items-center justify-center rounded-[1.5rem] border border-border bg-muted p-6 text-center">
         <div className="max-w-md">
           <p className="text-sm font-semibold text-foreground">PDF preview available</p>
           <p className="mt-2 text-xs leading-5 text-muted-foreground">

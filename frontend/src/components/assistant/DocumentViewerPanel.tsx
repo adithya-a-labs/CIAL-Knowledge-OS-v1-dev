@@ -158,23 +158,23 @@ function SourceFallback({
   })();
 
   return (
-    <div className="flex h-full min-h-0 items-center justify-center bg-[#f7f9f6] px-6 py-8">
-      <div className="w-full max-w-xl rounded-xl border border-[#dce4d8] bg-white p-5">
+    <div className="flex h-full min-h-0 items-center justify-center bg-muted px-6 py-8">
+      <div className="w-full max-w-xl rounded-xl border border-border bg-card p-5">
         <div className="flex items-start gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#eef5e8] text-primary">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent text-primary">
             <FileSearch size={18} />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-semibold text-slate-950">Source preview unavailable</h3>
-            <p className="mt-1 text-xs leading-5 text-slate-600">
+            <h3 className="text-sm font-semibold text-foreground">Source preview unavailable</h3>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
               {reason}
             </p>
           </div>
         </div>
 
-        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Cited excerpt</p>
-          <p className="safe-text mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-800">{excerpt}</p>
+        <div className="mt-4 rounded-lg border border-border bg-muted px-3 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Cited excerpt</p>
+          <p className="safe-text mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">{excerpt}</p>
         </div>
 
         {workspaceHref ? (
@@ -281,11 +281,11 @@ export default function DocumentViewerPanel({
 
   if (!source) {
     return (
-      <div className="flex h-full flex-col bg-white">
+      <div className="flex h-full flex-col bg-card">
         <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-8">
-          <div className="rounded-xl border border-dashed border-[#dce4d8] bg-[#f7f9f6] px-6 py-8 text-center">
-            <FileSearch className="mx-auto text-slate-400" size={30} />
-            <p className="mt-3 text-sm font-semibold text-slate-900">No source selected</p>
+          <div className="rounded-xl border border-dashed border-border bg-muted px-6 py-8 text-center">
+            <FileSearch className="mx-auto text-muted-foreground" size={30} />
+            <p className="mt-3 text-sm font-semibold text-foreground">No source selected</p>
           </div>
         </div>
       </div>
@@ -306,7 +306,7 @@ export default function DocumentViewerPanel({
   const shouldRenderPreview = showRenderablePreview && hasExactPdfPage;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-white" data-testid="document-viewer-panel">
+    <div className="flex h-full min-h-0 flex-col bg-card" data-testid="document-viewer-panel">
       <DocumentToolbar
         title={title}
         documentId={source.documentId}
@@ -326,9 +326,9 @@ export default function DocumentViewerPanel({
         onClose={onClose}
       />
 
-      <div className="min-h-0 flex-1 overflow-hidden bg-[#f7f9f6] p-3">
+      <div className="min-h-0 flex-1 overflow-hidden bg-muted p-3">
         {previewQuery.isLoading ? (
-          <div className="flex h-full items-center justify-center px-6 text-sm text-slate-500">
+          <div className="flex h-full items-center justify-center px-6 text-sm text-muted-foreground">
             Loading source preview...
           </div>
         ) : shouldRenderPreview || pdfPreview ? (

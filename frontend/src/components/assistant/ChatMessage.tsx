@@ -186,7 +186,7 @@ function CitationInlineGroup({
               type="button"
               disabled={!source}
               onClick={() => source && onCitationClick(source)}
-              className="inline-flex min-h-5 items-center justify-center rounded-full border border-[hsl(95_28%_78%)] bg-[hsl(95_24%_94%)] px-1.5 text-[10px] font-bold text-primary align-middle hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-40"
+              className="inline-flex min-h-5 items-center justify-center rounded-full border border-primary/25 bg-primary/10 px-1.5 text-[10px] font-bold text-primary align-middle transition-colors duration-[160ms] hover:border-primary/40 hover:bg-primary/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-40"
               data-testid={`inline-citation-${reference.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`}
               aria-label={`Open citation ${reference.label}`}
             >
@@ -220,12 +220,12 @@ function createMarkdownComponents(
       <p className="safe-text my-2 max-w-[76rem] text-foreground">{children}</p>
     ),
     ol: ({ children }: ComponentPropsWithoutRef<'ol'>) => (
-      <ol className="my-3 list-decimal space-y-2 pl-6 marker:font-semibold marker:text-slate-500 [&_ol]:mt-2 [&_ul]:mt-2">
+      <ol className="my-3 list-decimal space-y-2 pl-6 marker:font-semibold marker:text-muted-foreground [&_ol]:mt-2 [&_ul]:mt-2">
         {children}
       </ol>
     ),
     ul: ({ children }: ComponentPropsWithoutRef<'ul'>) => (
-      <ul className="my-3 list-disc space-y-2 pl-6 marker:text-slate-500 [&_ol]:mt-2 [&_ul]:mt-2">
+      <ul className="my-3 list-disc space-y-2 pl-6 marker:text-muted-foreground [&_ol]:mt-2 [&_ul]:mt-2">
         {children}
       </ul>
     ),
@@ -235,13 +235,13 @@ function createMarkdownComponents(
       </li>
     ),
     blockquote: ({ children }: ComponentPropsWithoutRef<'blockquote'>) => (
-      <blockquote className="my-4 border-l-2 border-[#d8e5ef] bg-[#f7fafc] py-2 pl-4 pr-3 text-slate-700">
+      <blockquote className="my-4 rounded-r-xl border-l-2 border-primary/45 bg-primary/[0.04] py-2 pl-4 pr-3 text-foreground/90">
         {children}
       </blockquote>
     ),
     pre: ({ children }: ComponentPropsWithoutRef<'pre'>) => (
       <div className="w-full">
-        <pre className="scrollbar-soft my-4 w-full overflow-x-auto rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-[12px] leading-6 text-slate-100">
+        <pre className="scrollbar-soft my-4 w-full overflow-x-auto rounded-2xl border border-border bg-code-block px-4 py-3 text-[12px] leading-6 text-foreground">
           {children}
         </pre>
       </div>
@@ -252,24 +252,24 @@ function createMarkdownComponents(
       if (isBlockCode) {
         return <code className={className}>{children}</code>;
       }
-      return <code className="rounded bg-muted px-1.5 py-0.5 text-[0.9em] font-mono text-foreground">{children}</code>;
+      return <code className="rounded border border-border bg-code-block px-1.5 py-0.5 text-[0.9em] font-mono text-foreground">{children}</code>;
     },
     table: ({ children }: ComponentPropsWithoutRef<'table'>) => (
-      <div className="scrollbar-soft my-4 w-full overflow-x-auto rounded-2xl border border-[#dce4d8] bg-white">
+      <div className="scrollbar-soft my-4 w-full overflow-x-auto rounded-2xl border border-border bg-card/80 shadow-xs">
         <table className="w-full min-w-[42rem] border-collapse text-left text-sm">{children}</table>
       </div>
     ),
     thead: ({ children }: ComponentPropsWithoutRef<'thead'>) => (
-      <thead className="bg-[hsl(95_24%_96%)]">{children}</thead>
+      <thead className="bg-muted/70">{children}</thead>
     ),
     tbody: ({ children }: ComponentPropsWithoutRef<'tbody'>) => (
       <tbody>{children}</tbody>
     ),
     tr: ({ children }: ComponentPropsWithoutRef<'tr'>) => (
-      <tr className="border-b border-[#eef2eb] last:border-b-0">{children}</tr>
+      <tr className="border-b border-border/70 transition-colors duration-[160ms] last:border-b-0 hover:bg-muted/35">{children}</tr>
     ),
     th: ({ children }: ComponentPropsWithoutRef<'th'>) => (
-      <th className="safe-text border-b border-[#dce4d8] px-3 py-2.5 text-left font-semibold text-foreground [&_p]:my-0 [&_p]:max-w-none">
+      <th className="safe-text border-b border-border px-3 py-2.5 text-left font-semibold text-foreground [&_p]:my-0 [&_p]:max-w-none">
         {children}
       </th>
     ),
@@ -366,12 +366,12 @@ export default function ChatMessage({
   return (
     <div className={`flex w-full ${isCentered ? 'justify-center' : 'justify-start'}`} data-testid={`chat-message-ai-${message.id}`}>
       <div style={cardWidthStyle} className="space-y-3 pr-1 transition-all duration-200">
-        <div className="rounded-[1.5rem] border border-[#dfe6dc] bg-white px-5 py-4 shadow-sm lg:px-6">
+        <div className="assistant-answer rounded-[1.5rem] border border-border bg-card px-5 py-4 shadow-sm lg:px-6">
           <div className="flex items-start gap-4">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white" aria-hidden="true"><Sparkles size={17} /></span>
             <div className="min-w-0 flex-1">
               <div className="mb-2 flex items-center justify-between gap-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{message.metadata?.transformationLabel ?? 'Grounded response'}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{message.metadata?.transformationLabel ?? 'Grounded response'}</p>
                 <span className="ce-meta-text">{message.timestamp}</span>
               </div>
               <div className={`w-full ${fontSizeClass}`} data-testid="assistant-markdown">
@@ -388,7 +388,7 @@ export default function ChatMessage({
         {hasCitations ? <SourceCitationCard sources={sources} onOpenSource={onSourceOpen} includeExcerpts={includeSourceExcerpts} /> : null}
 
         {message.relatedQuestions && message.relatedQuestions.length > 0 && (
-          <div className="rounded-2xl bg-white/90 p-3 ring-1 ring-black/5">
+          <div className="rounded-2xl border border-border/70 bg-card/90 p-3 shadow-xs">
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Related questions</p>
             <div className="flex flex-wrap gap-2">
               {message.relatedQuestions.map((question) => (
@@ -465,7 +465,7 @@ export default function ChatMessage({
                 className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
                   active
                     ? 'border-primary bg-primary text-white'
-                    : 'border-border bg-white text-muted-foreground hover:bg-muted hover:text-foreground'
+                    : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
                 data-testid={`button-feedback-${option.value}-${message.id}`}
                 aria-pressed={active}

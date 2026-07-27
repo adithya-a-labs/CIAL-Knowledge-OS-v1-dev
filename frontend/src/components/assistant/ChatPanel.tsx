@@ -569,19 +569,19 @@ export default function ChatPanel() {
             documentId: toUuidDocumentId(source.documentId) ?? source.documentId,
           }));
   const chatWorkspace = (
-      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-testid="chat-panel">
+      <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-testid="chat-panel">
         <div
             ref={chatMessagesRef}
-            className="scrollbar-soft min-h-0 flex-1 overflow-y-auto bg-[#fbfcfa] px-3 py-4 sm:px-4 xl:px-5"
+            className="scrollbar-soft min-h-0 flex-1 overflow-y-auto bg-transparent px-3 pb-44 pt-4 sm:px-4 xl:px-5"
             data-testid="chat-messages"
         >
           {messages.length === 0 ? (
               <div className="mx-auto flex h-full min-h-[36vh] max-w-2xl flex-col items-center justify-center px-4 py-10 text-center">
-                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-[#25611f]/10 text-[#25611f]">
+                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <Bot size={22} />
                 </div>
-                <h2 className="text-xl font-semibold tracking-tight text-slate-900">How can I help you today?</h2>
-                <p className="mb-6 mt-2 text-sm text-slate-500">
+                <h2 className="text-xl font-semibold tracking-tight text-foreground">How can I help you today?</h2>
+                <p className="mb-6 mt-2 text-sm text-muted-foreground">
                   Ask questions, scope knowledge, or analyze files in this grounded workspace.
                 </p>
                 {visibleSuggestedPrompts.length > 0 && (
@@ -591,7 +591,7 @@ export default function ChatPanel() {
                               key={prompt}
                               type="button"
                               onClick={() => setInput(prompt)}
-                              className="inline-flex min-h-9 items-center rounded-md border border-[#dce4d8] bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-[#f6f8f5] hover:border-slate-300"
+                              className="inline-flex min-h-9 items-center rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted hover:border-border"
                           >
                             {prompt}
                           </button>
@@ -626,9 +626,9 @@ export default function ChatPanel() {
             {streamingText && <ChatMessage key="streaming-response" message={{ id: 'streaming-response', role: 'assistant', content: streamingText, timestamp: 'Generating…' }} chatWidth={chatMessagesWidth} onCitationClick={openSource} onSourceOpen={openSource} onRelatedQuestionClick={setInput} onCopy={copyResponse} onAction={handleResponseAction} loadingAction={undefined} onFeedback={handleFeedback} includeSourceExcerpts={includeSourceExcerpts} showRetrievalDetails={showRetrievalDetails}/>}
 
             {errorMessage && (
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" data-testid="assistant-error" role="alert">
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive" data-testid="assistant-error" role="alert">
                 <span>{errorMessage}</span>
-                {retryQuestionRef.current ? <button type="button" className="inline-flex shrink-0 items-center gap-1 rounded px-2 py-1 font-semibold hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500" onClick={() => void handleSend(retryQuestionRef.current ?? undefined)}><RefreshCw size={14}/>Retry</button> : null}
+                {retryQuestionRef.current ? <button type="button" className="inline-flex shrink-0 items-center gap-1 rounded px-2 py-1 font-semibold hover:bg-destructive/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500" onClick={() => void handleSend(retryQuestionRef.current ?? undefined)}><RefreshCw size={14}/>Retry</button> : null}
               </div>
             )}
           </div>
@@ -637,12 +637,12 @@ export default function ChatPanel() {
       </div>
 
       {backgroundIndexing > 0 && chatReady ? (
-        <div className="mx-4 mb-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status">
+        <div className="mx-4 mb-1 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-foreground" role="status">
           Updating the knowledge index in the background ({backgroundIndexing} queued or processing). You can keep chatting with the current index.
         </div>
       ) : null}
 
-      <div className="shrink-0 bg-white px-2 pb-2 pt-1 sm:px-4 sm:pb-3">
+      <div className="assistant-composer-dock pointer-events-none absolute inset-x-0 bottom-0 z-20 px-2 pb-2 pt-8 sm:px-4 sm:pb-3">
         <AIComposerFrame>
           <input
             ref={fileInputRef}
@@ -666,7 +666,7 @@ export default function ChatPanel() {
               }}
               rows={1}
               placeholder="Ask a grounded question"
-              className="block max-h-40 min-h-9 w-full resize-none overflow-y-auto bg-transparent py-1 text-[15px] leading-6 text-foreground outline-none placeholder:text-slate-500 sm:text-base"
+              className="block max-h-40 min-h-9 w-full resize-none overflow-y-auto bg-transparent py-1 text-[15px] leading-6 text-foreground outline-none placeholder:text-muted-foreground sm:text-base"
               data-testid="input-chat"
             />
           </div>
@@ -675,7 +675,7 @@ export default function ChatPanel() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-600 transition hover:bg-[#f1f6ee] hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-accent hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
               aria-label="Attach files"
               title="Attach files"
               data-testid="button-attach-file"
@@ -719,7 +719,7 @@ export default function ChatPanel() {
             type="button"
             onClick={() => void handleSend()}
             disabled={!input.trim() || isLoading || blockingAttachments.length > 0}
-            className="col-start-2 row-span-2 row-start-1 mb-3 mr-3 inline-flex h-11 w-11 self-end items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition hover:bg-[#285f22] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:bg-[#d9dfd7] disabled:text-slate-500 disabled:shadow-none sm:h-12 sm:w-12"
+            className="col-start-2 row-span-2 row-start-1 mb-3 mr-3 inline-flex h-11 w-11 self-end items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition hover:bg-primary/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none sm:h-12 sm:w-12"
             data-testid="button-send"
             aria-label={chatReady ? 'Send message' : healthLabel}
             title={chatReady ? 'Send message' : healthLabel}
@@ -728,7 +728,7 @@ export default function ChatPanel() {
           </button>
         </AIComposerFrame>
 
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-1 pt-1.5 text-[11px] leading-4 text-slate-500">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-1 pb-1 pt-2 text-[11px] leading-4 text-muted-foreground/90">
           <span>CIAL Knowledge OS uses AI to assist with enterprise knowledge. Responses may contain mistakes.</span>
           <span className="hidden shrink-0 sm:inline">Verify critical information against cited sources.</span>
         </div>
@@ -745,7 +745,7 @@ export default function ChatPanel() {
   );
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-white" data-testid="assistant-workspace">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-background" data-testid="assistant-workspace">
       {showDesktopSourcePane ? (
         <ResizablePanelGroup direction="horizontal" className="animate-in fade-in duration-200">
           <ResizablePanel
@@ -757,7 +757,7 @@ export default function ChatPanel() {
           >
             {chatWorkspace}
           </ResizablePanel>
-          <ResizableHandle className="w-px bg-[#e3e9e1] after:hidden animate-in fade-in duration-200" />
+          <ResizableHandle className="w-px bg-border after:hidden animate-in fade-in duration-200" />
           <ResizablePanel
             defaultSize={sourcePanelSize}
             minSize={25}

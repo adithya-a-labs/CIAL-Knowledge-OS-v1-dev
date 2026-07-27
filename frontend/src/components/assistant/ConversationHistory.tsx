@@ -46,13 +46,13 @@ export default function ConversationHistory({ variant = 'sidebar', onClose }: Co
 
   return (
     <div
-      className={variant === 'sidebar' ? 'flex h-full flex-col bg-[#fbfcfa]' : 'flex flex-col'}
+      className={variant === 'sidebar' ? 'flex h-full flex-col bg-background' : 'flex flex-col'}
       data-testid="conversation-history"
     >
-      <div className="flex items-center justify-between border-b border-[#e3e9e1] px-4 py-3">
-        <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Conversation History</h3>
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Conversation History</h3>
         <div className="flex items-center gap-2">
-          {historyError && <button className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-[#25611f] hover:bg-white" onClick={retryHistory}><RefreshCw size={12} />Retry</button>}
+          {historyError && <button className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-primary hover:bg-card" onClick={retryHistory}><RefreshCw size={12} />Retry</button>}
           {variant === 'drawer' && onClose && (
             <button
               onClick={onClose}
@@ -66,9 +66,9 @@ export default function ConversationHistory({ variant = 'sidebar', onClose }: Co
       </div>
 
       <div className={`${variant === 'sidebar' ? 'flex-1 overflow-y-auto' : ''} scrollbar-soft p-2`}>
-        {historyLoading && sessions.length === 0 && <p className="px-3 py-6 text-center text-xs text-slate-500">Loading conversations...</p>}
-        {historyError && <div className="m-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">History could not be refreshed. Current conversations were preserved.</div>}
-        {!historyLoading && !historyError && sessions.length === 0 && <p className="px-3 py-6 text-center text-xs text-slate-500">No conversations yet. Start a new chat to create one.</p>}
+        {historyLoading && sessions.length === 0 && <p className="px-3 py-6 text-center text-xs text-muted-foreground">Loading conversations...</p>}
+        {historyError && <div className="m-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-warning-foreground">History could not be refreshed. Current conversations were preserved.</div>}
+        {!historyLoading && !historyError && sessions.length === 0 && <p className="px-3 py-6 text-center text-xs text-muted-foreground">No conversations yet. Start a new chat to create one.</p>}
         {groups.map((group) => (
           <section key={group.label} className="mb-4 last:mb-0">
             <p className="mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground">
@@ -83,8 +83,8 @@ export default function ConversationHistory({ variant = 'sidebar', onClose }: Co
                     key={session.id}
                     className={`group w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
                       session.id === activeSession.id
-                        ? 'bg-white shadow-[inset_0_0_0_1px_rgba(47,109,37,0.12)]'
-                        : 'border border-transparent hover:bg-white'
+                        ? 'bg-accent text-accent-foreground shadow-[inset_2px_0_0_hsl(var(--primary))]'
+                        : 'border border-transparent hover:bg-muted'
                     }`}
                     data-testid={`history-item-${session.id}`}
                     onClick={() => {

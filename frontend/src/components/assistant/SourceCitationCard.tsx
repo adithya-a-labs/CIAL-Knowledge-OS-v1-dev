@@ -68,8 +68,8 @@ export function groupSourcesByDocument(sources: ChatSource[]): GroupedSource[] {
 
 function getSourceTypeStyles(sourceType: ChatSource['sourceType']) {
   if (sourceType === 'enterprise') return { label: 'Enterprise', className: 'ce-badge-accent' };
-  if (sourceType === 'workspace') return { label: 'Workspace', className: 'border-[#c7d8e8] bg-[#eef6fc] text-[#346c96]' };
-  return { label: 'Upload', className: 'border-[#efd8b5] bg-[#fff5e8] text-[#8a5208]' };
+  if (sourceType === 'workspace') return { label: 'Workspace', className: 'border-info/30 bg-info/10 text-info-foreground' };
+  return { label: 'Upload', className: 'border-warning/30 bg-warning/10 text-warning-foreground' };
 }
 
 function summaryDocumentLabel(groups: GroupedSource[]) {
@@ -87,25 +87,25 @@ export default function SourceCitationCard({ sources, onOpenSource, includeExcer
   const pages = Array.from(new Set(groups.flatMap((group) => group.pages)));
 
   return (
-    <div className="overflow-hidden rounded-[1.15rem] border border-[#dfe6dc] bg-white" data-testid="source-summary-accordion">
+    <div className="overflow-hidden rounded-[1.15rem] border border-border bg-card" data-testid="source-summary-accordion">
       <button
         type="button"
         onClick={() => setExpanded((current) => !current)}
-        className="flex w-full min-w-0 items-center gap-3 px-3.5 py-3 text-left transition hover:bg-[#f8faf7] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring sm:px-4"
+        className="flex w-full min-w-0 items-center gap-3 px-3.5 py-3 text-left transition hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring sm:px-4"
         aria-expanded={expanded}
         aria-controls={contentId}
         data-testid="button-toggle-sources"
       >
-        <FileText size={17} className="shrink-0 text-slate-500" />
+        <FileText size={17} className="shrink-0 text-muted-foreground" />
         <span className="shrink-0 text-sm font-semibold text-foreground">
           {sources.length} source{sources.length === 1 ? '' : 's'}
         </span>
-        <span aria-hidden="true" className="text-xs text-slate-400">•</span>
-        <span className="min-w-0 truncate text-sm text-slate-600">{summaryDocumentLabel(groups)}</span>
+        <span aria-hidden="true" className="text-xs text-muted-foreground">•</span>
+        <span className="min-w-0 truncate text-sm text-muted-foreground">{summaryDocumentLabel(groups)}</span>
         {pages.length > 0 ? (
           <>
-            <span aria-hidden="true" className="hidden text-xs text-slate-400 sm:inline">•</span>
-            <span className="hidden min-w-0 truncate text-sm text-slate-600 sm:inline">
+            <span aria-hidden="true" className="hidden text-xs text-muted-foreground sm:inline">•</span>
+            <span className="hidden min-w-0 truncate text-sm text-muted-foreground sm:inline">
               Pages {pages.join(', ')}
             </span>
           </>
@@ -116,11 +116,11 @@ export default function SourceCitationCard({ sources, onOpenSource, includeExcer
         </span>
       </button>
 
-      <div id={contentId} hidden={!expanded} className="border-t border-[#e8ede6] bg-[#fbfcfa]" data-testid="grouped-source-list">
+      <div id={contentId} hidden={!expanded} className="border-t border-border bg-background" data-testid="grouped-source-list">
         {groups.map((group) => {
           const badge = getSourceTypeStyles(group.sourceType);
           return (
-            <article key={group.key} className="border-b border-[#e8ede6] px-3.5 py-3 last:border-b-0 sm:px-4" data-testid="grouped-source-row">
+            <article key={group.key} className="border-b border-border px-3.5 py-3 last:border-b-0 sm:px-4" data-testid="grouped-source-row">
               <div className="flex min-w-0 items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -132,7 +132,7 @@ export default function SourceCitationCard({ sources, onOpenSource, includeExcer
                     <span>Citations {group.citationIds.map((id) => `[${id}]`).join(', ')}</span>
                     {group.department ? <span>{group.department}</span> : null}
                   </div>
-                  {includeExcerpts && group.excerpt ? <p className="safe-text mt-2 line-clamp-2 text-xs leading-5 text-slate-600">{group.excerpt}</p> : null}
+                  {includeExcerpts && group.excerpt ? <p className="safe-text mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">{group.excerpt}</p> : null}
                 </div>
                 <button
                   type="button"

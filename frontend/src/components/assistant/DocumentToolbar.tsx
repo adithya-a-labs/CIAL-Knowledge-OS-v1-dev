@@ -60,19 +60,19 @@ export default function DocumentToolbar({
         : 'Location unavailable';
 
   return (
-    <div className="sticky top-0 z-10 border-b border-[#e3e9e1] bg-white/95 px-4 py-3 backdrop-blur">
+    <div className="sticky top-0 z-10 border-b border-border bg-card/95 px-4 py-3 backdrop-blur">
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+          <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
             {citationIndex ? (
-              <span className="rounded-md bg-[#eef5e8] px-1.5 py-0.5 font-semibold text-primary">[{citationIndex}]</span>
+              <span className="rounded-md bg-accent px-1.5 py-0.5 font-semibold text-primary">[{citationIndex}]</span>
             ) : null}
             <span className="font-medium">{locationLabel}</span>
             <span>{total > 0 ? `${currentIndex + 1} of ${total}` : 'Citation'}</span>
           </div>
           <div className="flex min-w-0 items-center gap-2">
             <FileText size={16} className="shrink-0 text-primary" />
-            <h2 className="truncate text-sm font-semibold text-slate-950">{title}</h2>
+            <h2 className="truncate text-sm font-semibold text-foreground">{title}</h2>
           </div>
         </div>
 
@@ -81,7 +81,7 @@ export default function DocumentToolbar({
             type="button"
             disabled={!previousSource}
             onClick={onPrevious}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#dce4d8] bg-white text-slate-600 transition hover:bg-[#f6f8f5] hover:text-slate-950 disabled:opacity-40"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
             aria-label="Previous citation"
             title="Previous citation"
           >
@@ -91,7 +91,7 @@ export default function DocumentToolbar({
             type="button"
             disabled={!nextSource}
             onClick={onNext}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#dce4d8] bg-white text-slate-600 transition hover:bg-[#f6f8f5] hover:text-slate-950 disabled:opacity-40"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-40"
             aria-label="Next citation"
             title="Next citation"
           >
@@ -100,7 +100,7 @@ export default function DocumentToolbar({
           {workspaceHref ? (
             <Link
               href={workspaceHref}
-              className="inline-flex h-8 items-center justify-center rounded-md border border-[#dce4d8] bg-[#f7faf5] px-2.5 text-xs font-medium text-primary transition hover:bg-[#eef5e8]"
+              className="inline-flex h-8 items-center justify-center rounded-md border border-border bg-muted px-2.5 text-xs font-medium text-primary transition hover:bg-accent"
             >
               Open Full Workspace
             </Link>
@@ -108,7 +108,7 @@ export default function DocumentToolbar({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#dce4d8] bg-white text-slate-600 transition hover:bg-[#f6f8f5] hover:text-slate-950"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground"
             aria-label="Close source drawer"
             title="Close"
           >

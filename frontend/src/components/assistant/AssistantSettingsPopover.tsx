@@ -45,14 +45,14 @@ const searchModeOptions: SettingsOption<SearchScope>[] = [
     title: 'Enterprise Only',
     description: 'Search only the enterprise knowledge base.',
     icon: Building2,
-    iconTone: 'bg-[hsl(95_24%_94%)] text-primary',
+    iconTone: 'bg-primary/10 text-primary',
   },
   {
     value: 'workspace',
     title: 'My Workspace Only',
     description: 'Search only documents in your personal workspace.',
     icon: Folder,
-    iconTone: 'bg-[#f0edff] text-[#6b5ecf]',
+    iconTone: 'bg-accent text-accent-foreground',
   },
   {
     value: 'hybrid',
@@ -60,14 +60,14 @@ const searchModeOptions: SettingsOption<SearchScope>[] = [
     description: 'Search across enterprise knowledge and your workspace.',
     icon: Layers,
     recommended: true,
-    iconTone: 'bg-[hsl(95_24%_94%)] text-primary',
+    iconTone: 'bg-primary/10 text-primary',
   },
   {
     value: 'current_upload',
     title: 'Current Upload Only',
     description: 'Search only files uploaded in this conversation.',
     icon: FileText,
-    iconTone: 'bg-[#eef6fc] text-[#2f76b7]',
+    iconTone: 'bg-info/10 text-info-foreground',
   },
 ];
 
@@ -77,14 +77,14 @@ const responseLengthOptions: SettingsOption<ResponseLength>[] = [
     title: 'Quick',
     description: 'Short concise answers.',
     icon: Zap,
-    iconTone: 'bg-[#fff6db] text-[#a97000]',
+    iconTone: 'bg-warning/10 text-warning-foreground',
   },
   {
     value: 'standard',
     title: 'Standard',
     description: 'Balanced responses for everyday work.',
     icon: SlidersHorizontal,
-    iconTone: 'bg-[#eef6fc] text-[#2f76b7]',
+    iconTone: 'bg-info/10 text-info-foreground',
   },
   {
     value: 'detailed',
@@ -92,14 +92,14 @@ const responseLengthOptions: SettingsOption<ResponseLength>[] = [
     description: 'Comprehensive explanations with supporting context.',
     icon: ListChecks,
     recommended: true,
-    iconTone: 'bg-[hsl(95_24%_94%)] text-primary',
+    iconTone: 'bg-primary/10 text-primary',
   },
   {
     value: 'operational',
     title: 'Operational',
     description: 'Enterprise decision-ready responses with risks, citations and actionable recommendations.',
     icon: ShieldCheck,
-    iconTone: 'bg-[#f0edff] text-[#6b5ecf]',
+    iconTone: 'bg-accent text-accent-foreground',
   },
 ];
 
@@ -126,8 +126,8 @@ function OptionCard<T extends string>({
       className={cn(
         'group flex w-full items-center gap-4 rounded-xl border px-4 py-4 text-left transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
         selected
-          ? 'border-primary bg-[hsl(95_24%_94%)] shadow-sm'
-          : 'border-border bg-white hover:border-[hsl(95_28%_78%)] hover:bg-[hsl(210_20%_98%)] hover:shadow-sm'
+          ? 'border-primary/55 bg-primary/10 shadow-sm'
+          : 'border-border bg-card hover:border-border-strong hover:bg-muted hover:shadow-sm'
       )}
     >
       <span
@@ -155,10 +155,10 @@ function OptionCard<T extends string>({
         aria-hidden="true"
         className={cn(
           'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-200',
-          selected ? 'border-primary bg-primary' : 'border-[hsl(214_16%_78%)] bg-white group-hover:border-primary'
+          selected ? 'border-primary bg-primary' : 'border-border-strong bg-card group-hover:border-primary'
         )}
       >
-        {selected && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+        {selected && <span className="h-1.5 w-1.5 rounded-full bg-card" />}
       </span>
     </button>
   );
@@ -215,7 +215,7 @@ function SettingsPopover<T extends string>({
         <button
           type="button"
           disabled={disabled}
-          className="flex h-8 min-w-0 shrink-0 items-center gap-2 rounded-lg px-2 text-left transition hover:bg-[#f1f6ee] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:text-slate-700 disabled:opacity-100"
+          className="flex h-8 min-w-0 shrink-0 items-center gap-2 rounded-lg px-2 text-left transition hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:text-foreground disabled:opacity-100"
           aria-label={`Open ${title} selector`}
           aria-haspopup="dialog"
         >
@@ -232,7 +232,7 @@ function SettingsPopover<T extends string>({
       <PopoverContent
         align="start"
         sideOffset={10}
-        className="w-[min(calc(100vw-2rem),34rem)] rounded-xl border-border bg-white p-0 shadow-lg"
+        className="w-[min(calc(100vw-2rem),34rem)] rounded-xl border-popover-border bg-popover p-0 shadow-lg"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           const selectedIndex = options.findIndex((option) => option.value === value);
