@@ -10,13 +10,13 @@
 .cial-note-editor ol { list-style: decimal; }
 .cial-note-editor ul[data-type="taskList"] { list-style: none; padding: 0; }
 .cial-note-editor ul[data-type="taskList"] li { display: flex; gap: .5rem; align-items: flex-start; }
-.cial-note-editor blockquote { border-left: 3px solid #b9cab1; color: #475569; margin: .75rem 0; padding-left: .8rem; }
-.cial-note-editor pre { overflow-x: auto; border-radius: .5rem; background: #f1f5f9; padding: .75rem; font-family: ui-monospace, monospace; }
-.cial-note-editor a { color: #176b2c; text-decoration: underline; }
-.cial-note-editor .is-editor-empty:first-child::before { color: #94a3b8; content: attr(data-placeholder); float: left; height: 0; pointer-events: none; }
+.cial-note-editor blockquote { border-left: 3px solid hsl(var(--border)); color: hsl(var(--muted-foreground)); margin: .75rem 0; padding-left: .8rem; }
+.cial-note-editor pre { overflow-x: auto; border: 1px solid hsl(var(--border)); border-radius: .5rem; background: hsl(var(--code-block)); padding: .75rem; font-family: ui-monospace, monospace; }
+.cial-note-editor a { color: hsl(var(--link)); text-decoration: underline; }
+.cial-note-editor .is-editor-empty:first-child::before { color: hsl(var(--muted-foreground)); content: attr(data-placeholder); float: left; height: 0; pointer-events: none; }
 .note-citation-highlight { animation: note-citation-highlight 2.4s ease-out; border-radius: .25rem; }
-@keyframes note-citation-highlight { 0%, 45% { background: #dcf2d6; } 100% { background: transparent; } }
-@media (prefers-reduced-motion: reduce) { .note-citation-highlight { animation: none; outline: 2px solid #6b9e52; } }
+@keyframes note-citation-highlight { 0%, 45% { background: hsl(var(--citation) / .2); } 100% { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .note-citation-highlight { animation: none; outline: 2px solid hsl(var(--citation)); } }
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
@@ -24,9 +24,13 @@
 @theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
+  --color-heading-foreground: hsl(var(--heading-foreground));
   --color-border: hsl(var(--border));
+  --color-border-strong: hsl(var(--border-strong));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
+  --color-surface-raised: hsl(var(--surface-raised));
+  --color-brand-strong: hsl(var(--brand-strong));
 
   --color-card: hsl(var(--card));
   --color-card-foreground: hsl(var(--card-foreground));
@@ -55,6 +59,19 @@
   --color-destructive: hsl(var(--destructive));
   --color-destructive-foreground: hsl(var(--destructive-foreground));
   --color-destructive-border: var(--destructive-border);
+
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-info: hsl(var(--info));
+  --color-info-foreground: hsl(var(--info-foreground));
+  --color-citation: hsl(var(--citation));
+  --color-citation-foreground: hsl(var(--citation-foreground));
+  --color-code-block: hsl(var(--code-block));
+  --color-selection: hsl(var(--selection));
+  --color-link: hsl(var(--link));
+  --color-overlay: hsl(var(--overlay));
 
   --color-chart-1: hsl(var(--chart-1));
   --color-chart-2: hsl(var(--chart-2));
@@ -130,12 +147,16 @@
   --background: 105 18% 97%;
   /* Main text - dark charcoal */
   --foreground: 216 24% 12%;
+  --heading-foreground: 216 24% 10%;
   /* Default border - neutral enterprise line */
   --border: 214 18% 88%;
+  --border-strong: 214 16% 78%;
   /* Input borders */
   --input: 214 16% 82%;
   /* Focus ring - CIAL green */
   --ring: 95 45% 38%;
+  --surface-raised: 0 0% 100%;
+  --brand-strong: 95 50% 33%;
 
   /* Card - pure white */
   --card: 0 0% 100%;
@@ -178,6 +199,23 @@
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
 
+  /* Semantic feedback and content states */
+  --success: 132 48% 36%;
+  --success-foreground: 132 55% 22%;
+  --warning: 35 92% 47%;
+  --warning-foreground: 28 78% 27%;
+  --info: 210 72% 49%;
+  --info-foreground: 211 69% 30%;
+  --citation: 95 50% 33%;
+  --citation-foreground: 95 48% 25%;
+  --code-block: 210 20% 96%;
+  --selection: 96 42% 84%;
+  --link: 132 57% 28%;
+  --overlay: 0 0% 0% / 0.48;
+  --scrollbar-track: 210 18% 95%;
+  --scrollbar-thumb: 214 14% 70%;
+  --scrollbar-thumb-hover: 214 12% 52%;
+
   /* Charts - CIAL palette */
   --chart-1: 95 50% 33%;   /* forest green */
   --chart-2: 88 60% 48%;   /* lime green */
@@ -217,7 +255,84 @@
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 }
 
-/* No dark mode for this enterprise dashboard - light only */
+/* CIAL Knowledge OS - botanical nighttime mode */
+.dark {
+  --button-outline: rgba(138, 209, 103, .13);
+  --badge-outline: rgba(138, 209, 103, .1);
+  --opaque-button-border-intensity: 8;
+  --elevate-1: rgba(138, 209, 103, .035);
+  --elevate-2: rgba(138, 209, 103, .065);
+
+  /* Absolute-black canvas with green-tinted near-black hierarchy. */
+  --background: 0 0% 0%;
+  --foreground: 90 20% 96%;
+  --heading-foreground: 0 0% 100%;
+  --border: 109 18% 12%;
+  --border-strong: 113 18% 19%;
+  --input: 113 18% 19%;
+  --ring: 103 47% 56%;
+  --surface-raised: 108 24% 4%;
+  --brand-strong: 100 54% 61%;
+
+  --card: 120 17% 2%;
+  --card-foreground: 90 20% 96%;
+  --card-border: 109 18% 12%;
+
+  --sidebar: 120 33% 1%;
+  --sidebar-foreground: 104 7% 67%;
+  --sidebar-border: 109 18% 12%;
+  --sidebar-primary: 103 47% 56%;
+  --sidebar-primary-foreground: 0 0% 0%;
+  --sidebar-accent: 113 33% 9%;
+  --sidebar-accent-foreground: 100 54% 61%;
+  --sidebar-ring: 103 47% 56%;
+
+  --popover: 108 24% 4%;
+  --popover-foreground: 90 20% 96%;
+  --popover-border: 113 18% 19%;
+
+  --primary: 103 47% 56%;
+  --primary-foreground: 0 0% 0%;
+  --secondary: 108 24% 4%;
+  --secondary-foreground: 104 7% 67%;
+  --muted: 113 25% 6%;
+  --muted-foreground: 104 4% 48%;
+  --accent: 113 33% 9%;
+  --accent-foreground: 100 54% 61%;
+  --destructive: 0 72% 58%;
+  --destructive-foreground: 0 0% 100%;
+
+  --success: 132 52% 52%;
+  --success-foreground: 132 62% 73%;
+  --warning: 38 92% 58%;
+  --warning-foreground: 42 100% 75%;
+  --info: 210 82% 63%;
+  --info-foreground: 210 92% 78%;
+  --citation: 103 55% 58%;
+  --citation-foreground: 103 62% 78%;
+  --code-block: 108 24% 4%;
+  --selection: 113 33% 13%;
+  --link: 101 53% 67%;
+  --overlay: 0 0% 0% / 0.78;
+  --scrollbar-track: 120 17% 2%;
+  --scrollbar-thumb: 108 18% 18%;
+  --scrollbar-thumb-hover: 103 18% 28%;
+
+  --chart-1: 103 58% 62%;
+  --chart-2: 72 72% 61%;
+  --chart-3: 37 92% 60%;
+  --chart-4: 207 86% 67%;
+  --chart-5: 334 76% 68%;
+
+  --shadow-2xs: inset 0 1px 0 rgba(245, 247, 243, .025), 0 1px 2px rgba(0, 0, 0, .66);
+  --shadow-xs: inset 0 1px 0 rgba(245, 247, 243, .03), 0 2px 6px rgba(0, 0, 0, .7);
+  --shadow-sm: inset 0 1px 0 rgba(245, 247, 243, .035), 0 5px 14px rgba(0, 0, 0, .72);
+  --shadow: inset 0 1px 0 rgba(245, 247, 243, .04), 0 8px 22px rgba(0, 0, 0, .76);
+  --shadow-md: inset 0 1px 0 rgba(245, 247, 243, .045), 0 14px 34px rgba(0, 0, 0, .8);
+  --shadow-lg: inset 0 1px 0 rgba(245, 247, 243, .05), 0 20px 48px rgba(0, 0, 0, .84);
+  --shadow-xl: inset 0 1px 0 rgba(245, 247, 243, .055), 0 28px 64px rgba(0, 0, 0, .87);
+  --shadow-2xl: inset 0 1px 0 rgba(245, 247, 243, .06), 0 36px 80px rgba(0, 0, 0, .9);
+}
 
 @layer base {
   * {
@@ -226,6 +341,12 @@
 
   html {
     scroll-behavior: smooth;
+    background: hsl(var(--background));
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
   }
 
   html,
@@ -238,6 +359,20 @@
     @apply font-sans antialiased bg-background text-foreground;
     overflow-x: hidden;
     text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    color: hsl(var(--heading-foreground));
+  }
+
+  ::selection {
+    background: hsl(var(--selection));
+    color: hsl(var(--foreground));
   }
 
   button,
@@ -260,14 +395,14 @@
     height: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: hsl(210 18% 95%);
+    background: hsl(var(--scrollbar-track));
   }
   ::-webkit-scrollbar-thumb {
-    background: hsl(214 14% 76%);
+    background: hsl(var(--scrollbar-thumb));
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: hsl(214 12% 58%);
+    background: hsl(var(--scrollbar-thumb-hover));
   }
 }
 
@@ -275,7 +410,137 @@
   .app-shell {
     background:
       radial-gradient(circle at top left, hsl(96 44% 94% / 0.7), transparent 28rem),
-      linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(var(--background)) 18rem, hsl(105 18% 97%) 100%);
+      linear-gradient(180deg, hsl(var(--card)) 0%, hsl(var(--background)) 18rem, hsl(var(--background)) 100%);
+  }
+
+  .dark .app-shell {
+    background:
+      radial-gradient(42rem 32rem at 3% 1%, hsl(111 48% 18% / 0.15), transparent 72%),
+      radial-gradient(36rem 30rem at 100% 92%, hsl(94 42% 12% / 0.07), transparent 76%),
+      hsl(var(--background));
+  }
+
+  .assistant-composer {
+    pointer-events: auto;
+  }
+
+  .dark .assistant-composer {
+    border-color: hsl(var(--border-strong) / .88);
+    background:
+      linear-gradient(180deg, hsl(103 18% 18% / .14), transparent 28%),
+      hsl(var(--surface-raised) / .86);
+    box-shadow:
+      inset 0 1px 0 hsl(90 20% 96% / .07),
+      0 18px 44px rgba(0, 0, 0, .72);
+    backdrop-filter: blur(18px) saturate(.88);
+  }
+
+  .dark .assistant-composer:hover {
+    transform: translateY(-1px);
+    border-color: hsl(var(--border-strong));
+  }
+
+  .dark .assistant-composer:focus-within {
+    border-color: hsl(var(--ring) / .72);
+    box-shadow:
+      inset 0 1px 0 hsl(90 20% 96% / .08),
+      0 0 0 3px hsl(var(--ring) / .10),
+      0 20px 48px rgba(0, 0, 0, .76);
+  }
+
+  .assistant-composer-dock {
+    background: linear-gradient(180deg, transparent, hsl(var(--background) / .78) 62%, hsl(var(--background) / .92));
+  }
+
+  .dark [data-testid="sidebar"] {
+    box-shadow:
+      inset -1px 0 0 hsl(var(--border) / .78),
+      18px 0 48px rgba(0, 0, 0, .20);
+  }
+
+  .dark [data-testid="sidebar"] [aria-current="page"] {
+    position: relative;
+    background: hsl(var(--sidebar-accent) / .9);
+    box-shadow:
+      inset 0 1px 0 hsl(90 20% 96% / .025),
+      inset 0 0 0 1px hsl(var(--primary) / .11);
+  }
+
+  .dark [data-testid="sidebar"] [aria-current="page"]::before {
+    content: "";
+    position: absolute;
+    inset-block: .68rem;
+    left: 0;
+    width: 2px;
+    border-radius: 999px;
+    background: hsl(var(--brand-strong));
+  }
+
+  .dark :where(button, a, [role="button"]) {
+    transition-duration: 160ms;
+  }
+
+  .dark :where(button, a, [role="button"]):active {
+    translate: 0 1px;
+  }
+
+  .dark .cial-note-editor blockquote {
+    border-left-color: hsl(var(--primary) / .48);
+    color: hsl(var(--foreground) / .9);
+  }
+
+  .dark .cial-note-editor code:not(pre code) {
+    border: 1px solid hsl(var(--border));
+    border-radius: .3rem;
+    background: hsl(var(--code-block));
+    padding: .08rem .3rem;
+    color: hsl(var(--foreground));
+  }
+
+  .dark .prose {
+    --tw-prose-body: hsl(var(--foreground));
+    --tw-prose-headings: hsl(var(--heading-foreground));
+    --tw-prose-lead: hsl(var(--muted-foreground));
+    --tw-prose-links: hsl(var(--link));
+    --tw-prose-bold: hsl(var(--heading-foreground));
+    --tw-prose-counters: hsl(var(--muted-foreground));
+    --tw-prose-bullets: hsl(var(--primary) / .7);
+    --tw-prose-hr: hsl(var(--border));
+    --tw-prose-quotes: hsl(var(--foreground) / .9);
+    --tw-prose-quote-borders: hsl(var(--primary) / .48);
+    --tw-prose-code: hsl(var(--foreground));
+    --tw-prose-pre-code: hsl(var(--foreground));
+    --tw-prose-pre-bg: hsl(var(--code-block));
+    --tw-prose-th-borders: hsl(var(--border-strong));
+    --tw-prose-td-borders: hsl(var(--border));
+  }
+
+  /* Intentional source-content surface. Application chrome remains themed. */
+  .document-paper {
+    background: #ffffff;
+    color: #171717;
+    color-scheme: light;
+  }
+
+  .document-paper .text-foreground {
+    color: #171717;
+  }
+
+  .document-paper .text-muted-foreground {
+    color: #52525b;
+  }
+
+  .document-search-hit {
+    border-radius: 0.2rem;
+    background: #f9e6a5;
+    color: #171717;
+    padding-inline: 0.125rem;
+  }
+
+  .document-citation-hit {
+    border-radius: 0.2rem;
+    background: #c8e6a0;
+    color: #171717;
   }
 
   .app-content {
@@ -341,7 +606,7 @@
 
   .scrollbar-soft {
     scrollbar-width: thin;
-    scrollbar-color: hsl(214 14% 76%) hsl(210 18% 95%);
+    scrollbar-color: hsl(var(--scrollbar-thumb)) hsl(var(--scrollbar-track));
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -431,12 +696,13 @@
   /* CIAL specific utilities */
   .cial-sidebar-active {
     background: hsl(var(--primary));
-    color: white;
+    color: hsl(var(--primary-foreground));
     box-shadow: none;
   }
 
   .cial-card {
-    background: white;
+    background: hsl(var(--card));
+    color: hsl(var(--card-foreground));
     border-radius: 0.75rem;
     border: 1px solid hsl(var(--border));
     box-shadow: var(--shadow-sm);
@@ -452,39 +718,45 @@
     background: linear-gradient(135deg, hsl(100 35% 94%) 0%, hsl(95 40% 90%) 50%, hsl(88 45% 88%) 100%);
   }
 
+  .dark .cial-hero-gradient {
+    background: linear-gradient(135deg, hsl(108 35% 8%) 0%, hsl(102 28% 6%) 54%, hsl(0 0% 0%) 100%);
+  }
+
   .cial-sidebar-gradient {
-    background: hsl(216 24% 12%);
+    background: hsl(var(--sidebar));
   }
 
   .ce-panel {
     border: 1px solid hsl(var(--border));
     border-radius: 0.75rem;
-    background: white;
+    background: hsl(var(--card));
+    color: hsl(var(--card-foreground));
     box-shadow: var(--shadow-sm);
   }
 
   .ce-card {
     border: 1px solid hsl(var(--border));
     border-radius: 0.75rem;
-    background: white;
+    background: hsl(var(--card));
+    color: hsl(var(--card-foreground));
     box-shadow: var(--shadow-sm);
   }
 
   .ce-subtle-card {
     border: 1px solid hsl(var(--border));
     border-radius: 0.75rem;
-    background: hsl(210 20% 98%);
+    background: hsl(var(--muted));
   }
 
   .ce-toolbar {
     border-bottom: 1px solid hsl(var(--border));
-    background: hsl(0 0% 100% / 0.96);
+    background: hsl(var(--popover) / 0.96);
   }
 
   .ce-control {
     border: 1px solid hsl(var(--border));
     border-radius: 0.5rem;
-    background: hsl(210 20% 98%);
+    background: hsl(var(--secondary));
     transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
   }
 
@@ -526,7 +798,7 @@
     gap: 0.375rem;
     border: 1px solid hsl(var(--border));
     border-radius: 0.5rem;
-    background: white;
+    background: hsl(var(--card));
     padding-inline: 0.625rem;
     font-size: 0.75rem;
     font-weight: 600;
@@ -535,7 +807,7 @@
   }
 
   .ce-action:hover {
-    border-color: hsl(214 16% 80%);
+    border-color: hsl(var(--input));
     background: hsl(var(--muted));
     color: hsl(var(--foreground));
   }
@@ -543,13 +815,13 @@
   .ce-action-primary {
     border-color: hsl(var(--primary));
     background: hsl(var(--primary));
-    color: white;
+    color: hsl(var(--primary-foreground));
   }
 
   .ce-action-primary:hover {
-    border-color: hsl(95 50% 28%);
-    background: hsl(95 50% 28%);
-    color: white;
+    border-color: hsl(var(--primary) / .82);
+    background: hsl(var(--primary) / .82);
+    color: hsl(var(--primary-foreground));
   }
 
   .ce-chip {
@@ -559,7 +831,7 @@
     gap: 0.375rem;
     border: 1px solid hsl(var(--border));
     border-radius: 0.5rem;
-    background: white;
+    background: hsl(var(--card));
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
     font-weight: 500;
@@ -579,9 +851,9 @@
   }
 
   .ce-badge-accent {
-    border-color: hsl(95 28% 78%);
-    color: hsl(95 44% 28%);
-    background: hsl(95 24% 94%);
+    border-color: hsl(var(--primary) / .35);
+    color: hsl(var(--citation-foreground));
+    background: hsl(var(--accent));
   }
 
   .ce-nav-item {
@@ -592,7 +864,7 @@
     padding: 0.625rem 0.75rem;
     font-size: 0.875rem;
     font-weight: 500;
-    color: hsl(216 14% 30%);
+    color: hsl(var(--muted-foreground));
     transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
   }
 
@@ -602,8 +874,8 @@
   }
 
   .ce-nav-item-active {
-    background: hsl(95 24% 94%);
-    color: hsl(95 44% 26%);
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
     box-shadow: inset 3px 0 0 hsl(var(--primary));
   }
 
@@ -614,36 +886,36 @@
   }
 
   .cial-text-green {
-    color: hsl(95 50% 33%);
+    color: hsl(var(--link));
   }
 
   .cial-badge-green {
-    background: hsl(95 45% 90%);
-    color: hsl(95 50% 28%);
+    background: hsl(var(--success) / .14);
+    color: hsl(var(--success-foreground));
   }
 
   .cial-badge-orange {
-    background: hsl(30 90% 93%);
-    color: hsl(25 85% 40%);
+    background: hsl(var(--warning) / .14);
+    color: hsl(var(--warning-foreground));
   }
 
   .cial-badge-blue {
-    background: hsl(210 65% 92%);
-    color: hsl(210 70% 35%);
+    background: hsl(var(--info) / .14);
+    color: hsl(var(--info-foreground));
   }
 
   .cial-status-operational {
-    background: hsl(130 50% 90%);
-    color: hsl(130 60% 30%);
+    background: hsl(var(--success) / .14);
+    color: hsl(var(--success-foreground));
   }
 
   .cial-status-maintenance {
-    background: hsl(40 90% 90%);
-    color: hsl(35 80% 35%);
+    background: hsl(var(--warning) / .14);
+    color: hsl(var(--warning-foreground));
   }
 
   .cial-status-outofservice {
-    background: hsl(0 65% 92%);
-    color: hsl(0 70% 40%);
+    background: hsl(var(--destructive) / .14);
+    color: hsl(var(--destructive));
   }
 }

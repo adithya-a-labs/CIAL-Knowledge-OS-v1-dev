@@ -12,7 +12,30 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="CIAL Knowledge OS" />
     <meta name="twitter:description" content="CIAL Knowledge OS - enterprise knowledge dashboard." />
+    <meta name="color-scheme" content="light dark" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <style>
+      html, body, #root { min-height: 100%; }
+      html { background: #f7f9f6; color-scheme: light; }
+      html.dark { background: #000; color-scheme: dark; }
+      body { margin: 0; background: inherit; }
+    </style>
+    <script>
+      (() => {
+        try {
+          const preference = localStorage.getItem('cial-theme');
+          const followsSystem = preference === null || preference === 'system';
+          const resolvedDark = preference === 'dark'
+            || (followsSystem && matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.classList.toggle('dark', resolvedDark);
+          document.documentElement.style.colorScheme = resolvedDark ? 'dark' : 'light';
+        } catch {
+          const resolvedDark = matchMedia('(prefers-color-scheme: dark)').matches;
+          document.documentElement.classList.toggle('dark', resolvedDark);
+          document.documentElement.style.colorScheme = resolvedDark ? 'dark' : 'light';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
