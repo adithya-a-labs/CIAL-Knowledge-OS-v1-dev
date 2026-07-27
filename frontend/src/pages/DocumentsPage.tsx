@@ -93,7 +93,7 @@ export default function DocumentsPage() {
             <button
               onClick={handleRebuildIndex}
               disabled={isRebuilding}
-              className="flex w-full flex-shrink-0 items-center justify-center gap-2 rounded-xl border border-[#ddecd6] bg-white px-4 py-2.5 text-sm font-medium text-[#4a7c3f] transition-colors hover:bg-[#f0f7ed] disabled:opacity-50 sm:w-auto"
+              className="flex w-full flex-shrink-0 items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-medium text-primary transition-colors hover:bg-accent disabled:opacity-50 sm:w-auto"
               data-testid="button-rebuild-index"
             >
               <RefreshCcw size={15} />
@@ -111,31 +111,31 @@ export default function DocumentsPage() {
         )}
       </div>
 
-      <div className="mb-4 rounded-xl border border-[#e2eedd] bg-white px-4 py-3 text-xs text-[#5a7a52] shadow-sm">
+      <div className="mb-4 rounded-xl border border-border bg-card px-4 py-3 text-xs text-muted-foreground shadow-sm">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <span>
             Documents source:{' '}
-            <strong className="text-[#1a2e14]">
+            <strong className="text-foreground">
               {documentsQuery.isLoading ? 'Loading backend...' : usingMockFallback ? 'Mock fallback' : 'Backend repository'}
             </strong>
           </span>
           <span>
             Index status:{' '}
-            <strong className="text-[#1a2e14]">
+            <strong className="text-foreground">
               {indexStatusQuery.data?.status ?? 'unavailable'}
             </strong>
             {indexStatusQuery.data ? ` / ${indexStatusQuery.data.documents_indexed} indexed` : ''}
           </span>
         </div>
         {(indexActionMessage || documentsQuery.isError) && (
-          <p className="mt-2 text-[#8a5208]">
+          <p className="mt-2 text-warning-foreground">
             {indexActionMessage ?? 'Backend documents API is unavailable; showing mock documents.'}
           </p>
         )}
       </div>
 
       {/* Filters */}
-      <div className="responsive-card mb-4 grid grid-cols-1 gap-3 border border-[#e2eedd] bg-white p-3 shadow-sm xl:grid-cols-[minmax(16rem,1.2fr)_minmax(26rem,2fr)_auto]">
+      <div className="responsive-card mb-4 grid grid-cols-1 gap-3 border border-border bg-card p-3 shadow-sm xl:grid-cols-[minmax(16rem,1.2fr)_minmax(26rem,2fr)_auto]">
         <SearchBar
           value={search}
           onChange={setSearch}
@@ -154,7 +154,7 @@ export default function DocumentsPage() {
         <select
           value={filters.sort}
           onChange={e => handleFilterChange('sort', e.target.value)}
-          className="w-full rounded-lg border border-[#ddecd6] px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-[#4a7c3f]/30 xl:w-auto"
+          className="w-full rounded-lg border border-border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-ring/30 xl:w-auto"
           data-testid="select-sort"
         >
           <option value="">Sort: Latest</option>
@@ -163,17 +163,17 @@ export default function DocumentsPage() {
       </div>
 
       {/* Desktop Table */}
-      <div className="scrollbar-soft hidden overflow-x-auto rounded-xl border border-[#e2eedd] bg-white shadow-sm md:block">
+      <div className="scrollbar-soft hidden overflow-x-auto rounded-xl border border-border bg-card shadow-sm md:block">
         <table className="w-full min-w-[58rem]" data-testid="documents-table">
           <thead>
-            <tr className="border-b border-[#e2eedd] bg-[#f8fdf6]">
-              <th className="px-5 py-3 text-left text-xs font-semibold text-[#5a7a52] uppercase tracking-wider">#</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-[#5a7a52] uppercase tracking-wider">Document Name</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-[#5a7a52] uppercase tracking-wider">Category</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-[#5a7a52] uppercase tracking-wider">Department</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-[#5a7a52] uppercase tracking-wider">Type</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-[#5a7a52] uppercase tracking-wider">Last Updated</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-[#5a7a52] uppercase tracking-wider">Actions</th>
+            <tr className="border-b border-border bg-muted">
+              <th className="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">#</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Document Name</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Category</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Department</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Type</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Last Updated</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -208,14 +208,14 @@ export default function DocumentsPage() {
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-[#5a7a52]">
+          <p className="text-sm text-muted-foreground">
             Showing {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, filtered.length)} of {filtered.length}
           </p>
           <div className="grid grid-cols-2 gap-2 sm:flex">
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="px-3 py-1.5 text-sm border border-[#ddecd6] rounded-lg disabled:opacity-40 hover:bg-[#f0f7ed] transition-colors"
+              className="px-3 py-1.5 text-sm border border-border rounded-lg disabled:opacity-40 hover:bg-accent transition-colors"
               data-testid="button-prev-page"
             >
               Previous
@@ -223,7 +223,7 @@ export default function DocumentsPage() {
             <button
               onClick={() => setPage(p => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
-              className="px-3 py-1.5 text-sm border border-[#ddecd6] rounded-lg disabled:opacity-40 hover:bg-[#f0f7ed] transition-colors"
+              className="px-3 py-1.5 text-sm border border-border rounded-lg disabled:opacity-40 hover:bg-accent transition-colors"
               data-testid="button-next-page"
             >
               Next

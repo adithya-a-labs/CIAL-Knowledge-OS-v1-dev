@@ -6,7 +6,7 @@ function ScoreBar({ score }: { score: number }) {
   const color = score >= 90 ? '#4a7c3f' : score >= 75 ? '#7ab648' : '#e8820c';
   return (
     <div className="flex items-center gap-2">
-      <div className="flex-1 h-1.5 rounded-full bg-[#e2eedd] overflow-hidden">
+      <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
         <div className="h-full rounded-full transition-all" style={{ width: `${score}%`, backgroundColor: color }} />
       </div>
       <span className="text-xs font-bold" style={{ color }}>{score}</span>
@@ -31,11 +31,11 @@ export default function ExpertDirectoryPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-xl font-bold text-[#1a2e14]">Expert Directory</h1>
-          <p className="text-sm text-[#5a7a52] mt-0.5">Discover subject matter experts across CIAL departments.</p>
+          <h1 className="text-xl font-bold text-foreground">Expert Directory</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Discover subject matter experts across CIAL departments.</p>
         </div>
-        <div className="flex items-center gap-2 text-sm text-[#5a7a52] bg-white border border-[#e2eedd] rounded-lg px-3 py-2">
-          <CheckCircle size={14} className="text-[#4a7c3f]" />
+        <div className="flex items-center gap-2 text-sm text-muted-foreground bg-card border border-border rounded-lg px-3 py-2">
+          <CheckCircle size={14} className="text-primary" />
           {EXPERTS.filter(e => e.available).length} available now
         </div>
       </div>
@@ -48,14 +48,14 @@ export default function ExpertDirectoryPage() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search by name or expertise..."
-            className="w-full rounded-lg border border-[#ddecd6] bg-white py-2 pl-9 pr-3 text-sm focus:ring-2 focus:ring-[#4a7c3f]/30"
+            className="w-full rounded-lg border border-border bg-card py-2 pl-9 pr-3 text-sm focus:ring-2 focus:ring-ring/30"
             data-testid="expert-search"
           />
         </div>
         <select
           value={dept}
           onChange={e => setDept(e.target.value)}
-          className="w-full rounded-lg border border-[#ddecd6] bg-white px-3 py-2 text-sm text-[#1a2e14] focus:ring-2 focus:ring-[#4a7c3f]/30"
+          className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:ring-2 focus:ring-ring/30"
           data-testid="filter-department"
         >
           {EXPERT_DEPARTMENTS.map(d => <option key={d} value={d === 'All Departments' ? '' : d}>{d}</option>)}
@@ -63,7 +63,7 @@ export default function ExpertDirectoryPage() {
         <select
           value={tag}
           onChange={e => setTag(e.target.value)}
-          className="w-full rounded-lg border border-[#ddecd6] bg-white px-3 py-2 text-sm text-[#1a2e14] focus:ring-2 focus:ring-[#4a7c3f]/30"
+          className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:ring-2 focus:ring-ring/30"
           data-testid="filter-expertise"
         >
           <option value="">All Expertise</option>
@@ -73,13 +73,13 @@ export default function ExpertDirectoryPage() {
 
       {/* Grid */}
       {filtered.length === 0 ? (
-        <div className="text-center py-16 text-[#5a7a52]">No experts match your search.</div>
+        <div className="text-center py-16 text-muted-foreground">No experts match your search.</div>
       ) : (
         <div className="fluid-grid-lg">
           {filtered.map(expert => (
             <div
               key={expert.id}
-              className="fluid-card responsive-card flex min-w-0 flex-col gap-4 border border-[#e2eedd] bg-white p-5 shadow-sm transition-all hover:border-[#4a7c3f] hover:shadow-md"
+              className="fluid-card responsive-card flex min-w-0 flex-col gap-4 border border-border bg-card p-5 shadow-sm transition-all hover:border-primary hover:shadow-md"
               data-testid={`expert-card-${expert.id}`}
             >
               {/* Top row */}
@@ -89,20 +89,20 @@ export default function ExpertDirectoryPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-bold text-[#1a2e14] truncate">{expert.name}</p>
+                    <p className="text-sm font-bold text-foreground truncate">{expert.name}</p>
                     {expert.available && (
-                      <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" title="Available" />
+                      <span className="w-2 h-2 rounded-full bg-success/100 flex-shrink-0" title="Available" />
                     )}
                   </div>
-                  <p className="text-xs text-[#5a7a52] truncate">{expert.role}</p>
-                  <span className="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full bg-[#f0f7ed] text-[#4a7c3f] font-medium">{expert.department}</span>
+                  <p className="text-xs text-muted-foreground truncate">{expert.role}</p>
+                  <span className="inline-block mt-1 text-[10px] px-2 py-0.5 rounded-full bg-accent text-primary font-medium">{expert.department}</span>
                 </div>
               </div>
 
               {/* Knowledge Score */}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-[#5a7a52] font-medium">Knowledge Score</span>
+                  <span className="text-xs text-muted-foreground font-medium">Knowledge Score</span>
                   <Star size={12} className="text-amber-400 fill-amber-400" />
                 </div>
                 <ScoreBar score={expert.knowledgeScore} />
@@ -111,33 +111,33 @@ export default function ExpertDirectoryPage() {
               {/* Expertise Tags */}
               <div className="flex flex-wrap gap-1">
                 {expert.expertiseTags.slice(0, 3).map(tag => (
-                  <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-[#f0f7ed] border border-[#ddecd6] text-[#3d5c30]">{tag}</span>
+                  <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-accent border border-border text-primary">{tag}</span>
                 ))}
                 {expert.expertiseTags.length > 3 && (
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-50 text-gray-500">+{expert.expertiseTags.length - 3}</span>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">+{expert.expertiseTags.length - 3}</span>
                 )}
               </div>
 
               {/* Stats */}
-              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-[#f0f7ed]">
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border">
                 <div className="text-center">
-                  <div className="flex items-center justify-center gap-1 text-[#4a7c3f]">
+                  <div className="flex items-center justify-center gap-1 text-primary">
                     <FileText size={12} />
-                    <span className="text-sm font-bold text-[#1a2e14]">{expert.documentsContributed}</span>
+                    <span className="text-sm font-bold text-foreground">{expert.documentsContributed}</span>
                   </div>
                   <p className="text-[10px] text-[#7a9a72]">Docs</p>
                 </div>
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-1 text-[#7ab648]">
                     <ClipboardList size={12} />
-                    <span className="text-sm font-bold text-[#1a2e14]">{expert.sopsAuthored}</span>
+                    <span className="text-sm font-bold text-foreground">{expert.sopsAuthored}</span>
                   </div>
                   <p className="text-[10px] text-[#7a9a72]">SOPs</p>
                 </div>
                 <div className="text-center">
-                  <div className="flex items-center justify-center gap-1 text-[#e8820c]">
+                  <div className="flex items-center justify-center gap-1 text-warning">
                     <MessageSquare size={12} />
-                    <span className="text-sm font-bold text-[#1a2e14]">{expert.helpfulAnswers}</span>
+                    <span className="text-sm font-bold text-foreground">{expert.helpfulAnswers}</span>
                   </div>
                   <p className="text-[10px] text-[#7a9a72]">Answers</p>
                 </div>
@@ -146,7 +146,7 @@ export default function ExpertDirectoryPage() {
               {/* Contact */}
               <a
                 href={`mailto:${expert.email}`}
-                className="flex items-center justify-center gap-2 w-full py-2 rounded-lg border border-[#ddecd6] text-xs font-medium text-[#4a7c3f] hover:bg-[#f0f7ed] transition-colors"
+                className="flex items-center justify-center gap-2 w-full py-2 rounded-lg border border-border text-xs font-medium text-primary hover:bg-accent transition-colors"
                 data-testid={`contact-${expert.id}`}
               >
                 <Mail size={13} />

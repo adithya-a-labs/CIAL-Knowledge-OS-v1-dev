@@ -11,8 +11,8 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     return (
-      <div className="bg-white border border-[#e2eedd] rounded-lg shadow-lg p-3 text-xs">
-        <p className="font-semibold text-[#1a2e14] mb-1">{label}</p>
+      <div className="bg-card border border-border rounded-lg shadow-lg p-3 text-xs">
+        <p className="font-semibold text-foreground mb-1">{label}</p>
         {payload.map((p: any) => (
           <p key={p.name} style={{ color: p.color }}>{p.name}: {p.value}</p>
         ))}
@@ -40,10 +40,10 @@ export default function AnalyticsPage() {
     <div className="fluid-section" data-testid="analytics-page">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-xl font-bold text-[#1a2e14]">Analytics</h1>
-          <p className="text-sm text-[#5a7a52] mt-0.5">Knowledge OS insights across search, learning, and coverage.</p>
+          <h1 className="text-xl font-bold text-foreground">Analytics</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Knowledge OS insights across search, learning, and coverage.</p>
         </div>
-        <select className="text-sm bg-white border border-[#ddecd6] rounded-lg px-3 py-2 text-[#1a2e14] focus:outline-none focus:ring-2 focus:ring-[#4a7c3f]/30 self-start sm:self-auto" data-testid="filter-date-range">
+        <select className="text-sm bg-card border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-ring/30 self-start sm:self-auto" data-testid="filter-date-range">
           <option>Last 30 Days</option>
           <option>Last 7 Days</option>
           <option>Last 90 Days</option>
@@ -56,18 +56,18 @@ export default function AnalyticsPage() {
         {ANALYTICS_KPIS.map((kpi) => {
           const IconComp = ICON_MAP[kpi.icon] || Search;
           return (
-            <div key={kpi.label} className="fluid-card responsive-card min-w-0 border border-[#e2eedd] bg-white p-4 shadow-sm hover:shadow-md" data-testid={`analytics-kpi-${kpi.label.toLowerCase().replace(/\s+/g, '-')}`}>
+            <div key={kpi.label} className="fluid-card responsive-card min-w-0 border border-border bg-card p-4 shadow-sm hover:shadow-md" data-testid={`analytics-kpi-${kpi.label.toLowerCase().replace(/\s+/g, '-')}`}>
               <div className="flex items-center justify-between mb-2">
-                <div className="w-8 h-8 rounded-lg bg-[#f0f7ed] flex items-center justify-center">
-                  <IconComp size={15} className="text-[#4a7c3f]" />
+                <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
+                  <IconComp size={15} className="text-primary" />
                 </div>
-                <span className={`text-xs font-semibold flex items-center gap-0.5 ${kpi.trend === 'up' ? 'text-[#27ae60]' : kpi.trend === 'down' ? 'text-[#c0392b]' : 'text-[#5a7a52]'}`}>
+                <span className={`text-xs font-semibold flex items-center gap-0.5 ${kpi.trend === 'up' ? 'text-[#27ae60]' : kpi.trend === 'down' ? 'text-[#c0392b]' : 'text-muted-foreground'}`}>
                   {kpi.trend === 'up' ? <TrendingUp size={12} /> : kpi.trend === 'down' ? <TrendingDown size={12} /> : null}
                   {kpi.delta}
                 </span>
               </div>
-              <p className="safe-text text-xs font-medium text-[#5a7a52]">{kpi.label}</p>
-              <p className="text-2xl font-bold text-[#1a2e14] mt-0.5">{kpi.value}</p>
+              <p className="safe-text text-xs font-medium text-muted-foreground">{kpi.label}</p>
+              <p className="text-2xl font-bold text-foreground mt-0.5">{kpi.value}</p>
             </div>
           );
         })}
@@ -102,8 +102,8 @@ export default function AnalyticsPage() {
               {TOP_CATEGORIES_DATA.map((item) => (
                 <div key={item.name} className="flex items-center gap-2" data-testid={`legend-${item.name.toLowerCase().replace(/\s+/g, '-').slice(0, 20)}`}>
                   <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: item.fill }} />
-                  <span className="text-xs text-[#1a2e14] flex-1 truncate">{item.name}</span>
-                  <span className="text-xs font-semibold text-[#5a7a52]">{item.value}%</span>
+                  <span className="text-xs text-foreground flex-1 truncate">{item.name}</span>
+                  <span className="text-xs font-semibold text-muted-foreground">{item.value}%</span>
                 </div>
               ))}
             </div>
