@@ -7,7 +7,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { homeNavItems } from '@/data/homePageData';
 import { useCommandPalette } from '@/components/common/CommandPalette';
 import { startNewConversation } from '@/lib/assistantNavigation';
-import AppearanceControl from '@/components/theme/AppearanceControl';
+import AppearanceToggle from '@/components/theme/AppearanceToggle';
 
 interface MobileSidebarDrawerProps {
   open: boolean;
@@ -181,7 +181,7 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
             <HelpCircle size={18} className="text-muted-foreground" />
             <span>Help</span>
           </button>
-          <AppearanceControl menuSide="top" />
+          <AppearanceToggle variant="mobile" />
           <div className="flex min-w-0 items-center gap-3 rounded-xl px-3 py-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">{userView?.initials ?? 'CU'}</div>
             <div className="min-w-0 flex-1">

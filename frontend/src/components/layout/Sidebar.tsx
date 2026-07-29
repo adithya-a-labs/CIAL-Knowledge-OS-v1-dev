@@ -24,7 +24,7 @@ import {
   requestAssistantHistorySidebarOpen,
 } from '@/lib/assistantHistorySidebar';
 import { startNewConversation } from '@/lib/assistantNavigation';
-import AppearanceControl from '@/components/theme/AppearanceControl';
+import AppearanceToggle from '@/components/theme/AppearanceToggle';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -210,7 +210,7 @@ export default function Sidebar({ collapsed, onCollapsedChange }: SidebarProps) 
             {!collapsed && <span>Help</span>}
           </button>
         </RailTooltip>
-        <AppearanceControl collapsed={collapsed} />
+        <AppearanceToggle variant={collapsed ? 'collapsed' : 'expanded'} />
         <RailTooltip collapsed={collapsed} label={userView?.name ?? 'User profile'}>
           <button className={`flex h-11 w-full min-w-0 items-center rounded-xl text-left transition-colors hover:bg-sidebar-accent ${focusRing} ${itemLayout}`} data-testid="button-user-profile" aria-label="Open user menu">
             <div className={`flex shrink-0 items-center justify-center rounded-full bg-primary font-bold text-primary-foreground shadow-sm ${collapsed ? 'h-8 w-8 text-xs' : 'h-10 w-10 text-sm'}`}>
