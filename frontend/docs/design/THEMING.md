@@ -126,25 +126,34 @@ large opaque footer slab.
 
 ## Appearance control
 
-The lower utility area of the global sidebar contains one shared Appearance
-control above the profile and logout actions:
+The lower utility area of the global sidebar contains one shared, directly
+interactive Appearance segmented control above the profile and logout actions:
 
-- expanded desktop and mobile show the `Appearance` label, selected mode, and
-  matching Sun, Monitor, or Moon icon;
-- collapsed desktop preserves rail geometry with an icon-only trigger and an
-  `Appearance` tooltip;
-- the dropdown contains Light, System, and Dark radio items with a visible
-  selected indicator;
-- the collapsed menu opens to the right;
-- accessible trigger names include the selected preference, for example
-  `Appearance: System`;
-- keyboard support follows the Radix menu contract: Tab reaches the trigger,
-  Enter/Space opens it, arrows move, Enter selects, and Escape closes and
-  restores focus;
-- choosing a mode in the mobile drawer does not close the drawer.
+- expanded desktop uses an equal-width horizontal Light/System/Dark control
+  with visible labels and Sun, Monitor, and Moon icons;
+- collapsed desktop uses the same component as a centered vertical,
+  icons-only three-position control with a tooltip and accessible name for each
+  mode;
+- mobile uses the horizontal control at full available width and hides only the
+  visible option labels when its own container is 270px or narrower;
+- a single selection thumb moves behind the options. Its selected position
+  represents the stored preference, so System remains selected when its
+  resolved palette changes;
+- the component is a labelled radio group with roving tab focus. Left/Right
+  navigate the horizontal form, Up/Down navigate the vertical form, Home
+  selects Light, End selects Dark, and native Enter/Space button activation is
+  preserved;
+- choosing a mode in the mobile drawer does not close the drawer, and changing
+  sidebar orientation does not replace the focused option.
 
 This replaces the former inert `Theme & Settings` row. No second competing
 appearance control is introduced.
+
+The control uses dedicated semantic variables in `src/index.css`. Light mode
+uses track `#EEF2EC`, thumb `#FFFFFF`, border `#D8E0D4`, selected text
+`#182116`, inactive text `#687064`, and selected icon `#4F843D`. Dark mode uses
+track `#060906`, thumb `#121812`, border `#263124`, selected text `#F4F7F2`,
+inactive text `#7D877A`, and selected icon `#82B36F`.
 
 ## Accessibility and motion
 
@@ -166,10 +175,10 @@ The repository dark-mode verifier covers:
 - System/light and System/dark resolution;
 - explicit Light, Dark, and System selection and persistence;
 - route, reload, direct-URL, and logout/login continuity;
-- expanded, collapsed, keyboard, and mobile drawer controls;
+- expanded, collapsed, keyboard, and mobile drawer segmented controls;
 - dashboard, assistant, Knowledge Center, real document viewer, workspace,
   saved knowledge, summaries, admin, system monitor (when authorized), and auth;
-- dropdown, tooltip, dialog, command palette, toast/portal inheritance;
+- tooltip, dialog, command palette, toast/portal inheritance;
 - absolute-black canvas, foreground contrast, white-surface exceptions, console
   errors, failed requests, and startup flash sampling.
 
@@ -181,16 +190,21 @@ machine-readable verifier result.
 
 ## Verification status
 
-Last verified on 2026-07-28:
+Last verified on 2026-07-29:
 
 - `pnpm.cmd run typecheck`: passed;
-- `pnpm.cmd test`: 75 passed, 0 failed;
+- `pnpm.cmd test`: 76 passed, 0 failed;
 - production Vite build: passed using an isolated validation output directory
   because the normal Windows `dist` asset was held open by another process;
+- `node scripts/verify_appearance_toggle.mjs`: 20 passed, 0 failed, including
+  expanded/collapsed/mobile geometry, persistence, keyboard behavior, focus
+  restoration, System live updates, reduced motion, console, and network
+  checks;
 - `node scripts/verify_dark_mode.mjs`: passed, including botanical-token
   hierarchy, startup flash, route, mobile, keyboard, portal, and native-document
-  checks, with no required failures, unexpected console errors, or unexpected
-  failed requests.
+  checks in the most recent retained dark-mode audit. The standalone script is
+  not present in this repository snapshot; its retained machine-readable
+  evidence remains under `outputs/playwright/dark-mode/`.
 
 Admin and System Monitor were covered through their role-gated Access Denied
 state because the verification account is intentionally non-admin. The
