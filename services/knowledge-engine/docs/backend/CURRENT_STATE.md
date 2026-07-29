@@ -1,10 +1,29 @@
 # CIAL Knowledge OS: Current State through Phase 5
 
-Last audited: 2026-07-26
+Last audited: 2026-07-29
 
 This document describes the implemented repository state. `PROJECT_REQUIREMENTS.md`
 defines the binding requirements, while this file distinguishes completed
 capabilities from planned work.
+
+## Adaptive Appearance Control
+
+The production frontend now exposes one shared Light/System/Dark segmented
+control in the expanded desktop sidebar, collapsed 64px rail, and mobile
+drawer. It retains the existing `next-themes` provider, `cial-theme` storage
+contract, startup bootstrap, live system-theme resolution, and all dark-mode
+tokens. Expanded and mobile layouts are horizontal; the collapsed rail uses a
+40x114px vertical icons-only form with tooltips. Mobile labels respond to the
+control container and hide at 270px or narrower.
+
+The control is a labelled radio group with roving focus, orientation-aware
+arrow keys, Home/End navigation, visible focus, reduced-motion handling, and
+focus restoration when the desktop control changes orientation. The focused
+Playwright verifier passed 20 checks on 2026-07-29 across desktop, collapsed,
+mobile, explicit and System preferences, live OS-theme changes, persistence,
+route/reload continuity, keyboard behavior, responsive overflow, and reduced
+motion. Its machine-readable evidence and screenshots are under
+`outputs/playwright/appearance-toggle/`.
 
 ## Authenticated Conversation Persistence
 
