@@ -5,7 +5,7 @@ import test from 'node:test';
 const read = (file) => readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
 const main = read('src/main.tsx');
 const provider = read('src/components/theme/ThemeProvider.tsx');
-const control = read('src/components/theme/AppearanceControl.tsx');
+const control = read('src/components/theme/AppearanceToggle.tsx');
 const sidebar = read('src/components/layout/Sidebar.tsx');
 const mobile = read('src/components/layout/MobileSidebarDrawer.tsx');
 const css = read('src/index.css');
@@ -23,12 +23,30 @@ test('theme provider owns class-based Light/System/Dark persistence', () => {
 });
 
 test('appearance control is shared by expanded, collapsed, and mobile navigation', () => {
-  assert.match(sidebar, /<AppearanceControl collapsed=\{collapsed\}/);
-  assert.match(mobile, /<AppearanceControl menuSide="top"/);
-  assert.match(control, /Appearance: \$\{selectedOption\.label\}/);
-  assert.match(control, /appearance-trigger-collapsed/);
-  assert.match(control, /DropdownMenuRadioGroup/);
+  assert.match(sidebar, /<AppearanceToggle variant=\{collapsed \? 'collapsed' : 'expanded'\}/);
+  assert.match(mobile, /<AppearanceToggle variant="mobile"/);
+  assert.match(control, /role="radiogroup"/);
+  assert.match(control, /role="radio"/);
+  assert.match(control, /aria-checked=\{selected\}/);
+  assert.match(control, /tabIndex=\{selected \? 0 : -1\}/);
   assert.match(control, /appearance-option-\$\{option\.value\}/);
+});
+
+test('appearance toggle uses deterministic adaptive geometry and keyboard navigation', () => {
+  assert.match(control, /orientation = variant === 'collapsed' \? 'vertical' : 'horizontal'/);
+  assert.match(control, /event\.key === 'ArrowLeft'/);
+  assert.match(control, /event\.key === 'ArrowRight'/);
+  assert.match(control, /event\.key === 'ArrowUp'/);
+  assert.match(control, /event\.key === 'ArrowDown'/);
+  assert.match(control, /event\.key === 'Home'/);
+  assert.match(control, /event\.key === 'End'/);
+  assert.match(control, /restoreFocusIndexRef/);
+  assert.match(control, /useLayoutEffect/);
+  assert.match(css, /\.appearance-toggle-thumb/);
+  assert.match(css, /grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(css, /grid-template-rows: repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(css, /@container \(max-width: 270px\)/);
+  assert.match(css, /prefers-reduced-motion: reduce/);
 });
 
 test('dark palette keeps an absolute-black canvas with botanical surface hierarchy', () => {
