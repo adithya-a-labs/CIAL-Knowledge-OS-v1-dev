@@ -829,3 +829,13 @@ model-load time. Missing driver values remain unavailable.
 A stale or stopped indexer is a degraded indexing condition. The Assistant send
 gate continues to use backend `chat_available`, so an existing published
 generation remains queryable while the worker is stopped or restarting.
+
+## LAN Production Delivery
+
+LAN Server Mode never exposes the Vite development or preview server. Caddy
+serves `frontend/dist/public`, applies the SPA fallback and immutable asset
+cache policy, and proxies `/api/*` on the same origin. The frontend therefore
+keeps relative API URLs and requires no LAN-only CORS or absolute backend
+address. Admin System Monitor consumes the additive `lan_access` projection
+and displays only sanitized state, URLs, transport, firewall, and discovery
+readiness.

@@ -921,3 +921,17 @@ covered by deterministic pipeline tests, not claimed as a live end-to-end
 measurement. CUDA query-embedding timing was also not duplicated in a new
 process while the workstation reported 11,650/12,227 MiB already allocated
 across Ollama and two Python CUDA processes.
+
+## Optional Windows Hotspot Edge
+
+The repository now contains an opt-in, disabled-by-default LAN Server Mode.
+It detects a Windows Mobile Hotspot adapter fail-closed, binds Caddy only to
+that address, keeps internal services on loopback, publishes mDNS with an IP
+fallback, scopes owned firewall rules to the hotspot subnet, and reports
+sanitized health through the existing status APIs. HTTP and internal-CA HTTPS
+configurations have passed real Caddy validation; HTTP passed loopback
+host-machine browser automation. HTTPS startup now fails closed unless the
+app-owned Caddy state tree verifies an exact current-user/SYSTEM/Administrators
+DACL, and targeted tests confirm existing state is preserved. Physical
+second-device hotspot, consumer `.local`, and internal-CA client trust-store
+UAT remain pending and are not claimed as complete.

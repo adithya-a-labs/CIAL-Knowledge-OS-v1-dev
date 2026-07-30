@@ -211,3 +211,11 @@ Preview, thumbnail, and legacy Office rendering remain outside the continuous
 indexer's critical path. Upload completion and indexing do not wait for preview
 generation. Existing access-filtered file/preview/download routes and citation
 deep links are unchanged by the worker process split.
+
+## LAN Delivery
+
+Preview metadata, thumbnails, rendered pages, ranges, and downloads remain
+authenticated same-origin API responses behind Caddy. Range and streaming
+responses are passed through without buffering. No preview cache or source
+directory is separately exposed to the hotspot subnet, so existing document
+authorization and deep-link behavior remain authoritative.

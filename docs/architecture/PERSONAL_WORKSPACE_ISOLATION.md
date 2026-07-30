@@ -102,3 +102,11 @@ Deferred:
 
 The queue/worker details are in
 [Continuous Indexing Architecture](CONTINUOUS_INDEXING_ARCHITECTURE.md).
+
+## LAN Client Semantics
+
+A LAN client is another authenticated browser, not a new tenancy boundary.
+Personal notes, documents, uploads, preferences, previews, and assistant
+context retain their existing owner/workspace checks. The gateway exposes no
+personal storage path and does not broaden sharing; the deferred
+sharing/transfer/revocation lifecycle remains deferred.

@@ -596,3 +596,12 @@ for a principal evicts that principal's entries. Workspace/access scope and
 effective authorized paths remain part of each key. Consequently the cache
 cannot turn a formerly authorized result into a current authorization grant;
 the same access-resolution path always runs before cache lookup.
+
+## LAN Server Mode Boundary
+
+Continuous indexing remains a host-local worker concern in LAN Server Mode.
+The gateway exposes neither the worker nor PostgreSQL, Qdrant, or Ollama.
+LAN clients can observe indexing readiness only through existing authenticated
+same-origin API projections. Hotspot loss, mDNS failure, or gateway restart
+does not change queue durability, publication activation, or cache
+invalidation behavior.

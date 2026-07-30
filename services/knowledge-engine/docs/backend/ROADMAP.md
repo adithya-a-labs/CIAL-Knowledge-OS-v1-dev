@@ -27,3 +27,13 @@
 
 Deferred items do not change the current Phase 4.5 prompt or introduce Phase 5
 agentic behavior.
+
+## LAN Server Mode Verification Follow-up
+
+Implementation and host-only automation are complete for the optional Windows
+hotspot edge. Release acceptance still requires physical second-device UAT on
+the target Windows build: `.local` resolution across representative clients,
+IP fallback, login/logout, chat streaming, document previews/ranges, responsive
+UI, hotspot address change, sleep/reconnect, managed firewall teardown, and
+HTTPS trust provisioning. These are deployment acceptance items, not changes
+to retrieval, prompts, indexing, or workspace authorization.

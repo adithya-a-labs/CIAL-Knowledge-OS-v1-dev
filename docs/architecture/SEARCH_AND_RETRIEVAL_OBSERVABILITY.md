@@ -382,3 +382,12 @@ Cache security is fail-closed at key construction:
 A generation change clears the cache. A permission-boundary change evicts all
 entries belonging to that principal before lookup. Different scopes or
 authorized path sets generate different keys and cannot collide at lookup.
+
+## LAN Edge Observability
+
+The LAN manager writes bounded structured lifecycle events and Caddy writes
+rotating access records with request headers and URIs removed. The backend
+projects only a sanitized `lan_access` health object; it excludes secrets,
+tokens, cookies, MAC addresses, repository paths, and hotspot credentials.
+Gateway or discovery degradation is non-critical to retrieval health and does
+not alter retrieval tracing, authorization, or cache keys.

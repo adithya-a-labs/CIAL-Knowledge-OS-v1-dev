@@ -149,3 +149,10 @@ The Corpus layer is a core CIAL Knowledge OS pillar alongside:
 - Knowledge Engine: Phase 4.5
 - Vector Store: Qdrant
 - Frontend: Knowledge Center and related UI surfaces
+
+## LAN Access Boundary
+
+LAN clients browse Corpus content through the same authenticated `/api/corpus`
+and document routes as the host UI. The repository filesystem, PostgreSQL, and
+Qdrant are never LAN listeners. The Caddy edge does not add a filesystem route
+or bypass workspace, ACL, lifecycle, or classification filtering.

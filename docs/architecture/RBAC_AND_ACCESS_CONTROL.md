@@ -153,3 +153,12 @@ Qdrant filter over keyword-indexed payload fields; BM25 builds or reuses a
 bounded in-memory authorization index before scoring. Background indexing state
 is never used as an authorization shortcut, and timeout/fallback paths do not
 broaden scope.
+
+## LAN Authentication Boundary
+
+LAN Server Mode preserves the normal HttpOnly session-cookie and authorization
+path because UI and `/api/*` share one Caddy origin. HTTP mode deliberately
+uses `Secure=false` with `SameSite=Lax`; managed HTTPS uses `Secure=true`.
+There is no wildcard authenticated CORS policy. Host validation rejects
+unexpected hostnames, and only the loopback Caddy hop is trusted to supply
+forwarded headers.

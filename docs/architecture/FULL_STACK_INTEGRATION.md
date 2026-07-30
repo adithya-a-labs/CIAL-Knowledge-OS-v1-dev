@@ -210,3 +210,13 @@ state, Qdrant total filtered-search duration and filter fields, payload-index
 readiness, and retrieval-cache hit/miss/lookup/size/invalidation telemetry.
 Missing Qdrant filter-only timing remains unavailable because neither the SDK
 nor server response supplies that independent measurement.
+
+## Optional LAN Edge
+
+Laptop LAN Server Mode adds an edge boundary without changing service
+ownership: Caddy serves the production SPA and proxies same-origin `/api/*`,
+while FastAPI, PostgreSQL, Qdrant, Ollama, and Vite remain loopback-only.
+Authentication, authorization, streaming, preview, corpus, workspace, and
+retrieval flows continue through the existing API contracts. The sanitized
+`lan_access` health projection is additive and non-critical; an edge failure
+does not make the local stack unhealthy.

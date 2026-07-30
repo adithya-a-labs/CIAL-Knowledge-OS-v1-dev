@@ -602,3 +602,10 @@ generation, queue, worker, GPU, and model telemetry, and uses `chat_available`
 for submission preflight. Preserve the composer rule that its draft is cleared
 only from the successful stream-connection callback; connection failures retain
 the text and expose Retry.
+
+### Optional LAN production delivery
+
+Migrate the relative API configuration, production build, Admin System Monitor
+`lan_access` types/card, and `/lan-access-qr.png` behavior together. LAN mode
+serves the SPA and same-origin `/api/*` through Caddy; Vite remains
+loopback-only and authenticated wildcard CORS must not be introduced.
