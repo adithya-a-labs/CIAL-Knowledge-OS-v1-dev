@@ -10,7 +10,7 @@ import ContextManagerDialog from './ContextManagerDialog';
 import RetrievalTimeline from './RetrievalTimeline';
 import SourceViewerPanel from './SourceViewerPanel';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
-import { createAssistantExport, getCorpusTree, regenerateMessage, streamQuestion, toggleMessageFeedback, transformMessage, uploadChatAttachment } from '@/api/client';
+import { AUTH_INVALIDATED_EVENT, createAssistantExport, getCorpusTree, regenerateMessage, streamQuestion, toggleMessageFeedback, transformMessage, uploadChatAttachment } from '@/api/client';
 import type { AssistantExportFormat, GenerationEvent } from '@/api/types';
 import ExportPreviewDialog from './ExportPreviewDialog';
 import { flattenCorpusTree, toAssistantMessage, toChatRequest } from '@/api/adapters';
@@ -68,30 +68,42 @@ function resizeComposerTextarea(textarea: HTMLTextAreaElement | null) {
   textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
 }
 
+interface LiveRequestRuntime {
+  id: string;
+  sessionId: string;
+  question: string;
+  payload: ChatRequestPayload;
+  controller: AbortController;
+  startedAt: number;
+  userMessage: ChatMessageData;
+  placeholder: ChatMessageData;
+  events: GenerationEvent[];
+  streamedText: string;
+  tokenBuffer: string;
+  tokenFrame: number | null;
+  degraded: { stage: string; reason: string } | null;
+}
+
 export default function ChatPanel() {
   const {
     activeSession,
     updateActiveSession,
     updateSession,
     appendMessage,
+    updateMessage,
+    removeRequestMessages,
     promoteDraftSession,
     pendingComposer,
     consumePendingComposer,
   } = useAssistantSessions();
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [requestClock, setRequestClock] = useState(0);
   const [actionByMessage, setActionByMessage] = useState<Record<string, string>>({});
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [saveKnowledgeMessage,setSaveKnowledgeMessage]=useState<ChatMessageData|null>(null);
   const [activeExportId, setActiveExportId] = useState<string | null>(null);
   const exportSourceRef = useRef<{ sessionId: string; messageId: string; title: string } | null>(null);
   const actionGenerationRef = useRef<Record<string, number>>({});
-  const [generationEvents, setGenerationEvents] = useState<GenerationEvent[]>([]);
-  const [streamingText, setStreamingText] = useState('');
-  const tokenBufferRef = useRef('');
-  const tokenFrameRef = useRef<number | null>(null);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [contextManagerOpen, setContextManagerOpen] = useState(false);
   const [includeSourceExcerpts, setIncludeSourceExcerpts] = useState(true);
   const [showRetrievalDetails, setShowRetrievalDetails] = useState(true);
@@ -102,17 +114,11 @@ export default function ChatPanel() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const activeRequestControllerRef = useRef<AbortController | null>(null);
-  const isSubmittingRef = useRef(false);
-  const activeRequestIdRef = useRef<string | null>(null);
-  const retryQuestionRef = useRef<string | null>(null);
-  const degradedStageRef = useRef<{
-    stage: string;
-    reason: string;
-  } | null>(null);
+  const requestRuntimesRef = useRef(new Map<string, LiveRequestRuntime>());
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   const [chatMessagesWidth, setChatMessagesWidth] = useState<number>(0);
   const messages = activeSession.messages as ChatMessageData[];
+  const isLoading = messages.some((message) => message.requestStatus === 'queued' || message.requestStatus === 'running');
   const selectedContextItems = activeSession.selectedContextItems as SelectedContextItem[];
   const uploadedFiles = activeSession.uploadedFiles as UploadedFileContext[];
   const uploadedDocumentIdsForStatus = useMemo(() => uploadedFiles.map((file) => file.backendDocumentId).filter((value): value is string => Boolean(value)), [uploadedFiles]);
@@ -154,10 +160,7 @@ export default function ChatPanel() {
   }, [corpusTreeQuery.data]);
 
   useEffect(() => {
-    activeRequestControllerRef.current?.abort();
     setInput('');
-    setErrorMessage(null);
-    retryQuestionRef.current = null;
     setSelectedSource(null);
     setSourceViewerOpen(false);
   }, [activeSession.id]);
@@ -177,24 +180,36 @@ export default function ChatPanel() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading, generationEvents]);
+  }, [messages, isLoading, requestClock]);
 
   useEffect(() => {
-    if (!isLoading) {
-      setElapsedSeconds(0);
-      return;
-    }
-    const startedAt = Date.now();
-    const interval = window.setInterval(() => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    if (!requestRuntimesRef.current.size) return;
+    const interval = window.setInterval(() => setRequestClock((value) => value + 1), 1000);
     return () => window.clearInterval(interval);
   }, [isLoading]);
 
-  const stopGenerating = () => {
-    const controller = activeRequestControllerRef.current;
+  const stopGenerating = (requestId: string) => {
+    const controller = requestRuntimesRef.current.get(requestId)?.controller;
     if (!controller || controller.signal.aborted) return;
-    console.debug('[chat-request]', { requestId: activeRequestIdRef.current, status: 'cancelled_by_user' });
+    console.debug('[chat-request]', { requestId, status: 'cancelled_by_user' });
     controller.abort();
   };
+
+  useEffect(() => {
+    const abortAll = () => {
+      requestRuntimesRef.current.forEach((runtime) => {
+        runtime.controller.abort();
+        if (runtime.tokenFrame !== null) cancelAnimationFrame(runtime.tokenFrame);
+        removeRequestMessages(runtime.sessionId, runtime.id);
+      });
+      requestRuntimesRef.current.clear();
+    };
+    window.addEventListener(AUTH_INVALIDATED_EVENT, abortAll);
+    return () => {
+      window.removeEventListener(AUTH_INVALIDATED_EVENT, abortAll);
+      abortAll();
+    };
+  }, [removeRequestMessages]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(min-width: 1024px)');
@@ -276,16 +291,19 @@ export default function ChatPanel() {
     });
   };
 
-  const handleSend = async (questionOverride?: string, profileOverride?: typeof activeProfile) => {
+  const handleSend = async (
+    questionOverride?: string,
+    profileOverride?: typeof activeProfile,
+    capturedPayload?: ChatRequestPayload,
+  ) => {
     const question = (questionOverride ?? input).trim();
-    if (!question || isLoading || isSubmittingRef.current) return;
+    if (!question) return;
     if (blockingAttachments.length > 0) {
       const preparing = blockingAttachments.filter((file) => file.uploadStatus === 'uploading' || ['pending', 'indexing', undefined].includes(file.indexingStatus));
       toast({ title: preparing.length ? 'Preparing attached files' : 'An attached file is not ready',
         description: blockingAttachments.map((file) => file.name).join(', ') });
       return;
     }
-    isSubmittingRef.current = true;
 
     const explicitDocumentIds = selectedContextItems
         .filter((item) => item.type === 'document')
@@ -301,7 +319,8 @@ export default function ChatPanel() {
         .filter((value): value is string => Boolean(value));
 
     const requestSessionId = activeSession.id;
-    const requestPayload: ChatRequestPayload = {
+    const backendSessionId = activeSession.requestSessionId;
+    const requestPayload: ChatRequestPayload = capturedPayload ?? {
       query: question,
       searchScope,
       activeProfile: profileOverride ?? activeProfile,
@@ -312,23 +331,51 @@ export default function ChatPanel() {
     };
 
     const userMsg: ChatMessageData = {
-      id: `user-${Date.now()}`,
+      id: `user-${crypto.randomUUID()}`,
       role: 'user',
       content: requestPayload.query,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
-
-    setIsLoading(true);
-    setGenerationEvents([]);
-    degradedStageRef.current = null;
-    setStreamingText(''); tokenBufferRef.current = '';
-    setErrorMessage(null);
     const controller = new AbortController();
-    const requestId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    activeRequestControllerRef.current = controller;
-    activeRequestIdRef.current = requestId;
+    const requestId = crypto.randomUUID();
+    const placeholder: ChatMessageData = {
+      id: `assistant-${requestId}`,
+      role: 'assistant',
+      content: 'Waiting for assistant capacity…',
+      timestamp: 'Queued',
+      clientRequestId: requestId,
+      requestStatus: 'queued',
+      requestEvents: [],
+      retryPayload: requestPayload,
+    };
     const startedAt = performance.now();
+    let requestOutcome: 'completed' | 'cancelled' | 'failed' = 'failed';
+    const runtime: LiveRequestRuntime = {
+      id: requestId,
+      sessionId: requestSessionId,
+      question,
+      payload: requestPayload,
+      controller,
+      startedAt,
+      userMessage: userMsg,
+      placeholder,
+      events: [],
+      streamedText: '',
+      tokenBuffer: '',
+      tokenFrame: null,
+      degraded: null,
+    };
+    requestRuntimesRef.current.set(requestId, runtime);
+    appendMessage(requestSessionId, userMsg);
+    appendMessage(requestSessionId, placeholder);
+    if (!questionOverride) setInput('');
+    setRequestClock((value) => value + 1);
     console.debug('[chat-request]', { requestId, status: 'started' });
+
+    const updatePlaceholder = (update: Partial<ChatMessageData>) => {
+      runtime.placeholder = { ...runtime.placeholder, ...update };
+      updateMessage(runtime.sessionId, `assistant-${runtime.id}`, runtime.placeholder);
+    };
 
     try {
       const liveStatus = await systemStatusQuery.refetch();
@@ -344,36 +391,57 @@ export default function ChatPanel() {
       }
       const response = await streamQuestion(toChatRequest(
         requestPayload,
-        isAssistantDraftId(requestSessionId) ? undefined : requestSessionId,
+        backendSessionId,
+        requestId,
       ), (event) => {
         if (event.type === 'stage') {
-          setGenerationEvents((current) => [...current, event].slice(-30));
+          runtime.events = [...runtime.events, event].slice(-30);
           const errorState = event.metrics?.error_state;
           if (errorState) {
-            degradedStageRef.current = {
+            runtime.degraded = {
               stage: event.stage_id,
               reason: String(errorState),
             };
           }
+          updatePlaceholder({
+            requestStatus: event.stage_id === 'queued' ? 'queued' : 'running',
+            requestEvents: runtime.events,
+            timestamp: event.stage_id.replaceAll('_', ' '),
+          });
         }
-        if (event.type === 'token' && event.delta && activeRequestControllerRef.current === controller) {
-          tokenBufferRef.current += event.delta;
-          if (tokenFrameRef.current === null) tokenFrameRef.current = requestAnimationFrame(() => { setStreamingText((current) => current + tokenBufferRef.current); tokenBufferRef.current = ''; tokenFrameRef.current = null; });
+        if (event.type === 'token' && event.delta && !controller.signal.aborted) {
+          runtime.tokenBuffer += event.delta;
+          if (runtime.tokenFrame === null) {
+            runtime.tokenFrame = requestAnimationFrame(() => {
+              runtime.streamedText += runtime.tokenBuffer;
+              runtime.tokenBuffer = '';
+              runtime.tokenFrame = null;
+              updatePlaceholder({
+                content: runtime.streamedText,
+                requestStatus: 'running',
+                timestamp: 'Generating…',
+              });
+            });
+          }
         }
       }, controller.signal, () => {
-        updateSession(requestSessionId, { messages: [...messages, userMsg] });
-        if (!questionOverride) setInput('');
-        setGenerationEvents([{
+        runtime.events = [{
           request_id: requestId,
           type: 'stage',
           stage_id: 'connection',
           status: 'completed',
           elapsed_ms: Math.round(performance.now() - startedAt),
           metrics: {},
-        }]);
+        }];
+        updatePlaceholder({
+          requestStatus: 'running',
+          requestEvents: runtime.events,
+          timestamp: 'Connected',
+        });
       });
-      if (tokenFrameRef.current !== null) cancelAnimationFrame(tokenFrameRef.current);
-      tokenFrameRef.current = null; tokenBufferRef.current = ''; setStreamingText('');
+      if (runtime.tokenFrame !== null) cancelAnimationFrame(runtime.tokenFrame);
+      runtime.tokenFrame = null;
+      runtime.tokenBuffer = '';
       const adapted = toAssistantMessage(response, requestPayload);
       const persistedUserMsg = response.user_message_id ? { ...userMsg, id: response.user_message_id } : userMsg;
       const aiMsg: ChatMessageData = {
@@ -385,29 +453,33 @@ export default function ChatPanel() {
         sources: adapted.sources,
         metadata: adapted.metadata,
         relatedQuestions: adapted.relatedQuestions,
+        clientRequestId: requestId,
+        requestStatus: 'completed',
       };
 
-      const completedMessages = [...messages, persistedUserMsg, aiMsg];
+      updateMessage(requestSessionId, userMsg.id, persistedUserMsg);
+      updateMessage(requestSessionId, placeholder.id, aiMsg);
       if (isAssistantDraftId(requestSessionId)) {
         if (!response.session_id) throw new Error('The new conversation did not return a session ID.');
-        promoteDraftSession(requestSessionId, response.session_id, { messages: completedMessages });
-      } else {
-        updateSession(requestSessionId, { messages: completedMessages });
+        promoteDraftSession(requestSessionId, response.session_id, {});
       }
-      const failed = degradedStageRef.current as {
-        stage: string;
-        reason: string;
-      } | null;
+      const failed = runtime.degraded;
       if (failed) {
-        retryQuestionRef.current = question;
-        setErrorMessage(
-          `Retrieval degraded at ${failed.stage.replaceAll('_', ' ')} (${failed.reason}). The answer used only the available safe results. You can retry.`,
-        );
-      } else {
-        retryQuestionRef.current = null;
+        toast({
+          title: 'Retrieval completed with degradation',
+          description: `${failed.stage.replaceAll('_', ' ')}: ${failed.reason}`,
+        });
       }
+      requestOutcome = 'completed';
     } catch (error) {
       const cancelled = controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
+      requestOutcome = cancelled ? 'cancelled' : 'failed';
+      if (runtime.tokenFrame !== null) {
+        cancelAnimationFrame(runtime.tokenFrame);
+        runtime.tokenFrame = null;
+      }
+      runtime.streamedText += runtime.tokenBuffer;
+      runtime.tokenBuffer = '';
       const message = cancelled
         ? 'Generation stopped.'
         : error instanceof Error && error.name === 'TimeoutError'
@@ -419,24 +491,31 @@ export default function ChatPanel() {
             : error instanceof Error && error.message
               ? error.message
               : 'The assistant could not complete this request.';
-      setErrorMessage(message);
-      if (!cancelled) retryQuestionRef.current = question;
+      if (error instanceof ApiError && error.status === 429 && !questionOverride) {
+        setInput((current) => current.trim() ? current : question);
+      }
+      updatePlaceholder({
+        content: runtime.streamedText || message,
+        requestStatus: cancelled ? 'cancelled' : 'failed',
+        requestError: message,
+        timestamp: cancelled ? 'Stopped' : 'Failed',
+        retryPayload: requestPayload,
+      });
       toast({
         title: cancelled ? 'Generation stopped' : 'Assistant request failed',
         description: message,
       });
     } finally {
+      if (runtime.tokenFrame !== null) cancelAnimationFrame(runtime.tokenFrame);
+      runtime.tokenFrame = null;
+      runtime.tokenBuffer = '';
       console.debug('[chat-request]', {
         requestId,
-        status: controller.signal.aborted ? 'cancelled_by_user' : 'completed',
+        status: requestOutcome,
         elapsedSeconds: Math.round((performance.now() - startedAt) / 1000),
       });
-      if (activeRequestControllerRef.current === controller) {
-        activeRequestControllerRef.current = null;
-        activeRequestIdRef.current = null;
-      }
-      isSubmittingRef.current = false;
-      setIsLoading(false);
+      requestRuntimesRef.current.delete(requestId);
+      setRequestClock((value) => value + 1);
     }
   };
 
@@ -447,11 +526,11 @@ export default function ChatPanel() {
       consumePendingComposer();
       return;
     }
-    if (!chatReady || isLoading) return;
+    if (!chatReady) return;
     const pending = pendingComposer;
     consumePendingComposer();
     void handleSend(pending.question, pending.profile);
-  }, [chatReady, consumePendingComposer, isLoading, pendingComposer]);
+  }, [chatReady, consumePendingComposer, pendingComposer]);
 
   const handleFileChange = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -561,7 +640,7 @@ export default function ChatPanel() {
   };
 
   const visibleSuggestedPrompts =
-      input.trim().length === 0 && !isLoading ? suggestedPrompts.slice(0, 5) : [];
+      input.trim().length === 0 ? suggestedPrompts.slice(0, 5) : [];
   const hasSelectedSource = Boolean(selectedSource);
   const showDesktopSourcePane = hasSelectedSource && sourceViewerOpen && isDesktopViewport;
   const sourceViewerSources = allVisibleSources.map((source) => ({
@@ -601,9 +680,12 @@ export default function ChatPanel() {
               </div>
           ) : (
               <div className="space-y-5">
-                {messages.map((msg) => (
-                    <ChatMessage
-                        key={msg.id}
+                {messages.map((msg) => {
+                  const runtime = msg.clientRequestId ? requestRuntimesRef.current.get(msg.clientRequestId) : undefined;
+                  const requestRunning = msg.requestStatus === 'queued' || msg.requestStatus === 'running';
+                  return (
+                    <div key={msg.id} data-client-request-id={msg.clientRequestId}>
+                      <ChatMessage
                         message={msg}
                         chatWidth={chatMessagesWidth}
                         selectedFeedback={feedbackByMessageId[msg.id]}
@@ -616,21 +698,29 @@ export default function ChatPanel() {
                         onFeedback={handleFeedback}
                         includeSourceExcerpts={includeSourceExcerpts}
                         showRetrievalDetails={showRetrievalDetails}
-                    />
-                ))}
+                      />
+                      {requestRunning && msg.clientRequestId ? (
+                        <RetrievalTimeline
+                          events={msg.requestEvents ?? []}
+                          elapsedSeconds={runtime ? Math.floor((performance.now() - runtime.startedAt) / 1000) : 0}
+                          requestId={msg.clientRequestId}
+                          onStop={() => stopGenerating(msg.clientRequestId!)}
+                        />
+                      ) : null}
+                      {msg.requestError ? (
+                        <div className="ml-auto mt-2 flex max-w-[46rem] items-center justify-between gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive" data-testid="assistant-error" role="alert">
+                          <span>{msg.requestError}</span>
+                          {msg.retryPayload && msg.requestStatus !== 'cancelled' ? (
+                            <button type="button" className="inline-flex shrink-0 items-center gap-1 rounded px-2 py-1 font-semibold hover:bg-destructive/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500" onClick={() => void handleSend(msg.retryPayload!.query, msg.retryPayload!.activeProfile, msg.retryPayload)} aria-label={`Retry request ${msg.clientRequestId ?? msg.id}`}>
+                              <RefreshCw size={14}/>Retry
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
 
-            {isLoading && (
-              <RetrievalTimeline events={generationEvents} elapsedSeconds={elapsedSeconds} onStop={stopGenerating} />
-            )}
-
-            {streamingText && <ChatMessage key="streaming-response" message={{ id: 'streaming-response', role: 'assistant', content: streamingText, timestamp: 'Generating…' }} chatWidth={chatMessagesWidth} onCitationClick={openSource} onSourceOpen={openSource} onRelatedQuestionClick={setInput} onCopy={copyResponse} onAction={handleResponseAction} loadingAction={undefined} onFeedback={handleFeedback} includeSourceExcerpts={includeSourceExcerpts} showRetrievalDetails={showRetrievalDetails}/>}
-
-            {errorMessage && (
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive" data-testid="assistant-error" role="alert">
-                <span>{errorMessage}</span>
-                {retryQuestionRef.current ? <button type="button" className="inline-flex shrink-0 items-center gap-1 rounded px-2 py-1 font-semibold hover:bg-destructive/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500" onClick={() => void handleSend(retryQuestionRef.current ?? undefined)}><RefreshCw size={14}/>Retry</button> : null}
-              </div>
-            )}
           </div>
         )}
         <div ref={messagesEndRef} />
@@ -718,7 +808,7 @@ export default function ChatPanel() {
           <button
             type="button"
             onClick={() => void handleSend()}
-            disabled={!input.trim() || isLoading || blockingAttachments.length > 0}
+            disabled={!input.trim() || blockingAttachments.length > 0}
             className="composer-send col-start-2 row-span-2 row-start-1 mb-3 mr-3 inline-flex h-11 w-11 self-end items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition hover:bg-primary/85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none sm:h-12 sm:w-12"
             data-testid="button-send"
             aria-label={chatReady ? 'Send message' : healthLabel}
