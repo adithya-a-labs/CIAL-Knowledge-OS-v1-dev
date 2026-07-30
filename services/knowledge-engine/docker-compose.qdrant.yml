@@ -4,7 +4,7 @@ services:
     container_name: cial-knowledge-os-v1-dev-qdrant
 
     ports:
-      - "6335:6333"
+      - "127.0.0.1:6335:6333"
 
     volumes:
       - cial_qdrant_storage:/qdrant/storage
