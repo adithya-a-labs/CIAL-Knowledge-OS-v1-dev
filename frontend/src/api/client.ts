@@ -355,7 +355,13 @@ export async function streamQuestion(
     if (!response.ok || !response.body) {
       let detail: unknown = null;
       try { detail = await response.json(); } catch { detail = await response.text(); }
-      throw new ApiError(`Request failed with status ${response.status}`, response.status, detail);
+      const nested = detail && typeof detail === 'object' && 'detail' in detail
+        ? (detail as { detail?: unknown }).detail
+        : detail;
+      const message = nested && typeof nested === 'object' && 'message' in nested
+        ? String((nested as { message?: unknown }).message || `Request failed with status ${response.status}`)
+        : `Request failed with status ${response.status}`;
+      throw new ApiError(message, response.status, detail);
     }
     onConnected?.();
     const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let result: import('./types').ChatResponse | null = null;

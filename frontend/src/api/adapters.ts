@@ -24,9 +24,10 @@ export function toApiResponseLength(value: UiResponseLength): ResponseLength {
   return value;
 }
 
-export function toChatRequest(payload: ChatRequestPayload, sessionId?: string) {
+export function toChatRequest(payload: ChatRequestPayload, sessionId?: string, clientRequestId?: string) {
   return {
     session_id: sessionId,
+    client_request_id: clientRequestId,
     question: payload.query,
     search_scope: payload.searchScope,
     selected_document_ids: [...payload.selectedDocumentIds],
