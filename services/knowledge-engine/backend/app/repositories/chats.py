@@ -32,7 +32,12 @@ class ChatRepository:
             self.session.scalars(
                 select(ChatMessage).join(ChatSession)
                 .where(ChatMessage.session_id == session_id, ChatSession.user_id == user_id)
-                .order_by(ChatMessage.created_at)
+                .order_by(
+                    ChatMessage.turn_sequence,
+                    ChatMessage.role_sequence,
+                    ChatMessage.created_at,
+                    ChatMessage.id,
+                )
             )
         )
 

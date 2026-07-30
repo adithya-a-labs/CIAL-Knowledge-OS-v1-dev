@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, SmallInteger, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -38,7 +38,15 @@ class ChatSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class ChatMessage(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "chat_messages"
-    __table_args__ = (Index("ix_chat_messages_session_id", "session_id"),)
+    __table_args__ = (
+        Index("ix_chat_messages_session_id", "session_id"),
+        Index(
+            "ix_chat_messages_session_turn_role",
+            "session_id",
+            "turn_sequence",
+            "role_sequence",
+        ),
+    )
 
     session_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -47,6 +55,12 @@ class ChatMessage(UUIDPrimaryKeyMixin, Base):
     )
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     role: Mapped[str] = mapped_column(Text, nullable=False)
+    turn_sequence: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    role_sequence: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=0, server_default="0"
+    )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     citations: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
     sources: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
