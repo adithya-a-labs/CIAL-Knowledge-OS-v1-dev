@@ -1,0 +1,191 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-07-30T15:47:59+05:30",
+  "dataset_id": "dataset-user-flows",
+  "classification": "OBSERVED",
+  "items": [
+    {
+      "flow_id": "flow-library-create",
+      "name": "Library to new empty notebook",
+      "surface_ids": [
+        "route-library",
+        "surface-empty-notebook"
+      ],
+      "status": "completed",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "flow_id": "flow-source-text",
+      "name": "Add copied-text source and process",
+      "surface_ids": [
+        "surface-source-import",
+        "surface-sources"
+      ],
+      "status": "completed",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "flow_id": "flow-source-web",
+      "name": "Add permitted website source and process",
+      "surface_ids": [
+        "surface-source-import",
+        "surface-sources"
+      ],
+      "status": "completed",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "flow_id": "flow-source-pdf",
+      "name": "Upload fixture PDF",
+      "surface_ids": [
+        "surface-source-import"
+      ],
+      "status": "incomplete_tooling",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "flow_id": "flow-source-preview",
+      "name": "Open source preview and return",
+      "surface_ids": [
+        "surface-sources",
+        "surface-source-preview"
+      ],
+      "status": "completed",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "flow_id": "flow-chat-one-source",
+      "name": "Ask with one selected source",
+      "surface_ids": [
+        "surface-chat"
+      ],
+      "status": "completed",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "flow_id": "flow-chat-two-source",
+      "name": "Repeat with both sources",
+      "surface_ids": [
+        "surface-chat"
+      ],
+      "status": "completed",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "flow_id": "flow-citation",
+      "name": "Open citation detail and return",
+      "surface_ids": [
+        "surface-chat",
+        "surface-citation-detail"
+      ],
+      "status": "completed",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "flow_id": "flow-note",
+      "name": "Create, edit, persist, menu, delete note",
+      "surface_ids": [
+        "surface-notes"
+      ],
+      "status": "completed",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "flow_id": "flow-studio",
+      "name": "Generate and inspect every Studio output",
+      "surface_ids": [
+        "surface-studio",
+        "surface-artifact-viewer"
+      ],
+      "status": "completed",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "flow_id": "flow-persistence",
+      "name": "Reload, library return, exact notebook reopen",
+      "surface_ids": [
+        "route-library",
+        "route-notebook"
+      ],
+      "status": "completed",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    }
+  ]
+}

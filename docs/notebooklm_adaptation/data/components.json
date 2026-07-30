@@ -1,0 +1,254 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-07-30T15:47:59+05:30",
+  "dataset_id": "dataset-components",
+  "classification": "OBSERVED",
+  "items": [
+    {
+      "component_id": "component-library-toolbar",
+      "name": "Library toolbar",
+      "surface_id": "surface-library",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/desktop/library_1440x900.png",
+        "evidence/screenshots/desktop/library_1024x768.png",
+        "evidence/screenshots/tablet/library_768x1024.png",
+        "evidence/screenshots/mobile/library_390x844.png"
+      ]
+    },
+    {
+      "component_id": "component-notebook-header",
+      "name": "Notebook header",
+      "surface_id": "surface-notebook-shell",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-responsive-tabs",
+      "name": "Responsive panel tabs",
+      "surface_id": "surface-notebook-shell",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-sources-panel",
+      "name": "Sources panel",
+      "surface_id": "surface-sources",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-source-row",
+      "name": "Source row",
+      "surface_id": "surface-sources",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-source-preview",
+      "name": "Source preview",
+      "surface_id": "surface-source-preview",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-chat-thread",
+      "name": "Chat thread",
+      "surface_id": "surface-chat",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-chat-composer",
+      "name": "Chat composer",
+      "surface_id": "surface-chat",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-citation-chip",
+      "name": "Citation chip",
+      "surface_id": "surface-chat",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-citation-overlay",
+      "name": "Citation detail overlay",
+      "surface_id": "surface-citation-detail",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-note-editor",
+      "name": "Rich note editor",
+      "surface_id": "surface-notes",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-note-card",
+      "name": "Note card",
+      "surface_id": "surface-notes",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-studio-grid",
+      "name": "Studio output grid",
+      "surface_id": "surface-studio",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-artifact-card",
+      "name": "Artifact card",
+      "surface_id": "surface-artifact-card",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-dialog-viewer",
+      "name": "Dialog artifact viewer",
+      "surface_id": "surface-artifact-viewer",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-inline-player",
+      "name": "Inline audio/video player",
+      "surface_id": "surface-artifact-viewer",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-iframe-activity",
+      "name": "Iframe quiz/flashcards activity",
+      "surface_id": "surface-artifact-viewer",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-share-dialog",
+      "name": "Share dialog",
+      "surface_id": "surface-share",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "component_id": "component-settings-menu",
+      "name": "Settings menu",
+      "surface_id": "surface-settings",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    }
+  ]
+}

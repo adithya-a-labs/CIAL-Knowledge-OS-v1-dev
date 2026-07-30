@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-07-30T15:47:59+05:30",
+  "dataset_id": "dataset-runtime",
+  "classification": "OBSERVED",
+  "items": [
+    {
+      "runtime_id": "runtime-001",
+      "observation": "Copied-text and website sources exposed processing then ready states.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/performance/runtime_observations_sanitized.md"
+      ]
+    },
+    {
+      "runtime_id": "runtime-002",
+      "observation": "One-source answer completed with four citation anchors using source 1 only.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/performance/runtime_observations_sanitized.md"
+      ]
+    },
+    {
+      "runtime_id": "runtime-003",
+      "observation": "The repeated two-source answer completed with six anchors using source ordinals 1 and 2.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/performance/runtime_observations_sanitized.md"
+      ]
+    },
+    {
+      "runtime_id": "runtime-004",
+      "observation": "All nine Studio outputs reached completed artifact-card state; Video remained long-running before later completing.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/performance/runtime_observations_sanitized.md"
+      ]
+    },
+    {
+      "runtime_id": "runtime-005",
+      "observation": "Reload restored both generic chat turns and all ten citation anchors.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/performance/runtime_observations_sanitized.md"
+      ]
+    },
+    {
+      "runtime_id": "runtime-006",
+      "observation": "The console captured 28 warning/error events across five unique sanitized messages.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/console/console_observations_sanitized.md"
+      ]
+    }
+  ]
+}

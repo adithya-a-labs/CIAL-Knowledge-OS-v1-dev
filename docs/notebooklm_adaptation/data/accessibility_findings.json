@@ -1,0 +1,101 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-07-30T15:47:59+05:30",
+  "dataset_id": "dataset-accessibility",
+  "classification": "OBSERVED",
+  "items": [
+    {
+      "finding_id": "a11y-001",
+      "severity": "positive",
+      "surface_id": "surface-notebook-shell",
+      "finding": "Sources, Chat, and Studio expose tab roles at narrow widths.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    },
+    {
+      "finding_id": "a11y-002",
+      "severity": "positive",
+      "surface_id": "surface-sources",
+      "finding": "Source selection exposes named checkboxes and checked state.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    },
+    {
+      "finding_id": "a11y-003",
+      "severity": "positive",
+      "surface_id": "surface-artifact-viewer",
+      "finding": "Mind Map exposes a tree and explicit arrow-key/Enter instructions.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "finding_id": "a11y-004",
+      "severity": "medium",
+      "surface_id": "surface-notebook-shell",
+      "finding": "The analytics icon enters focus order with the literal accessible name 'trending_up'.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    },
+    {
+      "finding_id": "a11y-005",
+      "severity": "medium",
+      "surface_id": "surface-source-preview",
+      "finding": "Returning from source preview left focus on BODY rather than the source trigger.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    },
+    {
+      "finding_id": "a11y-006",
+      "severity": "medium",
+      "surface_id": "surface-artifact-viewer",
+      "finding": "Mind Map Escape dismissal returned focus to BODY rather than the artifact card.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "finding_id": "a11y-007",
+      "severity": "medium",
+      "surface_id": "surface-artifact-viewer",
+      "finding": "Escape did not close the iframe-based Quiz viewer; its explicit Close control worked.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "finding_id": "a11y-008",
+      "severity": "positive",
+      "surface_id": "surface-chat",
+      "finding": "Keyboard Enter and the Submit button share the chat submission path.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    }
+  ]
+}

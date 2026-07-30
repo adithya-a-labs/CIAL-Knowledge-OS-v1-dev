@@ -1,0 +1,12 @@
+flowchart TD
+  Shell[Notebook shell]
+  Shell --> Header
+  Shell --> Layout
+  Layout --> SourcesPanel
+  Layout --> ChatPanel
+  Layout --> StudioPanel
+  ChatPanel --> CitationDetail
+  SourcesPanel --> SourcePreview
+  StudioPanel --> NoteEditor
+  StudioPanel --> ArtifactCard
+  ArtifactCard --> ArtifactViewer

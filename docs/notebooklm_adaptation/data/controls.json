@@ -1,0 +1,545 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-07-30T15:47:59+05:30",
+  "dataset_id": "dataset-controls",
+  "classification": "OBSERVED",
+  "items": [
+    {
+      "control_id": "control-library-filter",
+      "name": "Library filter radios",
+      "surface_id": "surface-library",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/desktop/library_1440x900.png",
+        "evidence/screenshots/desktop/library_1024x768.png",
+        "evidence/screenshots/tablet/library_768x1024.png",
+        "evidence/screenshots/mobile/library_390x844.png"
+      ]
+    },
+    {
+      "control_id": "control-library-view",
+      "name": "Grid/list view radios",
+      "surface_id": "surface-library",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/desktop/library_1440x900.png",
+        "evidence/screenshots/desktop/library_1024x768.png",
+        "evidence/screenshots/tablet/library_768x1024.png",
+        "evidence/screenshots/mobile/library_390x844.png"
+      ]
+    },
+    {
+      "control_id": "control-library-search",
+      "name": "Open search",
+      "surface_id": "surface-library",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/desktop/library_1440x900.png",
+        "evidence/screenshots/desktop/library_1024x768.png",
+        "evidence/screenshots/tablet/library_768x1024.png",
+        "evidence/screenshots/mobile/library_390x844.png"
+      ]
+    },
+    {
+      "control_id": "control-library-sort",
+      "name": "Most recent sort",
+      "surface_id": "surface-library",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/desktop/library_1440x900.png",
+        "evidence/screenshots/desktop/library_1024x768.png",
+        "evidence/screenshots/tablet/library_768x1024.png",
+        "evidence/screenshots/mobile/library_390x844.png"
+      ]
+    },
+    {
+      "control_id": "control-create-notebook",
+      "name": "Create notebook",
+      "surface_id": "surface-library",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/desktop/library_1440x900.png",
+        "evidence/screenshots/desktop/library_1024x768.png",
+        "evidence/screenshots/tablet/library_768x1024.png",
+        "evidence/screenshots/mobile/library_390x844.png"
+      ]
+    },
+    {
+      "control_id": "control-source-add",
+      "name": "Add source",
+      "surface_id": "surface-sources",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-source-select-all",
+      "name": "Select all sources",
+      "surface_id": "surface-sources",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-source-checkbox",
+      "name": "Per-source checkbox",
+      "surface_id": "surface-sources",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-source-row",
+      "name": "Source row preview trigger",
+      "surface_id": "surface-sources",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-source-more",
+      "name": "Source overflow",
+      "surface_id": "surface-sources",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-source-back",
+      "name": "Source preview Back",
+      "surface_id": "surface-source-preview",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-source-open",
+      "name": "Open source in new tab",
+      "surface_id": "surface-source-preview",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-chat-input",
+      "name": "Query box",
+      "surface_id": "surface-chat",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-chat-submit",
+      "name": "Submit",
+      "surface_id": "surface-chat",
+      "states": [
+        "default",
+        "focus",
+        "disabled",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-chat-stop",
+      "name": "Stop response",
+      "surface_id": "surface-chat",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-citation",
+      "name": "Inline citation",
+      "surface_id": "surface-chat",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-citation-view-source",
+      "name": "View citation source",
+      "surface_id": "surface-citation-detail",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-note-add",
+      "name": "Add note",
+      "surface_id": "surface-notes",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-note-title",
+      "name": "Editable note title",
+      "surface_id": "surface-notes",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-note-body",
+      "name": "Rich-text note body",
+      "surface_id": "surface-notes",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-note-delete",
+      "name": "Delete and confirm",
+      "surface_id": "surface-notes",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-share",
+      "name": "Share notebook",
+      "surface_id": "surface-share",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-share-copy",
+      "name": "Copy link",
+      "surface_id": "surface-share",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-settings",
+      "name": "Settings",
+      "surface_id": "surface-settings",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-analytics",
+      "name": "Analytics icon button",
+      "surface_id": "surface-notebook-shell",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-studio-output",
+      "name": "Studio output trigger",
+      "surface_id": "surface-studio",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-studio-customise",
+      "name": "Studio customise trigger",
+      "surface_id": "surface-studio",
+      "states": [
+        "default",
+        "focus",
+        "disabled",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-artifact-more",
+      "name": "Artifact overflow",
+      "surface_id": "surface-artifact-card",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-artifact-share",
+      "name": "Artifact share",
+      "surface_id": "surface-artifact-viewer",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "control_id": "control-artifact-close",
+      "name": "Artifact Back/Close/Escape",
+      "surface_id": "surface-artifact-viewer",
+      "states": [
+        "default",
+        "focus",
+        "active"
+      ],
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    }
+  ]
+}

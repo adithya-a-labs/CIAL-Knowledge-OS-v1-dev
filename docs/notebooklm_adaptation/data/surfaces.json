@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-07-30T15:47:59+05:30",
+  "dataset_id": "dataset-surfaces",
+  "classification": "OBSERVED",
+  "items": [
+    {
+      "surface_id": "surface-library",
+      "name": "Notebook library",
+      "route_id": "route-library",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/desktop/library_1440x900.png",
+        "evidence/screenshots/desktop/library_1024x768.png",
+        "evidence/screenshots/tablet/library_768x1024.png",
+        "evidence/screenshots/mobile/library_390x844.png"
+      ]
+    },
+    {
+      "surface_id": "surface-empty-notebook",
+      "name": "Empty notebook",
+      "route_id": "route-notebook",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "surface_id": "surface-notebook-shell",
+      "name": "Notebook shell",
+      "route_id": "route-notebook",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "surface_id": "surface-sources",
+      "name": "Sources panel/tab",
+      "route_id": "route-notebook",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "surface_id": "surface-source-import",
+      "name": "Source import dialog",
+      "route_id": "route-notebook",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "surface_id": "surface-source-preview",
+      "name": "Source preview",
+      "route_id": "route-notebook",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "surface_id": "surface-chat",
+      "name": "Grounded chat",
+      "route_id": "route-notebook",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "surface_id": "surface-citation-detail",
+      "name": "Citation detail overlay",
+      "route_id": "route-notebook",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "surface_id": "surface-notes",
+      "name": "Notes editor and cards",
+      "route_id": "route-notebook",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "surface_id": "surface-studio",
+      "name": "Studio generator grid",
+      "route_id": "route-notebook",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "surface_id": "surface-artifact-card",
+      "name": "Studio artifact card",
+      "route_id": "route-notebook",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "surface_id": "surface-artifact-viewer",
+      "name": "Studio artifact viewer",
+      "route_id": "route-notebook",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "surface_id": "surface-share",
+      "name": "Notebook sharing dialog",
+      "route_id": "route-notebook",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "surface_id": "surface-settings",
+      "name": "Global settings menu",
+      "route_id": "route-notebook",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "surface_id": "surface-runtime",
+      "name": "Browser runtime observations",
+      "route_id": "route-notebook",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md",
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    }
+  ]
+}

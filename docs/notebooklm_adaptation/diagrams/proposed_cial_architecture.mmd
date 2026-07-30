@@ -1,0 +1,13 @@
+flowchart LR
+  UI[CIAL Notebook UI] --> API[FastAPI notebook contracts]
+  API --> PG[(PostgreSQL metadata/control plane)]
+  API --> CORPUS[Corpus API]
+  CORPUS --> FS[(Authoritative filesystem)]
+  API --> PREVIEW[Shared document preview]
+  API --> QUERY[Loaded query pipeline]
+  QUERY --> QD[(Qdrant)]
+  QUERY --> OLLAMA[Local Ollama]
+  API --> JOBS[Durable artifact jobs]
+  JOBS --> WORKER[Offline worker]
+  WORKER --> FS
+  API --> AUTH[RBAC + ACL + owner isolation]

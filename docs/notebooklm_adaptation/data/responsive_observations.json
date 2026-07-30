@@ -1,0 +1,72 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-07-30T15:47:59+05:30",
+  "dataset_id": "dataset-responsive",
+  "classification": "OBSERVED",
+  "items": [
+    {
+      "responsive_id": "responsive-1440",
+      "viewport": "1440x900",
+      "library": "Toolbar, filters, grid/list controls, and Create are visible.",
+      "notebook": "Sources, Chat, and Studio remain simultaneous columns.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/desktop/library_1440x900.png",
+        "evidence/screenshots/desktop/library_1024x768.png",
+        "evidence/screenshots/tablet/library_768x1024.png",
+        "evidence/screenshots/mobile/library_390x844.png",
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    },
+    {
+      "responsive_id": "responsive-1024",
+      "viewport": "1024x768",
+      "library": "Desktop controls remain visible.",
+      "notebook": "Three-column layout remains; side panels narrow to about 209px.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/desktop/library_1440x900.png",
+        "evidence/screenshots/desktop/library_1024x768.png",
+        "evidence/screenshots/tablet/library_768x1024.png",
+        "evidence/screenshots/mobile/library_390x844.png",
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    },
+    {
+      "responsive_id": "responsive-768",
+      "viewport": "768x1024",
+      "library": "Library retains filters and view controls.",
+      "notebook": "Equal-priority Sources/Chat/Studio tabs replace simultaneous panels.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/desktop/library_1440x900.png",
+        "evidence/screenshots/desktop/library_1024x768.png",
+        "evidence/screenshots/tablet/library_768x1024.png",
+        "evidence/screenshots/mobile/library_390x844.png",
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    },
+    {
+      "responsive_id": "responsive-390",
+      "viewport": "390x844",
+      "library": "Grid/list toggles hide; Create, search, sort, and horizontally clipped filters remain.",
+      "notebook": "Single active panel with Sources/Chat/Studio tabs; no document-level horizontal overflow.",
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/desktop/library_1440x900.png",
+        "evidence/screenshots/desktop/library_1024x768.png",
+        "evidence/screenshots/tablet/library_768x1024.png",
+        "evidence/screenshots/mobile/library_390x844.png",
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    }
+  ]
+}

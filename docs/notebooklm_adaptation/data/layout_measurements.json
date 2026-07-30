@@ -1,0 +1,153 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-07-30T15:47:59+05:30",
+  "dataset_id": "dataset-layout",
+  "classification": "OBSERVED",
+  "items": [
+    {
+      "measurement_id": "layout-library-default",
+      "surface_id": "surface-library",
+      "viewport": {
+        "width": 728,
+        "height": 763,
+        "device_pixel_ratio": 2
+      },
+      "scroll_size": {
+        "width": 728,
+        "height": 763
+      },
+      "horizontal_overflow": false,
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/desktop/library_1440x900.png",
+        "evidence/screenshots/desktop/library_1024x768.png",
+        "evidence/screenshots/tablet/library_768x1024.png",
+        "evidence/screenshots/mobile/library_390x844.png"
+      ]
+    },
+    {
+      "measurement_id": "layout-notebook-1440",
+      "surface_id": "surface-notebook-shell",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "sources_panel_width": 315,
+      "studio_panel_width": 315,
+      "layout_mode": "three_columns",
+      "horizontal_overflow": false,
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    },
+    {
+      "measurement_id": "layout-notebook-1024",
+      "surface_id": "surface-notebook-shell",
+      "viewport": {
+        "width": 1024,
+        "height": 768
+      },
+      "sources_panel_width": 209,
+      "studio_panel_width": 209,
+      "layout_mode": "three_columns",
+      "horizontal_overflow": false,
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    },
+    {
+      "measurement_id": "layout-notebook-768",
+      "surface_id": "surface-notebook-shell",
+      "viewport": {
+        "width": 768,
+        "height": 1024
+      },
+      "tab_widths": {
+        "sources": 267,
+        "chat": 245,
+        "studio": 256
+      },
+      "layout_mode": "single_panel_tabs",
+      "horizontal_overflow": false,
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    },
+    {
+      "measurement_id": "layout-notebook-390",
+      "surface_id": "surface-notebook-shell",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "tab_widths": {
+        "sources": 141,
+        "chat": 119,
+        "studio": 130
+      },
+      "layout_mode": "single_panel_tabs",
+      "horizontal_overflow": false,
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    },
+    {
+      "measurement_id": "layout-source-preview-728",
+      "surface_id": "surface-source-preview",
+      "viewport": {
+        "width": 728,
+        "height": 763
+      },
+      "panel_rect": {
+        "x": 0,
+        "y": 153,
+        "width": 728,
+        "height": 610
+      },
+      "back_button_rect": {
+        "x": 16,
+        "y": 169,
+        "width": 40,
+        "height": 40
+      },
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    },
+    {
+      "measurement_id": "layout-citation-detail-728",
+      "surface_id": "surface-citation-detail",
+      "viewport": {
+        "width": 728,
+        "height": 763
+      },
+      "overlay_rect": {
+        "x": 483,
+        "y": 469,
+        "width": 420,
+        "height": 274
+      },
+      "classification": "OBSERVED",
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png",
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,158 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-07-30T15:47:59+05:30",
+  "dataset_id": "dataset-evidence-index",
+  "classification": "OBSERVED",
+  "items": [
+    {
+      "evidence_id": "evidence-shot-001",
+      "path": "evidence/screenshots/desktop/library_1440x900.png",
+      "kind": "screenshot",
+      "classification": "OBSERVED",
+      "privacy_sanitized": true,
+      "evidence_paths": [
+        "evidence/screenshots/desktop/library_1440x900.png"
+      ]
+    },
+    {
+      "evidence_id": "evidence-shot-002",
+      "path": "evidence/screenshots/desktop/library_1024x768.png",
+      "kind": "screenshot",
+      "classification": "OBSERVED",
+      "privacy_sanitized": true,
+      "evidence_paths": [
+        "evidence/screenshots/desktop/library_1024x768.png"
+      ]
+    },
+    {
+      "evidence_id": "evidence-shot-003",
+      "path": "evidence/screenshots/tablet/library_768x1024.png",
+      "kind": "screenshot",
+      "classification": "OBSERVED",
+      "privacy_sanitized": true,
+      "evidence_paths": [
+        "evidence/screenshots/tablet/library_768x1024.png"
+      ]
+    },
+    {
+      "evidence_id": "evidence-shot-004",
+      "path": "evidence/screenshots/mobile/library_390x844.png",
+      "kind": "screenshot",
+      "classification": "OBSERVED",
+      "privacy_sanitized": true,
+      "evidence_paths": [
+        "evidence/screenshots/mobile/library_390x844.png"
+      ]
+    },
+    {
+      "evidence_id": "evidence-shot-005",
+      "path": "evidence/screenshots/mobile/empty_notebook_390x844.png",
+      "kind": "screenshot",
+      "classification": "OBSERVED",
+      "privacy_sanitized": true,
+      "evidence_paths": [
+        "evidence/screenshots/mobile/empty_notebook_390x844.png"
+      ]
+    },
+    {
+      "evidence_id": "evidence-a11y-001",
+      "path": "evidence/accessibility_snapshots/a11y_library_sanitized.txt",
+      "kind": "accessibility",
+      "classification": "OBSERVED",
+      "privacy_sanitized": true,
+      "evidence_paths": [
+        "evidence/accessibility_snapshots/a11y_library_sanitized.txt"
+      ]
+    },
+    {
+      "evidence_id": "evidence-a11y-002",
+      "path": "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt",
+      "kind": "accessibility",
+      "classification": "OBSERVED",
+      "privacy_sanitized": true,
+      "evidence_paths": [
+        "evidence/accessibility_snapshots/a11y_notebook_sanitized.txt"
+      ]
+    },
+    {
+      "evidence_id": "evidence-a11y-003",
+      "path": "evidence/accessibility_snapshots/a11y_studio_sanitized.txt",
+      "kind": "accessibility",
+      "classification": "OBSERVED",
+      "privacy_sanitized": true,
+      "evidence_paths": [
+        "evidence/accessibility_snapshots/a11y_studio_sanitized.txt"
+      ]
+    },
+    {
+      "evidence_id": "evidence-dom-001",
+      "path": "evidence/dom_snapshots/library_structure_sanitized.md",
+      "kind": "dom_structure",
+      "classification": "OBSERVED",
+      "privacy_sanitized": true,
+      "evidence_paths": [
+        "evidence/dom_snapshots/library_structure_sanitized.md"
+      ]
+    },
+    {
+      "evidence_id": "evidence-dom-002",
+      "path": "evidence/dom_snapshots/notebook_structure_sanitized.md",
+      "kind": "dom_structure",
+      "classification": "OBSERVED",
+      "privacy_sanitized": true,
+      "evidence_paths": [
+        "evidence/dom_snapshots/notebook_structure_sanitized.md"
+      ]
+    },
+    {
+      "evidence_id": "evidence-dom-003",
+      "path": "evidence/dom_snapshots/studio_structure_sanitized.md",
+      "kind": "dom_structure",
+      "classification": "OBSERVED",
+      "privacy_sanitized": true,
+      "evidence_paths": [
+        "evidence/dom_snapshots/studio_structure_sanitized.md"
+      ]
+    },
+    {
+      "evidence_id": "evidence-network-001",
+      "path": "evidence/network/network_categories_sanitized.md",
+      "kind": "network_limitation",
+      "classification": "UNKNOWN",
+      "privacy_sanitized": true,
+      "evidence_paths": [
+        "evidence/network/network_categories_sanitized.md"
+      ]
+    },
+    {
+      "evidence_id": "evidence-console-001",
+      "path": "evidence/console/console_observations_sanitized.md",
+      "kind": "console",
+      "classification": "OBSERVED",
+      "privacy_sanitized": true,
+      "evidence_paths": [
+        "evidence/console/console_observations_sanitized.md"
+      ]
+    },
+    {
+      "evidence_id": "evidence-performance-001",
+      "path": "evidence/performance/runtime_observations_sanitized.md",
+      "kind": "runtime",
+      "classification": "OBSERVED",
+      "privacy_sanitized": true,
+      "evidence_paths": [
+        "evidence/performance/runtime_observations_sanitized.md"
+      ]
+    },
+    {
+      "evidence_id": "evidence-trace-001",
+      "path": "evidence/traces/TRACE_UNAVAILABLE.md",
+      "kind": "trace_limitation",
+      "classification": "UNKNOWN",
+      "privacy_sanitized": true,
+      "evidence_paths": [
+        "evidence/traces/TRACE_UNAVAILABLE.md"
+      ]
+    }
+  ]
+}

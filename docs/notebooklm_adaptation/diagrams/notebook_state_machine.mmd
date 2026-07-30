@@ -1,0 +1,12 @@
+stateDiagram-v2
+  [*] --> Empty
+  Empty --> SourceProcessing: add source
+  SourceProcessing --> Ready: success
+  Ready --> Generating: submit
+  Generating --> Complete: terminal answer
+  Complete --> CitationDetail: citation
+  CitationDetail --> Complete: Escape
+  Ready --> ArtifactGenerating: Studio trigger
+  ArtifactGenerating --> ArtifactReady: completion
+  ArtifactReady --> ArtifactViewer: open
+  ArtifactViewer --> ArtifactReady: close
