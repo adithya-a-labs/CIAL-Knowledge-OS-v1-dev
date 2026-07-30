@@ -69,6 +69,7 @@ def test_uses_exact_snapshot_and_appends_linked_message_without_retrieval():
     assert "dense" not in value.__dict__ and "pipeline" not in value.__dict__ and "retriever" not in value.__dict__
     assert result.session_id == source.session_id and result.metadata_["source_message_id"] == str(source.id)
     assert result.metadata_["transformation"] == "explain_simpler"
+    assert result.turn_sequence > 0 and result.role_sequence == 1
     assert source.content.startswith("The operator") and db.commits == 1
 
 

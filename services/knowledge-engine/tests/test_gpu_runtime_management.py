@@ -29,6 +29,27 @@ def test_gpu_priority_marker_is_visible_across_coordinators(tmp_path):
     assert reader.chat_active() is False
 
 
+def test_gpu_priority_marker_remains_until_every_overlapping_chat_releases(tmp_path):
+    marker = tmp_path / "chat-priority.json"
+    coordinator = GpuResourceCoordinator(marker)
+    reader = GpuResourceCoordinator(marker)
+    first = coordinator.chat_priority("request-1")
+    second = coordinator.chat_priority("request-2")
+
+    first.__enter__()
+    second.__enter__()
+    try:
+        assert coordinator.owner_count() == 2
+        first.__exit__(None, None, None)
+        assert coordinator.owner_count() == 1
+        assert reader.chat_active() is True
+    finally:
+        second.__exit__(None, None, None)
+
+    assert coordinator.owner_count() == 0
+    assert reader.chat_active() is False
+
+
 def test_indexer_yields_and_releases_gpu_for_active_chat():
     released: list[bool] = []
     indexer = ContinuousIndexer.__new__(ContinuousIndexer)

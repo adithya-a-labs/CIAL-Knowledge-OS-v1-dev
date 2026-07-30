@@ -79,7 +79,9 @@ def test_empty_database_is_a_real_empty_state_without_demo_conversation() -> Non
 def test_api_failure_preserves_current_history_and_is_recoverable() -> None:
     source = CONTEXT_SOURCE.read_text(encoding="utf-8")
     assert "setHistoryError" in source
-    assert "setSessions(hydrated)" in source
+    assert "setSessions((current) =>" in source
+    assert "current.filter((item) => !hydratedIds.has(item.id))" in source
+    assert "...hydrated" in source
     catch_block = source.split(".catch((error: unknown) =>", 1)[1].split(".finally", 1)[0]
     assert "setSessions" not in catch_block
     assert "retryHistory" in source
@@ -90,7 +92,8 @@ def test_slow_response_and_user_switch_guards_are_present() -> None:
     chat = CHAT_SOURCE.read_text(encoding="utf-8")
     assert "generation !== requestGeneration.current" in context
     assert "previousUser.current !== user.id" in context
-    assert "updateSession(requestSessionId" in chat
+    assert "updateMessage(requestSessionId, userMsg.id" in chat
+    assert "updateMessage(requestSessionId, placeholder.id" in chat
 
 
 def test_production_chat_paths_do_not_use_demo_or_default_conversations() -> None:

@@ -252,6 +252,18 @@ def test_admin_monitor_snapshot_reuses_live_runtime_telemetry():
     assert payload["models"]["loaded_models"] == ["llama3.1:8b"]
 
 
+def test_application_factory_wires_one_controller_into_chat_and_monitor():
+    from backend.app.main import create_app
+
+    application = create_app()
+
+    assert application.state.chat_concurrency is not None
+    assert (
+        application.state.admin_system_monitor_service.chat_concurrency
+        is application.state.chat_concurrency
+    )
+
+
 def test_monitor_records_real_chat_activity_and_completion():
     service = _service()
 

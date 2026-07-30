@@ -9,6 +9,8 @@ def test_regeneration_uses_persisted_generation_request_without_user_insert():
     assert 'metadata.get("generation_request")' in source
     assert 'question=user_message.content' in source
     assert 'role="user"' not in source
+    assert "submitted_order = time.time_ns()" in source
+    assert "turn_sequence=submitted_order, role_sequence=1" in source
 
 
 def test_transform_is_evidence_gated_and_preserves_citations():
@@ -16,6 +18,7 @@ def test_transform_is_evidence_gated_and_preserves_citations():
     assert "if not source.sources or not source.citations" in source
     assert "citations=source.citations" in source
     assert 'f"- [ ] {s}"' in source
+    assert "turn_sequence=submitted_order, role_sequence=1" in source
 
 
 def test_export_download_rejects_unsafe_filenames():

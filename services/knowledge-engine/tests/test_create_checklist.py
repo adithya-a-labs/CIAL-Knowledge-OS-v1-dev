@@ -39,6 +39,7 @@ def test_valid_checklist_uses_exact_evidence_and_appends_same_session():
     assert result.metadata_["label"] == "Action checklist"
     assert result.metadata_["evidence_snapshot"] == EVIDENCE
     assert result.citations == source.citations and result.sources == source.sources
+    assert result.turn_sequence > 0 and result.role_sequence == 1
     assert source.content.startswith("The operator") and db.commits == 1
 
 
