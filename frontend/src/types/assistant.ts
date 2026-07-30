@@ -22,6 +22,11 @@ export interface AssistantChatMessage {
   sources?: ChatSource[];
   metadata?: AssistantMessageMetadata;
   relatedQuestions?: string[];
+  clientRequestId?: string;
+  requestStatus?: 'queued' | 'running' | 'completed' | 'cancelled' | 'failed';
+  requestEvents?: import('@/api/types').GenerationEvent[];
+  requestError?: string;
+  retryPayload?: ChatRequestPayload;
 }
 
 export interface ContextDocument {
@@ -137,6 +142,7 @@ export interface AssistantMessageMetadata {
 
 export interface AssistantSession {
   id: string;
+  requestSessionId: string;
   title: string;
   messages: AssistantChatMessage[];
   selectedContextItems: SelectedContextItem[];

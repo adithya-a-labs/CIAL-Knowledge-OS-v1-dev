@@ -325,6 +325,7 @@ export interface AdminSystemMonitor {
 
 export interface ChatRequest {
   session_id?: string;
+  client_request_id?: string;
   question: string;
   search_scope?: 'enterprise' | 'workspace' | 'hybrid' | 'current_upload';
   selected_document_ids: string[];
@@ -443,6 +444,7 @@ export interface ChatResponse {
 
 export interface GenerationEvent {
   request_id: string;
+  client_request_id?: string;
   type: 'stage' | 'token' | 'citation' | 'result' | 'error' | 'cancelled';
   stage_id: string;
   status: 'started' | 'completed' | 'failed';
