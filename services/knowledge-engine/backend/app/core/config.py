@@ -189,6 +189,25 @@ class Settings:
     generation_timeout_seconds: float = _env_float("CIAL_GENERATION_TIMEOUT_SECONDS", 120.0)
     chat_lock_timeout_seconds: float = _env_float("CIAL_CHAT_LOCK_TIMEOUT_SECONDS", 5.0)
     chat_request_timeout_seconds: float = _env_float("CIAL_CHAT_REQUEST_TIMEOUT_SECONDS", 150.0)
+    chat_multi_request_enabled: bool = _env_bool("CIAL_CHAT_MULTI_REQUEST_ENABLED", True)
+    chat_executor_workers: int = _env_int("CIAL_CHAT_EXECUTOR_WORKERS", 8)
+    chat_max_active_global: int = _env_int("CIAL_CHAT_MAX_ACTIVE_GLOBAL", 8)
+    chat_max_active_per_user: int = _env_int("CIAL_CHAT_MAX_ACTIVE_PER_USER", 2)
+    chat_max_queued_global: int = _env_int("CIAL_CHAT_MAX_QUEUED_GLOBAL", 64)
+    chat_max_queued_per_user: int = _env_int("CIAL_CHAT_MAX_QUEUED_PER_USER", 8)
+    chat_query_embedding_concurrency: int = _env_int(
+        "CIAL_CHAT_QUERY_EMBEDDING_CONCURRENCY", 1
+    )
+    chat_retrieval_concurrency: int = _env_int("CIAL_CHAT_RETRIEVAL_CONCURRENCY", 4)
+    chat_rerank_concurrency: int = _env_int("CIAL_CHAT_RERANK_CONCURRENCY", 1)
+    chat_generation_concurrency: int = _env_int("CIAL_CHAT_GENERATION_CONCURRENCY", 1)
+    chat_queue_wait_timeout_seconds: float = _env_float(
+        "CIAL_CHAT_QUEUE_WAIT_TIMEOUT_SECONDS", 120.0
+    )
+    chat_event_queue_size: int = _env_int("CIAL_CHAT_EVENT_QUEUE_SIZE", 256)
+    chat_token_flush_ms: int = _env_int("CIAL_CHAT_TOKEN_FLUSH_MS", 40)
+    chat_token_flush_chars: int = _env_int("CIAL_CHAT_TOKEN_FLUSH_CHARS", 256)
+    chat_fair_scheduling: bool = _env_bool("CIAL_CHAT_FAIR_SCHEDULING", True)
     summary_context_window_tokens: int = _env_int("CIAL_SUMMARY_CONTEXT_WINDOW_TOKENS", 8192)
     summary_map_input_tokens: int = _env_int("CIAL_SUMMARY_MAP_INPUT_TOKENS", 4000)
     summary_map_output_tokens: int = _env_int("CIAL_SUMMARY_MAP_OUTPUT_TOKENS", 700)
@@ -344,11 +363,36 @@ class Settings:
             "CIAL_GENERATION_TIMEOUT_SECONDS": self.generation_timeout_seconds,
             "CIAL_CHAT_LOCK_TIMEOUT_SECONDS": self.chat_lock_timeout_seconds,
             "CIAL_CHAT_REQUEST_TIMEOUT_SECONDS": self.chat_request_timeout_seconds,
+            "CIAL_CHAT_EXECUTOR_WORKERS": self.chat_executor_workers,
+            "CIAL_CHAT_MAX_ACTIVE_GLOBAL": self.chat_max_active_global,
+            "CIAL_CHAT_MAX_ACTIVE_PER_USER": self.chat_max_active_per_user,
+            "CIAL_CHAT_MAX_QUEUED_GLOBAL": self.chat_max_queued_global,
+            "CIAL_CHAT_MAX_QUEUED_PER_USER": self.chat_max_queued_per_user,
+            "CIAL_CHAT_QUERY_EMBEDDING_CONCURRENCY": self.chat_query_embedding_concurrency,
+            "CIAL_CHAT_RETRIEVAL_CONCURRENCY": self.chat_retrieval_concurrency,
+            "CIAL_CHAT_RERANK_CONCURRENCY": self.chat_rerank_concurrency,
+            "CIAL_CHAT_GENERATION_CONCURRENCY": self.chat_generation_concurrency,
+            "CIAL_CHAT_QUEUE_WAIT_TIMEOUT_SECONDS": self.chat_queue_wait_timeout_seconds,
+            "CIAL_CHAT_EVENT_QUEUE_SIZE": self.chat_event_queue_size,
+            "CIAL_CHAT_TOKEN_FLUSH_MS": self.chat_token_flush_ms,
+            "CIAL_CHAT_TOKEN_FLUSH_CHARS": self.chat_token_flush_chars,
             "CIAL_RETRIEVAL_CACHE_MAX_ENTRIES": self.retrieval_cache_max_entries,
         }
         invalid = [name for name, value in positive.items() if value <= 0]
         if invalid:
             raise ValueError(f"Continuous-indexing settings must be positive: {', '.join(invalid)}")
+        if self.chat_executor_workers > self.chat_max_active_global:
+            raise ValueError(
+                "CIAL_CHAT_EXECUTOR_WORKERS cannot exceed CIAL_CHAT_MAX_ACTIVE_GLOBAL."
+            )
+        if self.chat_max_active_per_user > self.chat_max_active_global:
+            raise ValueError(
+                "CIAL_CHAT_MAX_ACTIVE_PER_USER cannot exceed CIAL_CHAT_MAX_ACTIVE_GLOBAL."
+            )
+        if self.chat_max_queued_per_user > self.chat_max_queued_global:
+            raise ValueError(
+                "CIAL_CHAT_MAX_QUEUED_PER_USER cannot exceed CIAL_CHAT_MAX_QUEUED_GLOBAL."
+            )
         if self.indexer_min_extraction_workers > self.indexer_max_extraction_workers:
             raise ValueError(
                 "CIAL_INDEXER_MIN_EXTRACTION_WORKERS cannot exceed "
