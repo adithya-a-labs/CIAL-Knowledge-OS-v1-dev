@@ -2,7 +2,11 @@ param(
     [int]$BackendPort = 8000,
     [int]$FrontendPort = 5173,
     [string]$QdrantUrl = "http://localhost:6335",
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [Alias("lan")]
+    [switch]$Lan,
+    [switch]$RebuildLanFrontend,
+    [switch]$LanDryRun
 )
 
 $ErrorActionPreference = "Stop"
@@ -226,6 +230,31 @@ function Ensure-Ollama {
     }
 }
 
+function Assert-LanFrontendBundle {
+    if (-not $Lan) { return }
+    Write-Step "Verifying same-origin LAN frontend bundle"
+    if ($RebuildLanFrontend) {
+        $previousApiBase = $env:VITE_API_BASE_URL
+        $env:VITE_API_BASE_URL = ""
+        Push-Location $FrontendRoot
+        try {
+            & pnpm.cmd run build
+            if ($LASTEXITCODE -ne 0) { Stop-Launch "LAN frontend production build failed." }
+        }
+        finally {
+            Pop-Location
+            $env:VITE_API_BASE_URL = $previousApiBase
+        }
+    }
+    $assets = Get-ChildItem -LiteralPath (Join-Path $FrontendRoot "dist\public\assets") -Filter "*.js" -File -ErrorAction Stop
+    $forbidden = "http://localhost:8000|http://127\.0\.0\.1:8000|:6335|:11434|:5432|:5173"
+    $match = $assets | Select-String -Pattern $forbidden -List
+    if ($match) {
+        Stop-Launch "The production bundle contains an internal service target. Rerun with --lan -RebuildLanFrontend after stopping any process holding frontend\dist."
+    }
+    Write-Host "Production bundle uses the same-origin API contract."
+}
+
 function Invoke-DatabaseMigrations {
     Write-Step "Applying metadata database migrations"
     $previousPythonPath = $env:PYTHONPATH
@@ -255,7 +284,7 @@ function Start-Backend {
     $err = Join-Path $LogsRoot "backend-$Timestamp.err.log"
     $previousPythonPath = $env:PYTHONPATH
     $env:PYTHONPATH = "$BackendRoot;$BackendRoot\src"
-    Start-Process -FilePath $PythonExe -ArgumentList @("-m", "uvicorn", "backend.app.main:app", "--host", "127.0.0.1", "--port", "$BackendPort") -WorkingDirectory $BackendRoot -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err | Out-Null
+    Start-Process -FilePath $PythonExe -ArgumentList @("-m", "uvicorn", "backend.app.main:app", "--host", "127.0.0.1", "--port", "$BackendPort", "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1") -WorkingDirectory $BackendRoot -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err | Out-Null
     $env:PYTHONPATH = $previousPythonPath
     if (-not (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 180)) {
         Stop-Launch "Backend did not become reachable. See $out and $err."
@@ -263,6 +292,42 @@ function Start-Backend {
     $ready = Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 300 -Predicate { param($body) $body.api_ready -eq $true }
     if (-not $ready) {
         Stop-Launch "Backend reached HTTP health but API readiness failed. Check backend startup logs."
+    }
+}
+
+function Start-LanGateway {
+    if (-not $Lan) { return }
+    Write-Step "Starting optional Laptop LAN Server Mode"
+    $env:CIAL_LAN_ACCESS_ENABLED = "true"
+    if ($env:CIAL_LAN_HTTPS_ENABLED -match "^(1|true|yes|on)$") {
+        $env:CIAL_AUTH_COOKIE_SECURE = "true"
+    }
+    else {
+        $env:CIAL_AUTH_COOKIE_SECURE = "false"
+    }
+    $script = Join-Path $RepoRoot "scripts\start_lan_gateway.ps1"
+    $out = Join-Path $LogsRoot "lan-manager-$Timestamp.out.log"
+    $err = Join-Path $LogsRoot "lan-manager-$Timestamp.err.log"
+    $arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $script, "-BackendPort", "$BackendPort")
+    if ($LanDryRun) { $arguments += "-DryRun" }
+    if ($LanDryRun) {
+        & powershell.exe @arguments
+        if ($LASTEXITCODE -ne 0) { Write-Warning "LAN dry-run failed; local CIAL remains available." }
+        return
+    }
+    $processArguments = @($arguments)
+    $processArguments[4] = '"{0}"' -f $script
+    Start-Process -FilePath "powershell.exe" -ArgumentList $processArguments -WorkingDirectory $RepoRoot -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err | Out-Null
+    Start-Sleep -Seconds 2
+    $statusPath = Join-Path $RepoRoot "outputs\lan-server\status.json"
+    if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+        $lanStatus = Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json
+        Write-Host "LAN status: $($lanStatus.safe_detail)"
+        if ($lanStatus.domain_url) { Write-Host "LAN domain: $($lanStatus.domain_url)" -ForegroundColor Green }
+        if ($lanStatus.ip_fallback_url) { Write-Host "IP fallback: $($lanStatus.ip_fallback_url)" -ForegroundColor Green }
+    }
+    else {
+        Write-Warning "LAN manager is starting; inspect outputs\lan-server\status.json. Local CIAL remains available."
     }
 }
 
@@ -301,11 +366,14 @@ function Start-Frontend {
     $err = Join-Path $LogsRoot "frontend-$Timestamp.err.log"
     $previousPort = $env:PORT
     $previousApiBaseUrl = $env:VITE_API_BASE_URL
+    $previousApiProxyTarget = $env:API_PROXY_TARGET
     $env:PORT = "$FrontendPort"
-    $env:VITE_API_BASE_URL = "http://127.0.0.1:$BackendPort"
+    $env:VITE_API_BASE_URL = ""
+    $env:API_PROXY_TARGET = "http://127.0.0.1:$BackendPort"
     Start-Process -FilePath $vite -ArgumentList @("preview", "--host", "127.0.0.1") -WorkingDirectory $FrontendRoot -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err | Out-Null
     $env:PORT = $previousPort
     $env:VITE_API_BASE_URL = $previousApiBaseUrl
+    $env:API_PROXY_TARGET = $previousApiProxyTarget
     if (-not (Wait-Url -Url "http://127.0.0.1:$FrontendPort" -Seconds 90)) {
         Stop-Launch "Frontend did not become reachable. See $out and $err."
     }
@@ -323,7 +391,17 @@ function Confirm-ApplicationStable {
 }
 
 try {
+    if ($Lan) {
+        $env:CIAL_LAN_ACCESS_ENABLED = "true"
+        if ($env:CIAL_LAN_HTTPS_ENABLED -match "^(1|true|yes|on)$") {
+            $env:CIAL_AUTH_COOKIE_SECURE = "true"
+        }
+        else {
+            $env:CIAL_AUTH_COOKIE_SECURE = "false"
+        }
+    }
     Assert-ApplicationFiles
+    Assert-LanFrontendBundle
     Assert-CorpusConfiguration
     Ensure-Postgres
     Ensure-Qdrant
@@ -333,6 +411,7 @@ try {
     Start-Indexer
     Start-Frontend
     Confirm-ApplicationStable
+    Start-LanGateway
     $url = "http://127.0.0.1:$FrontendPort/login"
     Write-Host ""
     Write-Host "CIAL Knowledge OS is ready: $url" -ForegroundColor Green

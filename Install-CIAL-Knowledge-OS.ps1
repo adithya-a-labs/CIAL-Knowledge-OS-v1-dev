@@ -13,6 +13,7 @@ param(
     [switch]$SkipPrerequisiteInstall,
     [switch]$SkipModelSmoke,
     [switch]$VerifyCleanFrontendInstall,
+    [switch]$VerifyLanSupport,
     [switch]$NoBrowser
 )
 
@@ -550,10 +551,26 @@ function Ensure-BackendEnv {
 function Ensure-FrontendEnv {
     Write-Step "Preparing frontend environment file"
     Set-EnvFileValue -Path $FrontendEnvPath -Values @{
-        "VITE_API_BASE_URL" = "http://127.0.0.1:$BackendPort"
+        "VITE_API_BASE_URL" = ""
         "VITE_ENABLE_AUTH" = "true"
         "VITE_ENABLE_REAL_AI" = "true"
     }
+}
+
+function Verify-LanGatewayStaging {
+    if (-not $VerifyLanSupport) { return }
+    Write-Step "Verifying optional LAN gateway staging"
+    $caddy = $env:CIAL_CADDY_PATH
+    if ([string]::IsNullOrWhiteSpace($caddy)) {
+        $command = Get-Command caddy.exe -ErrorAction SilentlyContinue
+        if ($command) { $caddy = $command.Source }
+    }
+    if ([string]::IsNullOrWhiteSpace($caddy) -or -not (Test-Path -LiteralPath $caddy -PathType Leaf)) {
+        Stop-Install "Optional LAN support needs an operator-staged caddy.exe. Set CIAL_CADDY_PATH and rerun with -VerifyLanSupport. The launcher never downloads Caddy."
+    }
+    & $caddy version
+    if ($LASTEXITCODE -ne 0) { Stop-Install "The staged Caddy executable failed its version check." }
+    Write-Host "Caddy staging verified. Binary path was not written to logs."
 }
 
 function Ensure-DockerDesktop {
@@ -604,7 +621,7 @@ function Ensure-Postgres {
             -e POSTGRES_USER=postgres `
             -e POSTGRES_PASSWORD=$password `
             -e POSTGRES_DB=cial_knowledge_os_dev `
-            -p "$PostgresPort`:5432" `
+            -p "127.0.0.1:$PostgresPort`:5432" `
             -v "$PostgresVolumeName`:/var/lib/postgresql/data" `
             postgres:18 | Out-Null
     }
@@ -759,7 +776,7 @@ function Ensure-NodeFrontend {
         Stop-Install "Local TypeScript executable was not found after dependency installation: $tsc"
     }
     $env:PORT = "$FrontendPort"
-    $env:VITE_API_BASE_URL = "http://127.0.0.1:$BackendPort"
+    $env:VITE_API_BASE_URL = ""
     Invoke-Logged -FilePath $vite -Arguments @("build") -WorkingDirectory $FrontendRoot -FailureMessage "Frontend production build failed."
     Invoke-Logged -FilePath $tsc -Arguments @("-p", "tsconfig.json", "--noEmit") -WorkingDirectory $FrontendRoot -FailureMessage "Frontend typecheck failed."
 }
@@ -791,7 +808,7 @@ function Invoke-CleanFrontendInstallVerification {
         if (-not (Test-Path -LiteralPath $tsc -PathType Leaf)) { Stop-Install "Clean install did not create local TypeScript executable: $tsc" }
 
         $env:PORT = "$FrontendPort"
-        $env:VITE_API_BASE_URL = "http://127.0.0.1:$BackendPort"
+        $env:VITE_API_BASE_URL = ""
         Invoke-Logged -FilePath $vite -Arguments @("build") -WorkingDirectory $FrontendRoot -FailureMessage "Clean frontend production build failed."
         Invoke-Logged -FilePath $tsc -Arguments @("-p", "tsconfig.json", "--noEmit") -WorkingDirectory $FrontendRoot -FailureMessage "Clean frontend typecheck failed."
         Write-Host "Clean frontend install verification succeeded."
@@ -897,6 +914,7 @@ try {
     Verify-ModelCaches
     Verify-OcrAndOffice
     Ensure-NodeFrontend
+    Verify-LanGatewayStaging
     Ensure-CorpusConfiguration
     Run-Alembic
     Start-Application
