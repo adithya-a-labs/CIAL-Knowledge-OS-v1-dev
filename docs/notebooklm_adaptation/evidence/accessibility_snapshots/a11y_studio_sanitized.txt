@@ -1,0 +1,22 @@
+classification: OBSERVED
+surface_id: surface-studio
+output triggers:
+- Audio Overview
+- Slide deck
+- Video Overview
+- Mind Map
+- Reports
+- Flashcards
+- Quiz
+- Infographic
+- Data table
+common viewer controls:
+- Back/Close, Share, More options, source count, rating
+specialized controls:
+- audio/video playback and seeking
+- slide Revise and Start slideshow
+- mind-map tree, expand, zoom, image download
+- infographic zoom
+- data table semantic table
+- quiz/flashcards iframe activity
+privacy: generated titles and contents omitted

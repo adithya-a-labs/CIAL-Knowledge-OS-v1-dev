@@ -1,0 +1,11 @@
+classification: OBSERVED
+surface_id: surface-library
+route_id: route-library
+roles:
+- button Settings
+- radiogroup: All (checked), My notebooks, Featured notebooks, Collections
+- button Open search
+- radiogroup: Grid view (checked), List view
+- button Most recent
+- button Create new notebook
+privacy: notebook cards and account controls omitted

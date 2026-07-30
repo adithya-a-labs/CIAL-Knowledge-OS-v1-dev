@@ -1,0 +1,12 @@
+classification: OBSERVED
+surface_id: surface-notebook-shell
+roles:
+- narrow tablist: Sources, Chat, Studio
+- source checkboxes: Select all, source-01, source-02
+- source preview: Back, Open in new tab, Open source guide
+- chat textbox: Query box
+- chat button: Submit
+- citation buttons: 10 total across two controlled turns
+- citation detail: dialog/complementary named Citation details
+- header: Settings, Create notebook, Copy notebook, analytics icon, Share notebook
+privacy: account, source text, answer text, notebook ID omitted
