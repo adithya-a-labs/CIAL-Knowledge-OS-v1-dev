@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import logging
 import threading
 import time
@@ -121,20 +122,27 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
                 "Dense retrieval is not initialized. Call embed() and index() "
                 "before using dense or hybrid retrieval."
             )
-        return search_similar_chunks(
-            self.client,
-            query,
-            self.embedding_model,
-            self.config,
-            top_k=top_k,
-            allowed_relative_paths=self._active_relative_path_filter,
-            allowed_document_version_ids=self.published_document_version_ids,
-            allowed_note_revisions=self.published_note_revisions,
-            telemetry_callback=getattr(self, "telemetry_callback", None),
-            query_embedding_model_state=self.query_embedding_model_state,
-            query_embedding_cache_status=self.query_embedding_cache_status,
-            qdrant_index_status=self.qdrant_index_status,
+        gate_factory = getattr(self, "resource_gate", None)
+        embedding_gate = (
+            gate_factory("query_embedding")
+            if callable(gate_factory)
+            else nullcontext()
         )
+        with embedding_gate:
+            return search_similar_chunks(
+                self.client,
+                query,
+                self.embedding_model,
+                self.config,
+                top_k=top_k,
+                allowed_relative_paths=self._active_relative_path_filter,
+                allowed_document_version_ids=self.published_document_version_ids,
+                allowed_note_revisions=self.published_note_revisions,
+                telemetry_callback=getattr(self, "telemetry_callback", None),
+                query_embedding_model_state=self.query_embedding_model_state,
+                query_embedding_cache_status=self.query_embedding_cache_status,
+                qdrant_index_status=self.qdrant_index_status,
+            )
 
     def set_retrieval_relative_paths(
         self,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import time
 from typing import Any
 
@@ -128,36 +129,43 @@ class Phase2RAGPipeline(BasicRAGPipeline):
                         },
                     )
             else:
-                if self.llm is None:
-                    telemetry = getattr(self, "telemetry_callback", None)
-                    if telemetry is not None:
-                        telemetry(
-                            "generation",
-                            "started",
-                            {
-                                "model": self.config.ollama_model_name,
-                                "phase": "model_availability",
-                            },
-                        )
-                        self._generation_telemetry_started = True
-                    try:
-                        self.llm = create_local_llm(self.config)
-                    except Exception:
+                gate_factory = getattr(self, "resource_gate", None)
+                generation_gate = (
+                    gate_factory("generation")
+                    if callable(gate_factory)
+                    else nullcontext()
+                )
+                with generation_gate:
+                    if self.llm is None:
+                        telemetry = getattr(self, "telemetry_callback", None)
                         if telemetry is not None:
                             telemetry(
                                 "generation",
-                                "failed",
+                                "started",
                                 {
                                     "model": self.config.ollama_model_name,
                                     "phase": "model_availability",
                                 },
                             )
-                        self._generation_telemetry_started = False
-                        raise
-                raw_answer = self._generate_grounded_answer(
-                    question,
-                    context_result.context,
-                )
+                            self._generation_telemetry_started = True
+                        try:
+                            self.llm = create_local_llm(self.config)
+                        except Exception:
+                            if telemetry is not None:
+                                telemetry(
+                                    "generation",
+                                    "failed",
+                                    {
+                                        "model": self.config.ollama_model_name,
+                                        "phase": "model_availability",
+                                    },
+                                )
+                            self._generation_telemetry_started = False
+                            raise
+                    raw_answer = self._generate_grounded_answer(
+                        question,
+                        context_result.context,
+                    )
         self.metrics["total_pipeline_latency"] = time.perf_counter() - started_at
         
         normalized_answer = raw_answer.lower()

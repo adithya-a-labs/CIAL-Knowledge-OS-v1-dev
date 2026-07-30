@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import logging
 import re
 import threading
@@ -708,7 +709,14 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
         self.execution_manager.start_stage(
             "retrieval", event_type="retrieval_started"
         )
-        phase3_candidates = super().retrieve(question)
+        gate_factory = getattr(self, "resource_gate", None)
+        retrieval_gate = (
+            gate_factory("retrieval")
+            if callable(gate_factory)
+            else nullcontext()
+        )
+        with retrieval_gate:
+            phase3_candidates = super().retrieve(question)
         self.execution_manager.complete_stage(
             "retrieval",
             event_type="retrieval_completed",
@@ -746,12 +754,18 @@ class Phase4RAGPipeline(Phase3RAGPipeline):
 
             def run_reranker() -> None:
                 try:
-                    with self._reranker_execution_lock:
-                        if abandoned.is_set():
-                            return
-                        result_box["result"] = self.reranker.rerank(
-                            question, reranker_candidates
-                        )
+                    reranker_gate = (
+                        gate_factory("reranker")
+                        if callable(gate_factory)
+                        else nullcontext()
+                    )
+                    with reranker_gate:
+                        with self._reranker_execution_lock:
+                            if abandoned.is_set():
+                                return
+                            result_box["result"] = self.reranker.rerank(
+                                question, reranker_candidates
+                            )
                 except BaseException as exc:  # preserve the original model error
                     result_box["error"] = exc
                 finally:
