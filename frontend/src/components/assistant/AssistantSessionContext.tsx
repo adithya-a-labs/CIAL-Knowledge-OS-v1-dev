@@ -53,14 +53,20 @@ interface AssistantSessionsValue {
   updateSession: (sessionId: string, update: SessionUpdate) => void;
   updateActiveSession: (update: SessionUpdate) => void;
   appendMessage: (sessionId: string, message: AssistantChatMessage) => void;
+  updateMessage: (sessionId: string, messageId: string, update: AssistantChatMessage) => void;
+  removeRequestMessages: (sessionId: string, requestId: string) => void;
 }
 
 const AssistantSessionsContext = createContext<AssistantSessionsValue | null>(null);
 
 function buildSession(value: Partial<AssistantSession> = {}): AssistantSession {
   const now = new Date().toISOString();
+  const id = value.id ?? `${ASSISTANT_DRAFT_ID_PREFIX}${crypto.randomUUID()}`;
   return {
-    id: value.id ?? `${ASSISTANT_DRAFT_ID_PREFIX}${crypto.randomUUID()}`,
+    id,
+    requestSessionId: value.requestSessionId ?? (
+      id.startsWith(ASSISTANT_DRAFT_ID_PREFIX) ? crypto.randomUUID() : id
+    ),
     title: value.title ?? 'New conversation',
     messages: value.messages ?? [],
     selectedContextItems: value.selectedContextItems ?? [],
@@ -83,6 +89,7 @@ function fromApi(session: ChatHistorySession): AssistantSession {
   );
   return buildSession({
     id: session.id,
+    requestSessionId: session.id,
     title: session.title,
     createdAt: session.created_at,
     updatedAt: session.updated_at,
@@ -146,6 +153,7 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
   const requestGeneration = useRef(0);
   const previousUser = useRef<string | null>(null);
   const activeDraftIdRef = useRef<string | null>(null);
+  const sessionAliasesRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     const resetToFreshDraft = () => {
@@ -242,8 +250,9 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
     ?? fallbackDraft;
 
   const updateSession = useCallback((sessionId: string, update: SessionUpdate) => {
+    const resolvedSessionId = sessionAliasesRef.current[sessionId] ?? sessionId;
     setDraftSession((current) => {
-      if (!current || current.id !== sessionId) return current;
+      if (!current || current.id !== resolvedSessionId) return current;
       const messages = update.messages ?? current.messages;
       return {
         ...current,
@@ -254,7 +263,7 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
       };
     });
     setSessions((current) => {
-      const existing = current.find((session) => session.id === sessionId);
+      const existing = current.find((session) => session.id === resolvedSessionId);
       if (!existing) return current;
       const messages = update.messages ?? existing.messages;
       const next = {
@@ -264,11 +273,12 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
         title: update.title ?? titleFrom(messages),
         updatedAt: new Date().toISOString(),
       };
-      return current.map((session) => session.id === sessionId ? next : session);
+      return current.map((session) => session.id === resolvedSessionId ? next : session);
     });
   }, []);
 
   const promoteDraftSession = useCallback((draftId: string, sessionId: string, update: SessionUpdate) => {
+    sessionAliasesRef.current[draftId] = sessionId;
     if (activeDraftIdRef.current !== draftId) return;
     activeDraftIdRef.current = null;
     setDraftSession((current) => {
@@ -278,6 +288,7 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
         ...current,
         ...update,
         id: sessionId,
+        requestSessionId: sessionId,
         messages,
         title: update.title ?? titleFrom(messages),
         updatedAt: new Date().toISOString(),
@@ -296,12 +307,39 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
   );
 
   const appendMessage = useCallback((sessionId: string, message: AssistantChatMessage) => {
-    setDraftSession((current) => current?.id === sessionId
+    const resolvedSessionId = sessionAliasesRef.current[sessionId] ?? sessionId;
+    setDraftSession((current) => current?.id === resolvedSessionId
       ? { ...current, messages: [...current.messages, message], updatedAt: new Date().toISOString() }
       : current);
-    setSessions((current) => current.map((session) => session.id === sessionId
+    setSessions((current) => current.map((session) => session.id === resolvedSessionId
       ? { ...session, messages: [...session.messages, message], updatedAt: new Date().toISOString() }
       : session));
+  }, []);
+
+  const updateMessage = useCallback((sessionId: string, messageId: string, update: AssistantChatMessage) => {
+    const resolvedSessionId = sessionAliasesRef.current[sessionId] ?? sessionId;
+    const replace = (session: AssistantSession) => session.id === resolvedSessionId
+      ? {
+          ...session,
+          messages: session.messages.map((message) => message.id === messageId ? update : message),
+          updatedAt: new Date().toISOString(),
+        }
+      : session;
+    setDraftSession((current) => current ? replace(current) : current);
+    setSessions((current) => current.map(replace));
+  }, []);
+
+  const removeRequestMessages = useCallback((sessionId: string, requestId: string) => {
+    const resolvedSessionId = sessionAliasesRef.current[sessionId] ?? sessionId;
+    const remove = (session: AssistantSession) => session.id === resolvedSessionId
+      ? {
+          ...session,
+          messages: session.messages.filter((message) => message.clientRequestId !== requestId),
+          updatedAt: new Date().toISOString(),
+        }
+      : session;
+    setDraftSession((current) => current ? remove(current) : current);
+    setSessions((current) => current.map(remove));
   }, []);
 
   const value = useMemo(() => ({
@@ -318,6 +356,8 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
     updateSession,
     updateActiveSession,
     appendMessage,
+    updateMessage,
+    removeRequestMessages,
   }), [
     activeSession,
     sessions,
@@ -330,6 +370,8 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
     updateSession,
     updateActiveSession,
     appendMessage,
+    updateMessage,
+    removeRequestMessages,
   ]);
 
   return <AssistantSessionsContext.Provider value={value}>{children}</AssistantSessionsContext.Provider>;
