@@ -6,11 +6,12 @@ retrievers, rerankers, corpus services, or evidence selectors.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass
 import re
 import time
 import uuid
-from typing import Any, Literal, Protocol
+from typing import Any, Callable, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -79,9 +80,19 @@ class TransformationGenerator(Protocol):
 
 class OllamaTransformationGenerator:
     """Small deterministic adapter around the configured local Ollama model."""
-    def __init__(self, model_name: str | None = None) -> None:
+    def __init__(
+        self,
+        model_name: str | None = None,
+        generation_context_factory: Callable[[Any | None], Any] | None = None,
+    ) -> None:
         self.model_name = model_name or settings.ollama_model_name
         self._schema_mode_available: bool | None = None
+        self._generation_context_factory = generation_context_factory
+
+    def _generation_context(self, cancel_event: Any | None = None) -> Any:
+        if self._generation_context_factory is None:
+            return nullcontext()
+        return self._generation_context_factory(cancel_event)
 
     def generate(self, prompt: str) -> str:
         from langchain_ollama import OllamaLLM
@@ -89,7 +100,8 @@ class OllamaTransformationGenerator:
         last_error: Exception | None = None
         for attempt in range(settings.generation_retries + 1):
             try:
-                return str(model.invoke(prompt)).strip()
+                with self._generation_context():
+                    return str(model.invoke(prompt)).strip()
             except Exception as exc:  # same local-runtime retry boundary as chat generation
                 last_error = exc
                 if attempt < settings.generation_retries and settings.retry_cooldown_seconds:
@@ -108,38 +120,44 @@ class OllamaTransformationGenerator:
         for attempt in range(settings.generation_retries + 1):
             try:
                 from ollama import generate
-                schema_mode = bool(json_schema) and self._schema_mode_available is not False
-                output_format: str | dict[str, Any] = json_schema if schema_mode and json_schema else "json"
-                try:
-                    response = generate(
-                        model=self.model_name,
-                        prompt=prompt,
-                        format=output_format,
-                        stream=False,
-                        options={
-                            "temperature": 0,
-                            "num_ctx": settings.summary_context_window_tokens,
-                            "num_predict": max_output_tokens,
-                        },
+                with self._generation_context():
+                    schema_mode = (
+                        bool(json_schema)
+                        and self._schema_mode_available is not False
                     )
-                    if schema_mode:
-                        self._schema_mode_available = True
-                except Exception as exc:
-                    if not schema_mode or not _schema_mode_unavailable(exc):
-                        raise
-                    self._schema_mode_available = False
-                    response = generate(
-                        model=self.model_name,
-                        prompt=prompt,
-                        format="json",
-                        stream=False,
-                        options={
-                            "temperature": 0,
-                            "num_ctx": settings.summary_context_window_tokens,
-                            "num_predict": max_output_tokens,
-                        },
+                    output_format: str | dict[str, Any] = (
+                        json_schema if schema_mode and json_schema else "json"
                     )
-                    schema_mode = False
+                    try:
+                        response = generate(
+                            model=self.model_name,
+                            prompt=prompt,
+                            format=output_format,
+                            stream=False,
+                            options={
+                                "temperature": 0,
+                                "num_ctx": settings.summary_context_window_tokens,
+                                "num_predict": max_output_tokens,
+                            },
+                        )
+                        if schema_mode:
+                            self._schema_mode_available = True
+                    except Exception as exc:
+                        if not schema_mode or not _schema_mode_unavailable(exc):
+                            raise
+                        self._schema_mode_available = False
+                        response = generate(
+                            model=self.model_name,
+                            prompt=prompt,
+                            format="json",
+                            stream=False,
+                            options={
+                                "temperature": 0,
+                                "num_ctx": settings.summary_context_window_tokens,
+                                "num_predict": max_output_tokens,
+                            },
+                        )
+                        schema_mode = False
                 return OllamaJsonResult(
                     text=str(getattr(response, "response", "")).strip(),
                     finish_reason=str(getattr(response, "done_reason", "") or "") or None,
@@ -162,15 +180,16 @@ class OllamaTransformationGenerator:
         for attempt in range(settings.generation_retries + 1):
             emitted = False; pieces: list[str] = []; iterator = None
             try:
-                iterator = model.stream(prompt)
-                for token in iterator:
-                    if cancel_event is not None and cancel_event.is_set():
-                        raise RuntimeError("Generation cancelled.")
-                    value = str(token)
-                    if value:
-                        emitted = emitted or token_callback is not None; pieces.append(value)
-                        if token_callback is not None: token_callback(value)
-                return "".join(pieces).strip()
+                with self._generation_context(cancel_event):
+                    iterator = model.stream(prompt)
+                    for token in iterator:
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise RuntimeError("Generation cancelled.")
+                        value = str(token)
+                        if value:
+                            emitted = emitted or token_callback is not None; pieces.append(value)
+                            if token_callback is not None: token_callback(value)
+                    return "".join(pieces).strip()
             except Exception as exc:
                 last_error = exc
                 if emitted or (cancel_event is not None and cancel_event.is_set()) or attempt >= settings.generation_retries: break
@@ -384,6 +403,7 @@ class MessageTransformationService:
 
     def explain_simpler(self, message_id: uuid.UUID, access: RequestAccessContext) -> ChatMessage:
         source = self.repository.get_message_for_user(message_id, access.principal.user_id)
+        submitted_order = time.time_ns()
         if source is None:
             raise MessageTransformationError("Assistant response not found.", code="message_not_found", status_code=404)
         if source.role != "assistant":
@@ -401,6 +421,7 @@ class MessageTransformationService:
         self._validate(source.content, transformed, {item["reference_id"] for item in evidence})
         item = ChatMessage(
             session_id=source.session_id, user_id=access.principal.user_id, role="assistant", content=transformed,
+            turn_sequence=submitted_order, role_sequence=1,
             citations=source.citations, sources=source.sources,
             metadata_={**(source.metadata_ or {}), "transformation": "explain_simpler",
                        "source_message_id": str(source.id), "label": "Simplified explanation",
@@ -416,6 +437,7 @@ class MessageTransformationService:
 
     def create_checklist(self, message_id: uuid.UUID, access: RequestAccessContext) -> ChatMessage:
         source = self.repository.get_message_for_user(message_id, access.principal.user_id)
+        submitted_order = time.time_ns()
         if source is None:
             raise MessageTransformationError("Assistant response not found.", code="message_not_found", status_code=404)
         if source.role != "assistant":
@@ -440,6 +462,7 @@ class MessageTransformationService:
             except ValueError: return False
         item = ChatMessage(
             session_id=source.session_id, user_id=access.principal.user_id, role="assistant", content=content,
+            turn_sequence=submitted_order, role_sequence=1,
             citations=[record for record in (source.citations or []) if mapped(record)],
             sources=[record for record in (source.sources or []) if mapped(record)],
             metadata_={**(source.metadata_ or {}), "transformation": "create_checklist",

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import copy
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -87,6 +89,14 @@ class SelectedContextScope:
     selected_note_count: int = 0
     effective_document_count: int = 0
     filter_mode: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PublishedQuerySnapshot:
+    pipeline: Any
+    generation: int
+    bm25_generation: int
+    collection_name: str
 
 
 _PROFILE_SETTINGS: dict[str, ProfileSettings] = {
@@ -184,6 +194,8 @@ class KnowledgeEngineService:
         self._target_update_lock = Lock()
         self._embedding_lock = Lock()
         self._query_lock = Lock()
+        self._active_query_readers = 0
+        self._pending_publication_activation = False
         self._generation_refresh_lock = Lock()
         self._generation_refresh_inflight = False
         self._chat_metrics_lock = Lock()
@@ -260,6 +272,61 @@ class KnowledgeEngineService:
                 retired = self._retired_pipelines.pop(0)
                 close = getattr(retired, "close", None)
                 if callable(close): close()
+
+    @contextmanager
+    def acquire_snapshot(self) -> Any:
+        """Lease one already-loaded publication without holding its swap lock."""
+
+        with self._query_lock:
+            with self._lock:
+                pipeline = self._pipeline
+                # Preserve the service's injectable pipeline seam used by
+                # diagnostics and tests. The production implementation of
+                # _ready_pipeline reads the same published pointer and raises.
+                if pipeline is None:
+                    pipeline = self._ready_pipeline("standard")
+                if pipeline is None or not getattr(
+                    pipeline, "is_ready_for_answering", False
+                ):
+                    raise KnowledgeEngineUnavailable("Phase 4.5 engine is not ready.")
+                self._active_query_readers += 1
+                snapshot = PublishedQuerySnapshot(
+                    pipeline=pipeline,
+                    generation=self._loaded_generation,
+                    bm25_generation=self._loaded_bm25_generation,
+                    collection_name=str(
+                        getattr(
+                            pipeline.config,
+                            "qdrant_collection_name",
+                            settings.qdrant_collection_name,
+                        )
+                    ),
+                )
+        try:
+            yield snapshot
+        finally:
+            refresh_pending = False
+            with self._query_lock:
+                with self._lock:
+                    self._active_query_readers = max(
+                        0, self._active_query_readers - 1
+                    )
+                    refresh_pending = (
+                        self._active_query_readers == 0
+                        and self._pending_publication_activation
+                    )
+                    if refresh_pending:
+                        self._pending_publication_activation = False
+            if refresh_pending:
+                self.request_generation_refresh()
+
+    def publication_reader_snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "active_query_runtime_reader_count": self._active_query_readers,
+                "pending_publication_activation": self._pending_publication_activation,
+                "current_loaded_generation": self._loaded_generation,
+            }
 
     def is_ready(self) -> bool:
         with self._lock:
@@ -939,6 +1006,10 @@ class KnowledgeEngineService:
             if not self._query_lock.acquire(timeout=0.05):
                 return False
             try:
+                with self._lock:
+                    if self._active_query_readers:
+                        self._pending_publication_activation = True
+                        return False
                 lexical.set_allowed_relative_paths(
                     getattr(pipeline.bm25_retriever, "allowed_relative_paths", None)
                 )
@@ -1656,12 +1727,15 @@ class KnowledgeEngineService:
         token_callback: Any | None = None,
         cancel_event: Any | None = None,
         request_id: str | None = None,
+        resource_gate: Callable[[str], Any] | None = None,
     ) -> ChatResponse:
         chat_request_id = request_id or str(uuid.uuid4())
         conversation_id = str(request.session_id) if request.session_id else None
         request_started = time.perf_counter()
         stage_started: dict[str, float] = {}
         stage_metrics: dict[str, Any] = {}
+        snapshot_context: Any | None = None
+        published_snapshot: PublishedQuerySnapshot | None = None
 
         def progress(stage_id: str, status: str, **metrics: Any) -> None:
             now = time.perf_counter()
@@ -1903,6 +1977,8 @@ class KnowledgeEngineService:
             # The request uses the already-loaded stable snapshot while a daemon
             # refresh checks whether a newer complete generation is available.
             self.request_generation_refresh()
+            snapshot_context = self.acquire_snapshot()
+            published_snapshot = snapshot_context.__enter__()
             access_context = access_context or anonymous_access_context()
             profile = self._resolve_profile(request.response_length, request.profile)
             selected_scope = self._resolve_selected_context(
@@ -1923,7 +1999,7 @@ class KnowledgeEngineService:
                 retrieval_permission_boundary,
             ) = self._retrieval_cache_identity(
                 request.question,
-                generation=self._loaded_generation,
+                generation=published_snapshot.generation,
                 access_context=access_context,
                 selected_scope=selected_scope,
                 effective_relative_paths=effective_relative_paths,
@@ -1933,6 +2009,9 @@ class KnowledgeEngineService:
                 retrieval_permission_boundary,
             )
         except Exception as exc:
+            if snapshot_context is not None:
+                snapshot_context.__exit__(type(exc), exc, exc.__traceback__)
+                snapshot_context = None
             logger.info(
                 "chat_failed",
                 extra={
@@ -1960,47 +2039,31 @@ class KnowledgeEngineService:
         progress(
             "index_generation.loaded",
             "completed",
-            generation=self._loaded_generation,
-            bm25_generation=self._loaded_bm25_generation,
+            generation=published_snapshot.generation,
+            bm25_generation=published_snapshot.bm25_generation,
         )
         logger.info(
             "index_generation_loaded",
             extra={
                 "event": "index_generation_loaded",
                 "request_id": chat_request_id,
-                "generation": self._loaded_generation,
-                "bm25_generation": self._loaded_bm25_generation,
+                "generation": published_snapshot.generation,
+                "bm25_generation": published_snapshot.bm25_generation,
             },
         )
         started_at = time.perf_counter()
-        if not self._query_lock.acquire(timeout=settings.chat_lock_timeout_seconds):
-            logger.info(
-                "chat_failed",
-                extra={
-                    "event": "chat_failed",
-                    "request_id": chat_request_id,
-                    "error_type": "QueryCapacityTimeout",
-                },
-            )
-            with self._chat_metrics_lock:
-                self._chat_debug.update(
-                    status="failed",
-                    last_error="QueryCapacityTimeout",
-                    completed_at=time.time(),
-                )
-            raise KnowledgeEngineUnavailable(
-                "The assistant is finishing another request. Please retry."
-            )
         pipeline = None
         priority_context = None
         generation_gpu_sampler: GenerationGpuSampler | None = None
         try:
             priority_context = self._gpu_coordinator.chat_priority(chat_request_id)
             priority_context.__enter__()
-            pipeline = self._ready_pipeline(
+            pipeline = self._request_pipeline(
+                published_snapshot.pipeline,
                 request.response_length,
                 profile=request.profile,
                 max_answer_words=request.max_answer_words,
+                resource_gate=resource_gate,
             )
             pipeline.token_callback = token_callback
             pipeline.cancel_event = cancel_event
@@ -2010,7 +2073,7 @@ class KnowledgeEngineService:
             pipeline.retrieval_cache_setter = lambda payload: self._retrieval_cache.store(
                 retrieval_cache_key,
                 payload,
-                generation=self._loaded_generation,
+                generation=published_snapshot.generation,
                 principal_id=retrieval_cache_principal,
                 permission_boundary=retrieval_permission_boundary,
             )
@@ -2122,7 +2185,9 @@ class KnowledgeEngineService:
                 pipeline.retrieval_cache_setter = None
             if priority_context is not None:
                 priority_context.__exit__(None, None, None)
-            self._query_lock.release()
+            if snapshot_context is not None:
+                snapshot_context.__exit__(None, None, None)
+                snapshot_context = None
 
         latency_ms = int((time.perf_counter() - started_at) * 1000)
         progress("citations.linking", "started")
@@ -2143,7 +2208,7 @@ class KnowledgeEngineService:
         debug_update = {
             "status": "completed",
             "request_id": chat_request_id,
-            "current_index_generation": self._loaded_generation,
+            "current_index_generation": published_snapshot.generation,
             "current_stage": "complete",
             "current_stage_started_monotonic": None,
             "validation_latency": stage_metrics.get("request.validating", {}).get("duration_ms"),
@@ -2203,6 +2268,75 @@ class KnowledgeEngineService:
             profile=profile,
             max_answer_words=max_answer_words,
         )
+        return pipeline
+
+    def _request_pipeline(
+        self,
+        base_pipeline: Any,
+        response_length: str,
+        *,
+        profile: str | None,
+        max_answer_words: int | None,
+        resource_gate: Callable[[str], Any] | None = None,
+    ) -> Any:
+        """Create a lightweight request-local query view over shared models."""
+
+        config = copy.deepcopy(base_pipeline.config)
+        self._apply_response_profile(
+            config,
+            response_length,
+            profile=profile,
+            max_answer_words=max_answer_words,
+        )
+        if not isinstance(base_pipeline, self._phase4_pipeline_cls):
+            pipeline = copy.copy(base_pipeline)
+            pipeline.config = config
+            pipeline.resource_gate = resource_gate
+            return pipeline
+        lexical = getattr(base_pipeline, "bm25_retriever", None)
+        request_lexical = None
+        if lexical is not None:
+            request_lexical = copy.copy(lexical)
+            request_lexical.allowed_relative_paths = None
+            request_lexical.last_search_metrics = {}
+            # Authorized index maps are immutable after publication; the small
+            # LRU and active scope are request-local.
+            request_lexical._authorized_lock = RLock()
+            request_lexical._authorized_indexes = copy.copy(
+                getattr(lexical, "_authorized_indexes", {})
+            )
+        injected_retrievers = (
+            {"bm25": request_lexical} if request_lexical is not None else None
+        )
+        pipeline = self._phase4_pipeline_cls(
+            config,
+            embedding_model=base_pipeline.embedding_model,
+            llm=base_pipeline.llm,
+            query_transformer=base_pipeline.query_transformer,
+            tokenizer=getattr(base_pipeline, "_provided_tokenizer", None),
+            retrievers=injected_retrievers,
+            reranker=base_pipeline.reranker,
+        )
+        pipeline.client = base_pipeline.client
+        pipeline.documents = base_pipeline.documents
+        pipeline.chunks = base_pipeline.chunks
+        pipeline.embeddings = base_pipeline.embeddings
+        pipeline.published_document_version_ids = getattr(
+            base_pipeline, "published_document_version_ids", None
+        )
+        pipeline.published_note_revisions = getattr(
+            base_pipeline, "published_note_revisions", None
+        )
+        pipeline.query_embedding_model_state = getattr(
+            base_pipeline, "query_embedding_model_state", "loaded"
+        )
+        pipeline.query_embedding_cache_status = getattr(
+            base_pipeline, "query_embedding_cache_status", "model_reused"
+        )
+        pipeline.qdrant_index_status = getattr(
+            base_pipeline, "qdrant_index_status", "unknown"
+        )
+        pipeline.resource_gate = resource_gate
         return pipeline
 
     def _get_pipeline(
