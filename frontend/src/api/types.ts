@@ -112,6 +112,27 @@ export interface SystemStatusResponse {
     last_successful_index_at: string | null;
   };
   latency_ms: Record<string, number>;
+  lan_access: LanAccessStatus;
+}
+
+export interface LanAccessStatus {
+  enabled: boolean;
+  mode: string;
+  gateway_ready: boolean;
+  discovery_ready: boolean;
+  hostname: string | null;
+  scheme: 'http' | 'https';
+  port: number | null;
+  hotspot_detected: boolean;
+  bind_address_available: boolean;
+  ip_fallback_available: boolean;
+  tls_state: 'unconfigured' | 'untrusted' | 'ready' | string;
+  firewall_state: string;
+  keep_awake: boolean;
+  checked_at: string;
+  safe_detail: string;
+  domain_url: string | null;
+  ip_fallback_url: string | null;
 }
 
 export type OperationsStatus = 'green' | 'blue' | 'yellow' | 'red';
@@ -140,6 +161,7 @@ export interface AdminSystemMonitor {
   uptime_seconds: number;
   stale: boolean;
   connection_hint_seconds: number;
+  lan_access: LanAccessStatus;
   infrastructure: {
     backend: OperationsComponent;
     postgresql: OperationsComponent;

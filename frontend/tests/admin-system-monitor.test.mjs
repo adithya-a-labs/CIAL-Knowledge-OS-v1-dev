@@ -86,6 +86,15 @@ test('dashboard handles disconnected, stale, and partial unavailable states', ()
   assert.match(page, /componentStatus/);
 });
 
+test('authorized monitor includes additive LAN server status without client enumeration', () => {
+  assert.match(page, /data-testid="lan-server-status"/);
+  assert.match(page, /LAN Server/);
+  assert.match(page, /domain_url/);
+  assert.match(page, /ip_fallback_url/);
+  assert.match(page, /Unencrypted controlled-hotspot mode/);
+  assert.doesNotMatch(page, /ARP|neighbor table|connected clients/i);
+});
+
 test('generation latency display validates backend timing boundaries', () => {
   assert.match(page, /function formatLatency/);
   assert.match(page, /Number\.isFinite\(value\)/);

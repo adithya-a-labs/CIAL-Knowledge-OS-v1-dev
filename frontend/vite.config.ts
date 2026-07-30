@@ -10,6 +10,11 @@ const apiProxyTarget = process.env.API_PROXY_TARGET ?? "http://127.0.0.1:8000";
 
 export default defineConfig({
   base: basePath,
+  define: {
+    // Built assets always use the same-origin /api contract. Local Vite
+    // sessions reach FastAPI through the loopback proxy configured below.
+    "import.meta.env.VITE_API_BASE_URL": JSON.stringify(""),
+  },
   plugins: [
     react(),
     tailwindcss(),
@@ -28,8 +33,8 @@ export default defineConfig({
   server: {
     port,
     strictPort: true,
-    host: "0.0.0.0",
-    allowedHosts: true,
+    host: "127.0.0.1",
+    allowedHosts: ["localhost", "127.0.0.1"],
     fs: {
       strict: true,
     },
@@ -42,7 +47,13 @@ export default defineConfig({
   },
   preview: {
     port,
-    host: "0.0.0.0",
-    allowedHosts: true,
+    host: "127.0.0.1",
+    allowedHosts: ["localhost", "127.0.0.1"],
+    proxy: {
+      "/api": {
+        target: apiProxyTarget,
+        changeOrigin: false,
+      },
+    },
   },
 });

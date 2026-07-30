@@ -10,6 +10,7 @@ import {
   Server,
   ShieldCheck,
   Workflow,
+  Wifi,
   Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -228,6 +229,35 @@ function AuthorizedMonitor() {
           {error || 'One or more telemetry sources are stale. Last known values remain visible.'}
         </div>
       ) : null}
+
+      <article className="rounded-2xl border border-border bg-card p-5 shadow-sm" data-testid="lan-server-status">
+        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Wifi size={18} className="text-primary" />
+              <h2 className="font-semibold text-foreground">LAN Server</h2>
+              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold uppercase ${data.lan_access.gateway_ready ? statusStyles.green : data.lan_access.enabled ? statusStyles.yellow : statusStyles.red}`}>
+                {data.lan_access.gateway_ready ? 'LAN ready' : data.lan_access.enabled ? 'Waiting' : 'Local only'}
+              </span>
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">{data.lan_access.safe_detail}</p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <Metric label="Gateway" value={data.lan_access.gateway_ready ? 'ready' : 'unavailable'} />
+              <Metric label="mDNS" value={data.lan_access.discovery_ready ? 'registered' : 'unavailable'} />
+              <Metric label="Firewall" value={data.lan_access.firewall_state} />
+              <Metric label="Transport" value={data.lan_access.scheme.toUpperCase()} detail={data.lan_access.scheme === 'http' ? 'Unencrypted controlled-hotspot mode' : `TLS ${data.lan_access.tls_state}`} />
+            </div>
+            <div className="mt-4 space-y-1 text-sm">
+              {data.lan_access.domain_url ? <div><span className="text-muted-foreground">Domain:</span> <a className="font-medium text-primary underline-offset-4 hover:underline" href={data.lan_access.domain_url}>{data.lan_access.domain_url}</a></div> : null}
+              {data.lan_access.ip_fallback_url ? <div><span className="text-muted-foreground">IP fallback:</span> <a className="font-medium text-primary underline-offset-4 hover:underline" href={data.lan_access.ip_fallback_url}>{data.lan_access.ip_fallback_url}</a></div> : null}
+              <div className="text-xs text-muted-foreground">Hotspot {data.lan_access.hotspot_detected ? 'detected' : 'not detected'} · Keep-awake {data.lan_access.keep_awake ? 'active' : 'inactive'}</div>
+            </div>
+          </div>
+          {data.lan_access.gateway_ready ? (
+            <img src="/lan-access-qr.png" alt="QR code for the current CIAL LAN URL" className="h-32 w-32 rounded-xl border border-border bg-white p-2" />
+          ) : null}
+        </div>
+      </article>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         <OverviewCard name="Backend" icon={Server} status={componentStatus(infrastructure.backend)} detail="API runtime" latency={infrastructure.backend.latency_ms} updated={updated} />
