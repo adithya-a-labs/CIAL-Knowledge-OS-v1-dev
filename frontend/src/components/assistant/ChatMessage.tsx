@@ -346,6 +346,7 @@ export default function ChatMessage({
   const answer = message.content?.trim() || 'No answer returned.';
   const hasCitations = (message.citations?.length ?? 0) > 0;
   const markdownComponents = createMarkdownComponents(sources, onCitationClick);
+  const interactive = !message.requestStatus || message.requestStatus === 'completed';
   const width = chatWidth ?? 800;
 
   let fontSizeClass = 'text-sm leading-7';
@@ -406,7 +407,7 @@ export default function ChatMessage({
           </div>
         )}
 
-        <div className="flex flex-wrap gap-2 px-1">
+        {interactive ? <><div className="flex flex-wrap gap-2 px-1">
           <button
             type="button"
             onClick={() => void onCopy(message)}
@@ -476,7 +477,7 @@ export default function ChatMessage({
               </button>
             );
           })}
-        </div>
+        </div></> : null}
       </div>
     </div>
   );
