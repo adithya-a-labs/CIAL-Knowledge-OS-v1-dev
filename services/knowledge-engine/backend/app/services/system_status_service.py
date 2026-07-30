@@ -13,6 +13,7 @@ import httpx
 
 from backend.app.core.config import settings
 from backend.app.db.health import check_database_health
+from backend.app.lan.status import disabled_status, read_status
 
 logger = logging.getLogger(__name__)
 
@@ -357,6 +358,11 @@ class SystemStatusService:
                 **{name: component["latency_ms"] for name, component in components.items()},
                 "total": _latency_ms(total_started),
             },
+            "lan_access": (
+                read_status(settings.outputs_path / "lan-server" / "status.json")
+                if settings.lan_access_enabled
+                else disabled_status()
+            ),
         }
         logger.info(
             "health_check_completed",

@@ -314,6 +314,33 @@ class Settings:
         "CIAL_AUTH_DEFAULT_DEPARTMENT_CODE",
         default="shared-knowledge",
     )
+    lan_access_enabled: bool = _env_bool("CIAL_LAN_ACCESS_ENABLED", False)
+    lan_mode: str = _env_str("CIAL_LAN_MODE", default="hotspot").casefold()
+    lan_hostname: str = _env_str("CIAL_LAN_HOSTNAME", default="cial-knowledge-os").casefold()
+    lan_domain: str = _env_str("CIAL_LAN_DOMAIN", default="cial-knowledge-os.local").casefold()
+    lan_bind_interface: str = _env_str("CIAL_LAN_BIND_INTERFACE", default="auto")
+    lan_bind_ip: str = _env_str("CIAL_LAN_BIND_IP", default="auto")
+    lan_http_port: int = _env_int("CIAL_LAN_HTTP_PORT", 80)
+    lan_https_enabled: bool = _env_bool("CIAL_LAN_HTTPS_ENABLED", False)
+    lan_https_port: int = _env_int("CIAL_LAN_HTTPS_PORT", 443)
+    lan_allow_ip_fallback: bool = _env_bool("CIAL_LAN_ALLOW_IP_FALLBACK", True)
+    lan_mdns_enabled: bool = _env_bool("CIAL_LAN_MDNS_ENABLED", True)
+    lan_gateway: str = _env_str("CIAL_LAN_GATEWAY", default="caddy").casefold()
+    caddy_path: str = _env_str("CIAL_CADDY_PATH", default="")
+    lan_gateway_data_dir: str = _env_str(
+        "CIAL_LAN_GATEWAY_DATA_DIR",
+        default="outputs/lan-server/caddy",
+    )
+    lan_firewall_managed: bool = _env_bool("CIAL_LAN_FIREWALL_MANAGED", True)
+    lan_firewall_remote_scope: str = _env_str(
+        "CIAL_LAN_FIREWALL_REMOTE_SCOPE",
+        default="hotspot_subnet",
+    ).casefold()
+    lan_qr_enabled: bool = _env_bool("CIAL_LAN_QR_ENABLED", True)
+    lan_keep_awake: bool = _env_bool("CIAL_LAN_KEEP_AWAKE", True)
+    lan_adapter_recheck_seconds: int = _env_int("CIAL_LAN_ADAPTER_RECHECK_SECONDS", 5)
+    lan_startup_timeout_seconds: int = _env_int("CIAL_LAN_STARTUP_TIMEOUT_SECONDS", 30)
+    lan_shutdown_timeout_seconds: int = _env_int("CIAL_LAN_SHUTDOWN_TIMEOUT_SECONDS", 10)
 
     def __post_init__(self) -> None:
         self.indexer_precision = {
@@ -377,6 +404,9 @@ class Settings:
             "CIAL_CHAT_TOKEN_FLUSH_MS": self.chat_token_flush_ms,
             "CIAL_CHAT_TOKEN_FLUSH_CHARS": self.chat_token_flush_chars,
             "CIAL_RETRIEVAL_CACHE_MAX_ENTRIES": self.retrieval_cache_max_entries,
+            "CIAL_LAN_ADAPTER_RECHECK_SECONDS": self.lan_adapter_recheck_seconds,
+            "CIAL_LAN_STARTUP_TIMEOUT_SECONDS": self.lan_startup_timeout_seconds,
+            "CIAL_LAN_SHUTDOWN_TIMEOUT_SECONDS": self.lan_shutdown_timeout_seconds,
         }
         invalid = [name for name, value in positive.items() if value <= 0]
         if invalid:
@@ -435,6 +465,37 @@ class Settings:
             raise ValueError(
                 "CIAL_INDEXER_HEARTBEAT_STALE_SECONDS must be at least two heartbeat intervals."
             )
+        if self.lan_mode != "hotspot":
+            raise ValueError("CIAL_LAN_MODE currently supports only hotspot.")
+        if self.lan_gateway != "caddy":
+            raise ValueError("CIAL_LAN_GATEWAY currently supports only caddy.")
+        if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", self.lan_hostname):
+            raise ValueError("CIAL_LAN_HOSTNAME must be a valid DNS host label.")
+        if self.lan_domain != f"{self.lan_hostname}.local":
+            raise ValueError("CIAL_LAN_DOMAIN must equal CIAL_LAN_HOSTNAME plus .local.")
+        for name, port in (
+            ("CIAL_LAN_HTTP_PORT", self.lan_http_port),
+            ("CIAL_LAN_HTTPS_PORT", self.lan_https_port),
+        ):
+            if not 1 <= port <= 65535:
+                raise ValueError(f"{name} must be between 1 and 65535.")
+        if self.lan_https_enabled and self.lan_http_port == self.lan_https_port:
+            raise ValueError("LAN HTTP and HTTPS ports must differ.")
+        if self.lan_firewall_remote_scope != "hotspot_subnet":
+            raise ValueError(
+                "CIAL_LAN_FIREWALL_REMOTE_SCOPE currently supports only hotspot_subnet."
+            )
+        if self.lan_bind_ip.casefold() != "auto":
+            import ipaddress
+
+            address = ipaddress.ip_address(self.lan_bind_ip)
+            if address.version != 4 or not address.is_private:
+                raise ValueError("CIAL_LAN_BIND_IP must be auto or a private IPv4 address.")
+        gateway_data = resolve_repo_path(self.lan_gateway_data_dir)
+        try:
+            gateway_data.relative_to(self.repo_path)
+        except ValueError as exc:
+            raise ValueError("CIAL_LAN_GATEWAY_DATA_DIR must remain inside the repository.") from exc
 
     @property
     def repo_path(self) -> Path:

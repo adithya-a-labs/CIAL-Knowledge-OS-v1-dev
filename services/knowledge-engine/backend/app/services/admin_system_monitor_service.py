@@ -11,6 +11,7 @@ import os
 import uuid
 
 from backend.app.core.config import settings
+from backend.app.lan.status import disabled_status
 
 
 _ACTIVE_JOB_STATES = {
@@ -329,6 +330,7 @@ class AdminSystemMonitorService:
             "uptime_seconds": round(monotonic() - self._started_at, 2),
             "stale": worker_stale,
             "connection_hint_seconds": 2,
+            "lan_access": status.get("lan_access", disabled_status()),
             "infrastructure": {
                 "backend": status["components"]["backend"],
                 "postgresql": status["components"]["postgresql"],

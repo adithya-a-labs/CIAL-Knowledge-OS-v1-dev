@@ -31,6 +31,7 @@ from backend.app.services.summary_worker import SummaryWorker
 from backend.app.services.system_status_service import SystemStatusService
 from backend.app.services.admin_system_monitor_service import AdminSystemMonitorService
 from backend.app.services.chat_concurrency import ChatConcurrencyController
+from backend.app.security.host_boundary import LanHostBoundaryMiddleware
 from cial_knowledge_os.corpus.service import CorpusService
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(LanHostBoundaryMiddleware)
 
     engine = KnowledgeEngineService()
     runtime_state = RuntimeState(engine_available=engine.engine_available)
