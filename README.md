@@ -103,3 +103,19 @@ pnpm run build
 ```
 
 Full-stack integration notes are in `docs/architecture/FULL_STACK_INTEGRATION.md`.
+
+## Optional Windows Hotspot LAN Server Mode
+
+`Launch-CIAL-Knowledge-OS.bat --lan` keeps FastAPI, PostgreSQL, Qdrant,
+Ollama, and Vite on loopback and publishes only the production frontend plus
+same-origin `/api/*` through an interface-bound Caddy gateway. The mode is
+disabled by default and waits safely when Windows Mobile Hotspot is absent.
+Its target URL is `http://cial-knowledge-os.local` with a detected hotspot-IP
+fallback. Managed firewall and mDNS publication apply only to the detected
+hotspot interface/subnet.
+
+Caddy must be installed and `CIAL_CADDY_PATH` must identify `caddy.exe`.
+HTTP is the controlled-hotspot default; HTTPS is opt-in and requires client
+trust provisioning for Caddy's local CA. See
+`docs/architecture/LAN_SERVER_ACCESS.md` for configuration, threat model,
+status fields, shutdown behavior, and validation limits.

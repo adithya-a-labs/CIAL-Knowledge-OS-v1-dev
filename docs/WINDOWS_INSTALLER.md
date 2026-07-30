@@ -124,3 +124,18 @@ continues in CPU-only mode.
 When `CIAL_INDEXER_DEVICE=cuda`, indexer startup also fails if the embedding
 model is not actually on CUDA. `auto` may choose CPU on a machine without
 CUDA. The actual model device is published through `/api/index/status`.
+
+## Optional LAN Support Verification
+
+`-VerifyLanSupport` adds fail-fast checks for an operator-installed Caddy
+binary and the Python LAN dependencies. Caddy is intentionally not silently
+downloaded by the daily launcher. Configure `CIAL_CADDY_PATH` with the
+approved `caddy.exe` location before enabling LAN mode.
+
+The normal install remains local-only. `Launch-CIAL-Knowledge-OS.bat --lan`
+builds the production frontend if needed, starts the ordinary loopback stack,
+then starts the supervised gateway. Re-running the launcher is idempotent; the
+manager lock prevents duplicate gateway ownership, and the stop script removes
+only CIAL-owned mDNS, firewall, keep-awake, process-marker, and QR state. Caddy
+certificate state is preserved and, for HTTPS, must pass exact app-owned ACL
+verification before the gateway can start.
