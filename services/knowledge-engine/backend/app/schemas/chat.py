@@ -22,6 +22,7 @@ ChatProfile = Literal[
 
 class ChatRequest(BaseModel):
     session_id: UUID | None = None
+    client_request_id: str | None = Field(default=None, min_length=1, max_length=128)
     question: str = Field(min_length=1)
     search_scope: Literal["enterprise", "workspace", "hybrid", "current_upload"] = "hybrid"
     selected_document_ids: list[str] = Field(default_factory=list)
