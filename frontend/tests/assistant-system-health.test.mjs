@@ -28,13 +28,14 @@ test('submission performs a fresh preflight and blue status remains chat-capable
   assert.match(panel, /systemStatusQuery\.refetch\(\)/);
   assert.match(panel, /liveStatus\.data\.chat_available/);
   assert.doesNotMatch(panel, /if \(!chatReady\) \{/);
-  assert.match(panel, /disabled=\{!input\.trim\(\) \|\| isLoading \|\| blockingAttachments\.length > 0\}/);
+  assert.match(panel, /disabled=\{!input\.trim\(\) \|\| blockingAttachments\.length > 0\}/);
 });
 
 test('backend unavailable keeps the draft and exposes an actionable retry', () => {
   assert.match(panel, /if \(!liveStatus\.data\.chat_available\)/);
   assert.match(panel, /The assistant cannot start this request yet/);
-  assert.match(panel, /retryQuestionRef\.current = question/);
+  assert.match(panel, /retryPayload: requestPayload/);
+  assert.match(panel, /requestStatus: cancelled \? 'cancelled' : 'failed'/);
   assert.match(panel, /role="alert"/);
   assert.doesNotMatch(
     panel.slice(panel.indexOf('const handleSend'), panel.indexOf('const explicitDocumentIds')),
@@ -45,8 +46,8 @@ test('backend unavailable keeps the draft and exposes an actionable retry', () =
 test('successful Enter and button submission use the same reliable handler', () => {
   assert.match(panel, /event\.key === 'Enter' && !event\.shiftKey/);
   assert.match(panel, /onClick=\{\(\) => void handleSend\(\)\}/);
-  assert.match(panel, /isSubmittingRef\.current/);
-  assert.match(panel, /setIsLoading\(false\)/);
+  assert.match(panel, /requestRuntimesRef\.current\.set\(requestId, runtime\)/);
+  assert.match(panel, /requestRuntimesRef\.current\.delete\(requestId\)/);
 });
 
 test('connection failure retains input while degraded indicator state remains dynamic', () => {
@@ -56,15 +57,15 @@ test('connection failure retains input while degraded indicator state remains dy
   assert.match(indicator, /status\?\.label/);
 });
 
-test('draft clearing and optimistic persistence occur only after stream initiation', () => {
+test('submission creates an ordered placeholder pair before independent stream work', () => {
   const streamCall = panel.indexOf('const response = await streamQuestion');
-  const clear = panel.indexOf("if (!questionOverride) setInput('');", streamCall);
-  const connectCallback = panel.indexOf('}, controller.signal, () => {', streamCall);
+  const appendUser = panel.indexOf('appendMessage(requestSessionId, userMsg)');
+  const appendPlaceholder = panel.indexOf('appendMessage(requestSessionId, placeholder)');
   assert.ok(streamCall >= 0);
-  assert.ok(connectCallback > streamCall);
-  assert.ok(clear > connectCallback);
+  assert.ok(appendUser >= 0 && appendUser < streamCall);
+  assert.ok(appendPlaceholder > appendUser && appendPlaceholder < streamCall);
   assert.match(client, /onConnected\?\.\(\)/);
-  assert.match(panel, /retryQuestionRef\.current = question/);
+  assert.match(panel, /backendSessionId,\s*requestId/);
 });
 
 test('progress labels reflect actual connection, retrieval, generation and terminal stages', () => {

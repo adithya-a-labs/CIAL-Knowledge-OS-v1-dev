@@ -44,7 +44,8 @@ test('fresh navigation cannot fall back to hydrated history or stale active stat
   assert.doesNotMatch(sessions, /sessions\[0\] \?\?/);
   assert.match(sessions, /activeDraftIdRef\.current !== draftId/);
   assert.match(sessions, /generation !== requestGeneration\.current/);
-  assert.match(panel, /activeRequestControllerRef\.current\?\.abort\(\)/);
+  assert.match(panel, /requestRuntimesRef\.current/);
+  assert.match(panel, /AUTH_INVALIDATED_EVENT/);
 });
 
 test('contextual handoff creates an isolated draft with only explicit context', () => {
@@ -63,9 +64,13 @@ test('only explicit history selection opens a persisted conversation route', () 
   assert.match(sessions, /setActiveSessionId\(conversationId\)/);
 });
 
-test('first fresh-chat message omits a session ID then promotes and replaces the URL', () => {
-  assert.match(panel, /isAssistantDraftId\(requestSessionId\) \? undefined : requestSessionId/);
+test('fresh-chat requests share one materialization UUID then promote and replace the URL', () => {
+  assert.match(sessions, /requestSessionId/);
+  assert.match(sessions, /crypto\.randomUUID\(\)/);
+  assert.match(panel, /const backendSessionId = activeSession\.requestSessionId/);
+  assert.match(panel, /backendSessionId,\s*requestId/);
   assert.match(panel, /response\.session_id/);
   assert.match(panel, /promoteDraftSession\(requestSessionId, response\.session_id/);
+  assert.match(sessions, /sessionAliasesRef\.current\[draftId\] = sessionId/);
   assert.match(sessions, /navigate\(assistantConversationPath\(sessionId\), \{ replace: true \}\)/);
 });

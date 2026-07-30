@@ -18,11 +18,11 @@ test('assistant exposes retrieval and generation progress plus retry', () => {
   assert.match(timeline, /Reranking sources/);
   assert.match(timeline, /Generating answer/);
   assert.match(timeline, /Completed/);
-  assert.match(panel, /retryQuestionRef/);
-  assert.match(panel, /degradedStageRef/);
-  assert.match(panel, /Retrieval degraded at/);
-  assert.match(panel, />Retry</);
-  assert.match(panel, /onStop=\{stopGenerating\}/);
+  assert.match(panel, /retryPayload/);
+  assert.match(panel, /runtime\.degraded/);
+  assert.match(panel, /Retrieval completed with degradation/);
+  assert.match(panel, /<RefreshCw size=\{14\}\/>Retry/);
+  assert.match(panel, /onStop=\{\(\) => stopGenerating\(msg\.clientRequestId!\)\}/);
 });
 
 test('stream errors expose the backend failed stage and retry reason', () => {
@@ -31,8 +31,9 @@ test('stream errors expose the backend failed stage and retry reason', () => {
   assert.match(client, /failure\.reason/);
 });
 
-test('terminal failures clear the loading state', () => {
+test('terminal failures clear only the matching request runtime', () => {
   assert.match(panel, /finally\s*\{/);
-  assert.match(panel, /setIsLoading\(false\)/);
+  assert.match(panel, /requestRuntimesRef\.current\.delete\(requestId\)/);
+  assert.match(panel, /requestStatus: cancelled \? 'cancelled' : 'failed'/);
   assert.match(panel, /role="alert"/);
 });

@@ -23,5 +23,6 @@ test('empty database and API failure do not install demo data', () => {
 test('slow responses and account changes cannot overwrite newer state', () => {
   assert.match(context, /generation !== requestGeneration\.current/);
   assert.match(context, /previousUser\.current !== user\.id/);
-  assert.match(panel, /updateSession\(requestSessionId/);
+  assert.match(panel, /updateMessage\(requestSessionId/);
+  assert.match(context, /sessionAliasesRef/);
 });

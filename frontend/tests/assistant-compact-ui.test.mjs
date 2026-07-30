@@ -72,11 +72,13 @@ test('private notes are searchable context items and retain hard-boundary semant
   assert.match(panel, /item\.type === 'note'/);
 });
 
-test('real token deltas are buffered per animation frame and stale requests are ignored', () => {
+test('real token deltas are buffered independently per request animation frame', () => {
   assert.match(panel, /event\.type === 'token'/);
   assert.match(panel, /requestAnimationFrame/);
-  assert.match(panel, /activeRequestControllerRef\.current === controller/);
-  assert.match(panel, /streamingText/);
+  assert.match(panel, /requestRuntimesRef\.current/);
+  assert.match(panel, /runtime\.tokenBuffer/);
+  assert.match(panel, /runtime\.tokenFrame/);
+  assert.match(panel, /!controller\.signal\.aborted/);
 });
 
 test('source summary is collapsed by default and replaces permanent citation/source cards', () => {
@@ -101,11 +103,12 @@ test('source grouping prefers stable document id and deduplicates pages and cita
   assert.match(sources, /onOpenSource\(group\.sources\[0\]\)/);
 });
 
-test('composer retains multiline growth, enter submission, loading disablement, and mobile containment', () => {
+test('composer retains multiline growth, enter submission, concurrent availability, and mobile containment', () => {
   assert.match(panel, /resizeComposerTextarea/);
   assert.match(panel, /event\.key === 'Enter' && !event\.shiftKey/);
   assert.match(panel, /max-h-40/);
-  assert.match(panel, /disabled=\{!input\.trim\(\) \|\| isLoading \|\| blockingAttachments\.length > 0\}/);
+  assert.match(panel, /disabled=\{!input\.trim\(\) \|\| blockingAttachments\.length > 0\}/);
+  assert.doesNotMatch(panel, /disabled=\{[^}]*isLoading/);
   assert.match(panel, /min-w-0/);
   assert.match(panel, /overflow-x-auto/);
   assert.match(composerSurface, /min-h-\[108px\]/);
