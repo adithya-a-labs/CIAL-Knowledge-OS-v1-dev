@@ -28,6 +28,9 @@ class GpuResourceCoordinator:
             float(settings.chat_request_timeout_seconds) + 30.0,
             180.0,
         )
+        self._owner_lock = Lock()
+        self._owners: set[str] = set()
+        self._priority_started_epoch: float | None = None
 
     @contextmanager
     def chat_priority(self, request_id: str) -> Iterator[None]:
@@ -35,32 +38,52 @@ class GpuResourceCoordinator:
             yield
             return
         try:
-            self.marker_path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = self.marker_path.with_suffix(
-                f".{os.getpid()}.{request_id}.tmp"
-            )
-            payload = {
-                "request_id": request_id,
-                "pid": os.getpid(),
-                "started_at": datetime.now(timezone.utc).isoformat(),
-                "started_epoch": time.time(),
-            }
-            temporary.write_text(json.dumps(payload), encoding="utf-8")
-            os.replace(temporary, self.marker_path)
+            with self._owner_lock:
+                self._owners.add(request_id)
+                if self._priority_started_epoch is None:
+                    self._priority_started_epoch = time.time()
+                self._write_marker_locked()
         except OSError:
             # Coordination is an optimization. A read-only runtime directory
             # must never make chat unavailable.
+            with self._owner_lock:
+                self._owners.discard(request_id)
+                if not self._owners:
+                    self._priority_started_epoch = None
             yield
             return
         try:
             yield
         finally:
             try:
-                current = json.loads(self.marker_path.read_text(encoding="utf-8"))
-                if current.get("request_id") == request_id:
-                    self.marker_path.unlink(missing_ok=True)
-            except (OSError, ValueError, TypeError):
+                with self._owner_lock:
+                    self._owners.discard(request_id)
+                    if self._owners:
+                        self._write_marker_locked()
+                    else:
+                        self._priority_started_epoch = None
+                        self.marker_path.unlink(missing_ok=True)
+            except OSError:
                 pass
+
+    def _write_marker_locked(self) -> None:
+        self.marker_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.marker_path.with_suffix(f".{os.getpid()}.tmp")
+        started_epoch = self._priority_started_epoch or time.time()
+        payload = {
+            "pid": os.getpid(),
+            "owner_count": len(self._owners),
+            "started_at": datetime.fromtimestamp(
+                started_epoch, timezone.utc
+            ).isoformat(),
+            "started_epoch": started_epoch,
+        }
+        temporary.write_text(json.dumps(payload), encoding="utf-8")
+        os.replace(temporary, self.marker_path)
+
+    def owner_count(self) -> int:
+        with self._owner_lock:
+            return len(self._owners)
 
     def chat_active(self) -> bool:
         try:

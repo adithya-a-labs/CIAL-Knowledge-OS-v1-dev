@@ -60,11 +60,13 @@ class AdminSystemMonitorService:
         runtime_state: Any,
         engine: Any,
         indexing_service: Any,
+        chat_concurrency: Any | None = None,
     ) -> None:
         self.system_status_service = system_status_service
         self.runtime_state = runtime_state
         self.engine = engine
         self.indexing_service = indexing_service
+        self.chat_concurrency = chat_concurrency
         self._started_at = monotonic()
         self._lock = RLock()
         self._events: deque[dict[str, Any]] = deque(maxlen=250)
@@ -281,6 +283,20 @@ class AdminSystemMonitorService:
         self._derive_events(queue)
         diagnostics = self.engine.runtime_diagnostics()
         query = self.engine.chat_debug_snapshot()
+        chat_concurrency = (
+            self.chat_concurrency.snapshot()
+            if self.chat_concurrency is not None
+            else {}
+        )
+        reader_snapshot = getattr(self.engine, "publication_reader_snapshot", None)
+        publication_readers = (
+            reader_snapshot()
+            if callable(reader_snapshot)
+            else {
+                "active_query_runtime_reader_count": 0,
+                "pending_publication_activation": False,
+            }
+        )
         worker_heartbeat = queue.get("worker_heartbeat_at")
         worker_age = _age_seconds(worker_heartbeat)
         worker_stale = (
@@ -488,6 +504,25 @@ class AdminSystemMonitorService:
             },
             "query": {
                 "active_chat_requests": active_chat_requests,
+                "active_chat_request_count": chat_concurrency.get(
+                    "active_chat_request_count", active_chat_requests
+                ),
+                "queued_chat_request_count": chat_concurrency.get(
+                    "queued_chat_request_count", 0
+                ),
+                "counts_by_stage": chat_concurrency.get("counts_by_stage", {}),
+                "resource_gates": chat_concurrency.get("gates", {}),
+                "queue_wait_ms_p50": chat_concurrency.get("queue_wait_ms_p50"),
+                "queue_wait_ms_p95": chat_concurrency.get("queue_wait_ms_p95"),
+                "capacity_rejections": {
+                    "global": chat_concurrency.get(
+                        "global_limit_rejection_count", 0
+                    ),
+                    "per_user": chat_concurrency.get(
+                        "per_user_limit_rejection_count", 0
+                    ),
+                },
+                **publication_readers,
                 "status": query.get("status", "idle"),
                 "current_stage": (
                     active_query.get("stage")

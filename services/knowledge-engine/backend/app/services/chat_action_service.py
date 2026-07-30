@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -31,6 +32,7 @@ class ChatActionService:
 
     def regenerate(self, message_id: uuid.UUID, access: RequestAccessContext) -> ChatResponse:
         original = self._assistant(message_id, access)
+        submitted_order = time.time_ns()
         metadata = original.metadata_ or {}
         try:
             user_id = uuid.UUID(str(metadata["user_message_id"]))
@@ -49,6 +51,7 @@ class ChatActionService:
             raise ChatActionError("Regeneration failed; the original response was retained.", code="generation_failed", status_code=503) from exc
         replacement = ChatMessage(
             session_id=original.session_id, user_id=access.principal.user_id, role="assistant",
+            turn_sequence=submitted_order, role_sequence=1,
             content=response.answer, citations=[x.model_dump(mode="json") for x in response.citations],
             sources=[x.model_dump(mode="json") for x in response.sources],
             metadata_={**response.metadata.model_dump(mode="json"), "generation_request": settings,
@@ -62,6 +65,7 @@ class ChatActionService:
 
     def transform(self, message_id: uuid.UUID, operation: str, access: RequestAccessContext) -> ChatMessage:
         source = self._assistant(message_id, access)
+        submitted_order = time.time_ns()
         if not source.sources or not source.citations:
             raise ChatActionError("Persisted evidence is insufficient for this transformation.", code="missing_persisted_evidence", status_code=409)
         if operation == "create_checklist":
@@ -72,7 +76,8 @@ class ChatActionService:
                 raise ChatActionError("No evidence-supported actions were found.", code="no_actionable_content", status_code=409)
         else:
             content = re.sub(r"\b(utilize|commence|terminate|subsequent|prior to|in order to)\b", lambda m: {"utilize":"use","commence":"start","terminate":"end","subsequent":"next","prior to":"before","in order to":"to"}[m.group(0).lower()], source.content, flags=re.I)
-        item = ChatMessage(session_id=source.session_id, user_id=access.principal.user_id, role="assistant", content=content,
+        item = ChatMessage(session_id=source.session_id, user_id=access.principal.user_id, role="assistant",
+                           turn_sequence=submitted_order, role_sequence=1, content=content,
                            citations=source.citations, sources=source.sources,
                            metadata_={**(source.metadata_ or {}), "transform_operation": operation, "source_message_id": str(source.id)})
         self.repository.add_message(item); self.db.commit(); self.db.refresh(item)
