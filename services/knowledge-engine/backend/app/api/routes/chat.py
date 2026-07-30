@@ -7,15 +7,13 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 import json
 import logging
-import queue
-import threading
 import time
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 from sqlalchemy.orm import Session
 
 from backend.app.db.session import get_db_session
-from backend.app.core.config import settings
 from backend.app.db.session import SessionLocal
 from backend.app.models.conversations import ChatMessage, ChatSession
 from backend.app.models.knowledge import Document
@@ -32,13 +30,15 @@ from backend.app.services.knowledge_engine_service import (
     KnowledgeEngineUnavailable,
 )
 from backend.app.services.conversation_service import ConversationService
+from backend.app.services.chat_concurrency import (
+    ChatCapacityError,
+    ChatConcurrencyController,
+    ChatControllerUnavailable,
+    ChatRequestRecord,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-class _StreamCancelled(RuntimeError):
-    pass
 
 
 def _apply_summary_binding(payload: ChatRequest, db: Session, user_id: uuid.UUID) -> ChatRequest:
@@ -115,99 +115,258 @@ def _record(session: ChatSession, repository: ChatRepository) -> ChatSessionReco
 
 @router.post("/chat/stream")
 def stream_chat(payload: ChatRequest, request: Request):
-    """Stream actual pipeline boundary events and one final compatible result."""
-    runtime_state=request.app.state.runtime_state
+    """Admit one bounded live request and stream its isolated NDJSON channel."""
+
+    runtime_state = request.app.state.runtime_state
     if not runtime_state.snapshot()["engine_ready"]:
-        raise HTTPException(503,detail=runtime_state.chat_unavailable_detail())
-    access=require_authenticated_access_context(request); user_id=access.principal.user_id
-    request_id=str(uuid.uuid4()); events:queue.Queue=queue.Queue(); cancelled=threading.Event(); started=time.monotonic()
+        raise HTTPException(503, detail=runtime_state.chat_unavailable_detail())
+    access = require_authenticated_access_context(request)
+    user_id = access.principal.user_id
+    controller = getattr(request.app.state, "chat_concurrency", None)
+    temporary_controller = controller is None
+    if controller is None:
+        # Small unit-test/embedded FastAPI apps may include the router without
+        # the production application factory. They still exercise the exact
+        # bounded controller rather than falling back to daemon threads.
+        controller = ChatConcurrencyController()
+        controller.start()
+    monitor = getattr(request.app.state, "admin_system_monitor_service", None)
     failure_state: dict[str, object | None] = {
         "stage": None,
         "reason": None,
         "timeout_state": None,
     }
-    monitor = getattr(request.app.state, "admin_system_monitor_service", None)
-    if monitor is not None:
-        monitor.chat_started(request_id)
-    def progress(stage_id,status_value,metrics):
-        if cancelled.is_set(): raise _StreamCancelled()
-        if (
-            metrics.get("error_state")
-            and (stage_id != "chat" or failure_state["stage"] is None)
-        ):
-            failure_state.update(
-                stage=stage_id,
-                reason=metrics.get("error_state"),
-                timeout_state=metrics.get("timeout_state"),
-            )
-        monitor_chat_stage = getattr(monitor, "chat_stage", None)
-        if callable(monitor_chat_stage):
-            monitor_chat_stage(
-                request_id,
-                stage_id,
-                status_value,
-                metrics,
-            )
-        events.put({"request_id":request_id,"type":"stage","stage_id":stage_id,"status":status_value,"elapsed_ms":int((time.monotonic()-started)*1000),"metrics":metrics})
-    def token(delta):
-        if cancelled.is_set(): raise _StreamCancelled()
-        events.put({"request_id":request_id,"type":"token","stage_id":"generation","status":"started","elapsed_ms":int((time.monotonic()-started)*1000),"delta":delta})
-    def run():
+
+    def execute(record: ChatRequestRecord) -> None:
         succeeded = False
-        error_type = None
-        with SessionLocal() as db:
-            repository=ChatRepository(db)
-            try:
-                bound_payload=_apply_summary_binding(payload,db,user_id)
-                chat_session=repository.get_session_for_user(payload.session_id,user_id) if payload.session_id else None
-                if payload.session_id and chat_session is None and db.get(ChatSession,payload.session_id) is not None: raise WorkspaceNotFound("Conversation not found.")
-                if chat_session is None: chat_session=repository.add_session(ChatSession(id=payload.session_id or uuid.uuid4(),user_id=user_id,title=payload.question.strip()[:72]))
-                bound_payload=ConversationService.enforce(chat_session,bound_payload)
-                response=request.app.state.knowledge_engine.answer_question(bound_payload,access_context=access,progress_callback=progress,token_callback=token,cancel_event=cancelled,request_id=request_id)
-                if cancelled.is_set(): raise _StreamCancelled()
-                progress("persistence.saving","started",{})
-                user_message=repository.add_message(ChatMessage(session_id=chat_session.id,user_id=user_id,role="user",content=bound_payload.question,metadata_={"selected_document_ids":bound_payload.selected_document_ids,"selected_folder_ids":bound_payload.selected_folder_ids,"selected_note_ids":bound_payload.selected_note_ids,"profile":bound_payload.profile or bound_payload.response_length,"response_length":bound_payload.response_length,"max_answer_words":bound_payload.max_answer_words}))
-                assistant_message=repository.add_message(ChatMessage(session_id=chat_session.id,user_id=user_id,role="assistant",content=response.answer,citations=[item.model_dump(mode="json") for item in response.citations],sources=[item.model_dump(mode="json") for item in response.sources],metadata_={**response.metadata.model_dump(mode="json"),"generation_request":bound_payload.model_dump(mode="json",exclude={"question","session_id","include_debug"}),"user_message_id":str(user_message.id),"evidence_snapshot":response.evidence_snapshot}))
-                chat_session.updated_at=datetime.now(timezone.utc); db.commit(); response.session_id=chat_session.id; response.user_message_id=user_message.id; response.assistant_message_id=assistant_message.id
-                progress("persistence.saving","completed",{}); events.put({"request_id":request_id,"type":"result","stage_id":"complete","status":"completed","elapsed_ms":response.metadata.latency_ms,"payload":jsonable_encoder(response)})
-                succeeded = True
-            except _StreamCancelled:
-                error_type = "cancelled"
-                db.rollback(); events.put({"request_id":request_id,"type":"cancelled","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"metrics":{}})
-            except (WorkspaceNotFound, KnowledgeEngineUnavailable) as exc:
-                error_type = type(exc).__name__
-                db.rollback(); events.put({"request_id":request_id,"type":"error","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"payload":{"message":str(exc),"failed_stage":failure_state["stage"],"reason":failure_state["reason"],"timeout_state":failure_state["timeout_state"],"retry_allowed":True}})
-            except Exception as exc:
-                error_type = type(exc).__name__
-                if cancelled.is_set():
-                    db.rollback(); events.put({"request_id":request_id,"type":"cancelled","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"metrics":{}}); return
-                logger.exception("chat_stream_failed", extra={"request_id": request_id})
-                db.rollback(); events.put({"request_id":request_id,"type":"error","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"payload":{"message":"The assistant could not complete this request.","failed_stage":failure_state["stage"],"reason":failure_state["reason"],"timeout_state":failure_state["timeout_state"],"retry_allowed":True}})
-            finally:
-                if monitor is not None:
-                    monitor.chat_completed(
-                        request_id,
-                        succeeded=succeeded,
-                        latency_ms=int((time.monotonic()-started)*1000),
-                        error_type=error_type,
+        error_type: str | None = None
+        if monitor is not None:
+            monitor.chat_started(record.request_id)
+
+        def progress(stage_id: str, status_value: str, metrics: dict[str, Any]) -> None:
+            record.raise_if_cancelled()
+            if metrics.get("error_state") and (
+                stage_id != "chat" or failure_state["stage"] is None
+            ):
+                failure_state.update(
+                    stage=stage_id,
+                    reason=metrics.get("error_state"),
+                    timeout_state=metrics.get("timeout_state"),
+                )
+            monitor_stage = getattr(monitor, "chat_stage", None)
+            if callable(monitor_stage):
+                monitor_stage(record.request_id, stage_id, status_value, metrics)
+            record.stage = stage_id
+            record.emit(
+                {
+                    "type": "stage",
+                    "stage_id": stage_id,
+                    "status": status_value,
+                    "metrics": metrics,
+                }
+            )
+
+        try:
+            with SessionLocal() as db:
+                repository = ChatRepository(db)
+                try:
+                    bound_payload = _apply_summary_binding(payload, db, user_id)
+                    if payload.session_id:
+                        with controller.materialize_session(str(payload.session_id)):
+                            chat_session = repository.get_session_for_user(
+                                payload.session_id, user_id
+                            )
+                            if (
+                                chat_session is None
+                                and db.get(ChatSession, payload.session_id) is not None
+                            ):
+                                raise WorkspaceNotFound("Conversation not found.")
+                            if chat_session is None:
+                                chat_session = repository.add_session(
+                                    ChatSession(
+                                        id=payload.session_id,
+                                        user_id=user_id,
+                                        title=payload.question.strip()[:72],
+                                    )
+                                )
+                                db.commit()
+                    else:
+                        chat_session = None
+                    if chat_session is None:
+                        chat_session = repository.add_session(
+                            ChatSession(
+                                id=payload.session_id or uuid.uuid4(),
+                                user_id=user_id,
+                                title=payload.question.strip()[:72],
+                            )
+                        )
+                    bound_payload = ConversationService.enforce(
+                        chat_session, bound_payload
                     )
-                events.put(None)
-    threading.Thread(target=run,name=f"chat-{request_id}",daemon=True).start()
+                    response = request.app.state.knowledge_engine.answer_question(
+                        bound_payload,
+                        access_context=access,
+                        progress_callback=progress,
+                        token_callback=record.emit_token,
+                        cancel_event=record.cancel_event,
+                        request_id=record.request_id,
+                        resource_gate=lambda name: controller.gate(name, record),
+                    )
+                    record.raise_if_cancelled()
+                    progress("persisting", "started", {})
+                    user_message = repository.add_message(
+                        ChatMessage(
+                            session_id=chat_session.id,
+                            user_id=user_id,
+                            role="user",
+                            content=bound_payload.question,
+                            turn_sequence=record.submission_sequence,
+                            role_sequence=0,
+                            metadata_={
+                                "selected_document_ids": bound_payload.selected_document_ids,
+                                "selected_folder_ids": bound_payload.selected_folder_ids,
+                                "selected_note_ids": bound_payload.selected_note_ids,
+                                "profile": bound_payload.profile
+                                or bound_payload.response_length,
+                                "response_length": bound_payload.response_length,
+                                "max_answer_words": bound_payload.max_answer_words,
+                            },
+                        )
+                    )
+                    assistant_message = repository.add_message(
+                        ChatMessage(
+                            session_id=chat_session.id,
+                            user_id=user_id,
+                            role="assistant",
+                            content=response.answer,
+                            turn_sequence=record.submission_sequence,
+                            role_sequence=1,
+                            citations=[
+                                item.model_dump(mode="json")
+                                for item in response.citations
+                            ],
+                            sources=[
+                                item.model_dump(mode="json")
+                                for item in response.sources
+                            ],
+                            metadata_={
+                                **response.metadata.model_dump(mode="json"),
+                                "generation_request": bound_payload.model_dump(
+                                    mode="json",
+                                    exclude={
+                                        "question",
+                                        "session_id",
+                                        "include_debug",
+                                        "client_request_id",
+                                    },
+                                ),
+                                "user_message_id": str(user_message.id),
+                                "evidence_snapshot": response.evidence_snapshot,
+                            },
+                        )
+                    )
+                    chat_session.updated_at = datetime.now(timezone.utc)
+                    db.commit()
+                    response.session_id = chat_session.id
+                    response.user_message_id = user_message.id
+                    response.assistant_message_id = assistant_message.id
+                    progress("persisting", "completed", {})
+                    record.stage = "completed"
+                    record.emit_terminal("result", jsonable_encoder(response))
+                    succeeded = True
+                except InterruptedError:
+                    error_type = "cancelled"
+                    db.rollback()
+                    raise
+                except (
+                    WorkspaceNotFound,
+                    KnowledgeEngineUnavailable,
+                    KnowledgeEngineInvalidRequest,
+                ) as exc:
+                    error_type = type(exc).__name__
+                    db.rollback()
+                    record.stage = "failed"
+                    record.emit_terminal(
+                        "error",
+                        {
+                            "message": str(exc),
+                            "failed_stage": failure_state["stage"],
+                            "reason": failure_state["reason"],
+                            "timeout_state": failure_state["timeout_state"],
+                            "retry_allowed": not record.visible_token_started,
+                        },
+                    )
+                except Exception:
+                    db.rollback()
+                    if record.cancel_event.is_set():
+                        error_type = "cancelled"
+                        record.raise_if_cancelled()
+                    error_type = "internal_error"
+                    logger.exception(
+                        "chat_stream_failed",
+                        extra={"request_id": record.request_id},
+                    )
+                    record.stage = "failed"
+                    record.emit_terminal(
+                        "error",
+                        {
+                            "message": "The assistant could not complete this request.",
+                            "failed_stage": failure_state["stage"],
+                            "reason": failure_state["reason"],
+                            "timeout_state": failure_state["timeout_state"],
+                            "retry_allowed": not record.visible_token_started,
+                        },
+                    )
+        finally:
+            if monitor is not None:
+                monitor.chat_completed(
+                    record.request_id,
+                    succeeded=succeeded,
+                    latency_ms=int((time.monotonic() - record.created_at) * 1000),
+                    error_type=error_type,
+                )
+
+    try:
+        record = controller.submit(
+            user_key=str(user_id),
+            work=execute,
+            client_request_id=payload.client_request_id,
+        )
+    except ChatCapacityError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=exc.detail(),
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
+    except ChatControllerUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     def body():
         try:
             while True:
                 try:
-                    item=events.get(timeout=1)
-                except queue.Empty:
-                    if time.monotonic()-started >= settings.chat_request_timeout_seconds:
-                        cancelled.set()
-                        yield json.dumps({"request_id":request_id,"type":"error","stage_id":"complete","status":"failed","elapsed_ms":int((time.monotonic()-started)*1000),"payload":{"message":"The assistant request timed out. Please retry.","failed_stage":failure_state["stage"],"reason":"request_timeout","timeout_state":"timed_out","retry_allowed":True}},separators=(",",":"))+"\n"
-                        break
+                    item = record.events.get(timeout=1)
+                except TimeoutError:
+                    if time.monotonic() >= record.deadline:
+                        controller.cancel(record.request_id)
                     continue
-                if item is None: break
-                yield json.dumps(item,separators=(",",":"))+"\n"
-        finally: cancelled.set()
-    return StreamingResponse(body(),media_type="application/x-ndjson",headers={"Cache-Control":"no-store","X-Accel-Buffering":"no"})
+                if item is None:
+                    break
+                yield json.dumps(item, separators=(",", ":")) + "\n"
+        finally:
+            controller.cancel(record.request_id)
+            if temporary_controller:
+                controller.close()
+
+    return StreamingResponse(
+        body(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+            "X-Chat-Request-Id": record.request_id,
+        },
+    )
 
 
 @router.get("/chat/debug")
@@ -216,12 +375,17 @@ def chat_debug(request: Request) -> dict[str, object]:
 
     require_authenticated_access_context(request)
     metrics = request.app.state.knowledge_engine.chat_debug_snapshot()
+    controller = getattr(request.app.state, "chat_concurrency", None)
+    concurrency = controller.snapshot() if controller is not None else {}
+    readers = request.app.state.knowledge_engine.publication_reader_snapshot()
     try:
         queue_status = request.app.state.indexing_service.queue.status()
     except Exception:
         queue_status = {"queue_depth": None, "indexer_state": "unknown"}
     return {
         **metrics,
+        **concurrency,
+        **readers,
         "index_update_running": bool(queue_status.get("queue_depth")),
         "queue_status": {
             "depth": queue_status.get("queue_depth"),
@@ -261,122 +425,158 @@ def get_chat_session(session_id: uuid.UUID, request: Request, db: Session = Depe
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(payload: ChatRequest, request: Request, db: Session = Depends(get_db_session)) -> ChatResponse:
+def chat(payload: ChatRequest, request: Request) -> ChatResponse:
+    """Backward-compatible non-streaming projection of the bounded scheduler."""
+
     runtime_state = request.app.state.runtime_state
     if not runtime_state.snapshot()["engine_ready"]:
-        current = runtime_state.snapshot()
-        logger.info(
-            "chat_rejected_engine_not_ready",
-            extra={
-                "event": "chat_readiness",
-                "current_status": current["status"],
-                "current_stage": current["stage"],
-                "ready": current["engine_ready"],
-                "request_id": request.headers.get("x-request-id"),
-            },
-        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=runtime_state.chat_unavailable_detail(),
         )
     access_context = require_authenticated_access_context(request)
     user_id = access_context.principal.user_id
-    try: payload=_apply_summary_binding(payload,db,user_id)
-    except WorkspaceNotFound as exc: raise HTTPException(status_code=409,detail=str(exc)) from exc
-    repository = ChatRepository(db)
-    chat_session = repository.get_session_for_user(payload.session_id, user_id) if payload.session_id else None
-    if payload.session_id and chat_session is None:
-        # A client-generated UUID is accepted only for a new session; an id owned by
-        # another user remains indistinguishable from a missing id.
-        if db.get(ChatSession, payload.session_id) is not None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
-    if chat_session is None:
-        chat_session = repository.add_session(ChatSession(id=payload.session_id or uuid.uuid4(), user_id=user_id, title=payload.question.strip()[:72]))
-    payload = ConversationService.enforce(chat_session, payload)
-    monitor = getattr(request.app.state, "admin_system_monitor_service", None)
-    monitor_request_id = str(uuid.uuid4())
-    monitor_started = time.monotonic()
-    if monitor is not None:
-        monitor.chat_started(monitor_request_id)
+    controller = request.app.state.chat_concurrency
+
+    def execute(record: ChatRequestRecord) -> None:
+        with SessionLocal() as database:
+            repository = ChatRepository(database)
+            try:
+                bound = _apply_summary_binding(payload, database, user_id)
+                if bound.session_id:
+                    with controller.materialize_session(str(bound.session_id)):
+                        chat_session = repository.get_session_for_user(
+                            bound.session_id, user_id
+                        )
+                        if (
+                            chat_session is None
+                            and database.get(ChatSession, bound.session_id) is not None
+                        ):
+                            raise WorkspaceNotFound("Conversation not found.")
+                        if chat_session is None:
+                            chat_session = repository.add_session(
+                                ChatSession(
+                                    id=bound.session_id,
+                                    user_id=user_id,
+                                    title=bound.question.strip()[:72],
+                                )
+                            )
+                            database.commit()
+                else:
+                    chat_session = None
+                if chat_session is None:
+                    chat_session = repository.add_session(
+                        ChatSession(
+                            id=bound.session_id or uuid.uuid4(),
+                            user_id=user_id,
+                            title=bound.question.strip()[:72],
+                        )
+                    )
+                bound = ConversationService.enforce(chat_session, bound)
+                response = request.app.state.knowledge_engine.answer_question(
+                    bound,
+                    access_context=access_context,
+                    cancel_event=record.cancel_event,
+                    request_id=record.request_id,
+                    resource_gate=lambda name: controller.gate(name, record),
+                )
+                record.raise_if_cancelled()
+                response.metadata.index_fresh = bool(
+                    runtime_state.snapshot().get("index_fresh")
+                )
+                user_message = repository.add_message(
+                    ChatMessage(
+                        session_id=chat_session.id,
+                        user_id=user_id,
+                        role="user",
+                        role_sequence=0,
+                        turn_sequence=record.submission_sequence,
+                        content=bound.question,
+                        metadata_={
+                            "selected_document_ids": bound.selected_document_ids,
+                            "selected_folder_ids": bound.selected_folder_ids,
+                            "selected_note_ids": bound.selected_note_ids,
+                            "profile": bound.profile or bound.response_length,
+                            "response_length": bound.response_length,
+                            "max_answer_words": bound.max_answer_words,
+                        },
+                    )
+                )
+                assistant_message = repository.add_message(
+                    ChatMessage(
+                        session_id=chat_session.id,
+                        user_id=user_id,
+                        role="assistant",
+                        role_sequence=1,
+                        turn_sequence=record.submission_sequence,
+                        content=response.answer,
+                        citations=[
+                            item.model_dump(mode="json") for item in response.citations
+                        ],
+                        sources=[
+                            item.model_dump(mode="json") for item in response.sources
+                        ],
+                        metadata_={
+                            **response.metadata.model_dump(mode="json"),
+                            "generation_request": bound.model_dump(
+                                mode="json",
+                                exclude={
+                                    "question",
+                                    "session_id",
+                                    "include_debug",
+                                    "client_request_id",
+                                },
+                            ),
+                            "user_message_id": str(user_message.id),
+                            "evidence_snapshot": response.evidence_snapshot,
+                        },
+                    )
+                )
+                chat_session.updated_at = datetime.now(timezone.utc)
+                database.commit()
+                response.session_id = chat_session.id
+                response.user_message_id = user_message.id
+                response.assistant_message_id = assistant_message.id
+                record.stage = "completed"
+                record.emit_terminal("result", jsonable_encoder(response))
+            except Exception:
+                database.rollback()
+                raise
+
     try:
-        response = request.app.state.knowledge_engine.answer_question(
-            payload,
-            access_context=access_context,
+        record = controller.submit(
+            user_key=str(user_id),
+            work=execute,
+            client_request_id=payload.client_request_id,
         )
-        response.metadata.index_fresh = bool(
-            runtime_state.snapshot().get("index_fresh")
-        )
-        user_message = repository.add_message(ChatMessage(
-            session_id=chat_session.id, user_id=user_id, role="user", content=payload.question,
-            metadata_={"selected_document_ids": payload.selected_document_ids, "selected_folder_ids": payload.selected_folder_ids, "selected_note_ids": payload.selected_note_ids, "profile": payload.profile or payload.response_length, "response_length": payload.response_length, "max_answer_words": payload.max_answer_words},
-        ))
-        assistant_message = repository.add_message(ChatMessage(
-            session_id=chat_session.id, user_id=user_id, role="assistant", content=response.answer,
-            citations=[item.model_dump(mode="json") for item in response.citations],
-            sources=[item.model_dump(mode="json") for item in response.sources],
-            metadata_={**response.metadata.model_dump(mode="json"), "generation_request": payload.model_dump(mode="json", exclude={"question", "session_id", "include_debug"}), "user_message_id": str(user_message.id), "evidence_snapshot": response.evidence_snapshot},
-        ))
-        chat_session.updated_at = datetime.now(timezone.utc)
-        db.commit()
-        db.refresh(user_message)
-        db.refresh(assistant_message)
-        response.session_id = chat_session.id
-        response.user_message_id = user_message.id
-        response.assistant_message_id = assistant_message.id
-        if monitor is not None:
-            monitor.chat_completed(
-                monitor_request_id,
-                succeeded=True,
-                latency_ms=int((time.monotonic() - monitor_started) * 1000),
-            )
-        return response
-    except KnowledgeEngineDocumentsNotReady as exc:
-        if monitor is not None:
-            monitor.chat_completed(
-                monitor_request_id,
-                succeeded=False,
-                latency_ms=int((time.monotonic() - monitor_started) * 1000),
-                error_type=type(exc).__name__,
-            )
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={
-            "code": "documents_not_ready", "message": str(exc), "documents": exc.documents,
-        }) from exc
-    except KnowledgeEngineInvalidRequest as exc:
-        if monitor is not None:
-            monitor.chat_completed(
-                monitor_request_id,
-                succeeded=False,
-                latency_ms=int((time.monotonic() - monitor_started) * 1000),
-                error_type=type(exc).__name__,
-            )
+    except ChatCapacityError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(exc),
+            status_code=429,
+            detail=exc.detail(),
+            headers={"Retry-After": str(exc.retry_after_seconds)},
         ) from exc
-    except KnowledgeEngineUnavailable as exc:
-        if monitor is not None:
-            monitor.chat_completed(
-                monitor_request_id,
-                succeeded=False,
-                latency_ms=int((time.monotonic() - monitor_started) * 1000),
-                error_type=type(exc).__name__,
-            )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                **runtime_state.chat_unavailable_detail(),
-                "message": str(exc),
-            },
-        ) from exc
-    except Exception as exc:
-        if monitor is not None:
-            monitor.chat_completed(
-                monitor_request_id,
-                succeeded=False,
-                latency_ms=int((time.monotonic() - monitor_started) * 1000),
-                error_type=type(exc).__name__,
-            )
-        raise
+    except ChatControllerUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    terminal_error: dict[str, Any] | None = None
+    while True:
+        try:
+            event = record.events.get(timeout=1)
+        except TimeoutError:
+            if time.monotonic() >= record.deadline:
+                controller.cancel(record.request_id)
+            continue
+        if event is None:
+            break
+        if event.get("type") == "result":
+            return ChatResponse.model_validate(event["payload"])
+        if event.get("type") == "error":
+            terminal_error = dict(event.get("payload") or {})
+    raise HTTPException(
+        status_code=503,
+        detail=terminal_error
+        or {"message": "The assistant request did not complete."},
+    )
 
 
 def _actions(request: Request, db: Session) -> ChatActionService:
@@ -387,7 +587,10 @@ def _actions(request: Request, db: Session) -> ChatActionService:
 def regenerate_message(message_id: uuid.UUID, request: Request, db: Session = Depends(get_db_session)) -> ChatResponse:
     access = require_authenticated_access_context(request)
     try:
-        return _actions(request, db).regenerate(message_id, access)
+        with request.app.state.chat_concurrency.external_generation(
+            user_key=str(access.principal.user_id)
+        ):
+            return _actions(request, db).regenerate(message_id, access)
     except ChatActionError as exc:
         raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": str(exc)}) from exc
 
