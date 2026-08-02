@@ -18,10 +18,17 @@ from backend.app.lan.gateway import GatewayConfig, render_caddyfile
 from backend.app.lan import manager as lan_manager
 from backend.app.lan.manager import (
     InstanceLock,
+    LanManager,
+    needs_reconfigure,
     prepare_caddy_state,
     restrict_secret_tree,
 )
-from backend.app.lan.network import select_hotspot_adapter, subnet_for
+from backend.app.lan.network import (
+    HotspotAdapter,
+    HotspotSelectionError,
+    select_hotspot_adapter,
+    subnet_for,
+)
 from backend.app.lan.power import KeepAwakeLease
 from backend.app.lan.status import read_status, sanitize_status, write_status
 from backend.app.security import host_boundary, session_tokens
@@ -76,7 +83,7 @@ def test_hotspot_detector_excludes_down_adapter():
 
 
 def test_hotspot_detector_fails_closed_when_ambiguous():
-    with pytest.raises(RuntimeError, match="Ambiguous"):
+    with pytest.raises(RuntimeError, match="ambiguous"):
         select_hotspot_adapter([
             _record(interface_alias="Candidate A", interface_index=1),
             _record(interface_alias="Candidate B", interface_index=2, address="192.168.46.1"),
@@ -96,6 +103,116 @@ def test_hotspot_detector_honors_interface_and_ip_override():
     assert selected.interface_index == 2
 
 
+def test_explicit_interface_and_ip_bypass_missing_probe_flags():
+    selected = select_hotspot_adapter(
+        [_record(
+            interface_alias="Wi-Fi 3",
+            interface_index=11,
+            description="MediaTek Wi-Fi 7 MT7925 Wireless LAN Card",
+            address="192.168.137.1",
+            nat=False,
+            ics=False,
+            wifi_direct=False,
+        )],
+        interface_override="wi-fi 3",
+        ip_override="192.168.137.1",
+    )
+    assert selected.category == "explicit_hotspot_binding"
+    assert selected.confidence == "explicit"
+    assert selected.reason == "matched configured LAN interface and IP"
+
+
+def test_explicit_interface_mismatch_is_actionable():
+    with pytest.raises(HotspotSelectionError, match="interface is unavailable"):
+        select_hotspot_adapter([_record()], interface_override="Wi-Fi 99")
+
+
+def test_explicit_interface_and_ip_must_own_same_record():
+    with pytest.raises(HotspotSelectionError, match="not assigned to the selected"):
+        select_hotspot_adapter(
+            [_record(interface_alias="Wi-Fi 3", address="192.168.137.1")],
+            interface_override="Wi-Fi 3",
+            ip_override="192.168.50.1",
+        )
+
+
+def test_explicit_interface_only_resolves_one_safe_address():
+    selected = select_hotspot_adapter(
+        [_record(interface_alias="Wi-Fi 3", address="192.168.137.1", ics=False, wifi_direct=False)],
+        interface_override="WI-FI 3",
+    )
+    assert selected.address == "192.168.137.1"
+
+
+def test_explicit_ip_only_resolves_owning_adapter():
+    selected = select_hotspot_adapter(
+        [_record(interface_alias="Wi-Fi 3", address="192.168.137.1", ics=False, wifi_direct=False)],
+        ip_override="192.168.137.1",
+    )
+    assert selected.interface_alias == "Wi-Fi 3"
+
+
+@pytest.mark.parametrize("address", ["127.0.0.1", "169.254.10.1"])
+def test_explicit_binding_rejects_unsafe_ipv4(address):
+    with pytest.raises(HotspotSelectionError, match="safe private IPv4"):
+        select_hotspot_adapter([_record(address=address)], ip_override=address)
+
+
+def test_explicit_binding_rejects_ambiguous_records():
+    duplicate = _record(interface_alias="Wi-Fi 3", address="192.168.137.1")
+    with pytest.raises(HotspotSelectionError, match="multiple adapter records"):
+        select_hotspot_adapter(
+            [duplicate, dict(duplicate)],
+            interface_override="Wi-Fi 3",
+            ip_override="192.168.137.1",
+        )
+
+
+def test_automatic_detection_supports_secondary_mediatek_hotspot_shape():
+    selected = select_hotspot_adapter([
+        _record(
+            interface_alias="Wi-Fi",
+            interface_index=17,
+            description="MediaTek Wi-Fi 7 MT7925 Wireless LAN Card",
+            address="172.20.10.6",
+            prefix_length=28,
+            profile_category="Public",
+            nat=False,
+            ics=False,
+            wifi_direct=False,
+        ),
+        _record(
+            interface_alias="Wi-Fi 3",
+            interface_index=11,
+            description="MediaTek Wi-Fi 7 MT7925 Wireless LAN Card",
+            address="192.168.137.1",
+            profile_category="",
+            nat=False,
+            ics=False,
+            wifi_direct=False,
+        ),
+    ])
+    assert selected is not None
+    assert selected.interface_alias == "Wi-Fi 3"
+    assert selected.address == "192.168.137.1"
+
+
+def test_automatic_detection_excludes_wsl_bluetooth_and_disconnected():
+    assert select_hotspot_adapter([
+        _record(interface_alias="vEthernet (WSL)", description="Hyper-V WSL", address="192.168.137.1"),
+        _record(interface_alias="Bluetooth Network", description="Bluetooth PAN", address="192.168.137.1"),
+        _record(interface_alias="Wi-Fi 3", status="Disconnected", address="192.168.137.1"),
+    ]) is None
+
+
+def test_automatic_hotspot_default_tie_fails_closed():
+    with pytest.raises(HotspotSelectionError, match="Automatic hotspot detection is ambiguous"):
+        select_hotspot_adapter([
+            _record(interface_alias="Wireless A", interface_index=2, address="192.168.137.1", ics=False, wifi_direct=False),
+            _record(interface_alias="Wireless B", interface_index=3, address="192.168.137.1", ics=False, wifi_direct=False),
+        ])
+
+
 def test_caddyfile_is_interface_bound_same_origin_and_streaming_safe(tmp_path):
     dist = tmp_path / "dist"
     dist.mkdir()
@@ -109,6 +226,7 @@ def test_caddyfile_is_interface_bound_same_origin_and_streaming_safe(tmp_path):
         log_path=tmp_path / "access.jsonl",
     ))
     assert "bind 192.168.45.1" in rendered
+    assert "bind 0.0.0.0" not in rendered
     assert "reverse_proxy 127.0.0.1:8000" in rendered
     assert "flush_interval -1" in rendered
     assert "try_files {path} /index.html" in rendered
@@ -172,6 +290,90 @@ def test_status_projection_handles_invalid_file(tmp_path):
     assert read_status(path)["enabled"] is False
 
 
+def test_status_projection_redacts_paths_and_secret_values():
+    clean = sanitize_status({
+        "safe_detail": r"Failed at C:\Users\operator\private token=top-secret",
+    })
+    assert r"C:\Users" not in clean["safe_detail"]
+    assert "top-secret" not in clean["safe_detail"]
+
+
+def test_mdns_failure_status_preserves_ip_fallback(monkeypatch, tmp_path):
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    monkeypatch.setattr(lan_manager, "settings", SimpleNamespace(
+        repo_path=tmp_path,
+        lan_domain="cial-knowledge-os.local",
+        lan_https_enabled=False,
+        lan_http_port=80,
+        lan_https_port=443,
+        lan_allow_ip_fallback=True,
+        lan_mode="hotspot",
+        lan_qr_enabled=False,
+    ))
+    manager = LanManager(backend_port=8000, frontend_root=frontend)
+    manager.adapter = HotspotAdapter(
+        interface_alias="Wi-Fi 3",
+        interface_index=11,
+        address="192.168.137.1",
+        prefix_length=24,
+        subnet="192.168.137.0/24",
+        category="explicit_hotspot_binding",
+        confidence="explicit",
+        reason="matched configured LAN interface and IP",
+    )
+    manager.status(
+        detail="LAN gateway is ready; mDNS is unavailable, so use the IP fallback.",
+        state="mdns_failed",
+        gateway_ready=True,
+        discovery_ready=False,
+        firewall_state="ready",
+    )
+    status = read_status(manager.status_path)
+    assert status["state"] == "mdns_failed"
+    assert status["gateway_ready"] is True
+    assert status["discovery_ready"] is False
+    assert status["ip_fallback_available"] is True
+    assert status["ip_fallback_url"] == "http://192.168.137.1"
+
+
+def test_explicit_binding_error_has_distinct_safe_status(monkeypatch, tmp_path):
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    monkeypatch.setattr(lan_manager, "settings", SimpleNamespace(
+        repo_path=tmp_path,
+        lan_domain="cial-knowledge-os.local",
+        lan_https_enabled=False,
+        lan_http_port=80,
+        lan_https_port=443,
+        lan_allow_ip_fallback=True,
+        lan_mode="hotspot",
+        lan_qr_enabled=False,
+        lan_keep_awake=False,
+        lan_firewall_managed=False,
+        lan_mdns_enabled=False,
+        lan_adapter_recheck_seconds=0,
+    ))
+    monkeypatch.setattr(
+        lan_manager,
+        "_detect",
+        lambda root: (_ for _ in ()).throw(HotspotSelectionError(
+            "explicit_ip_not_assigned",
+            "Configured LAN IP is not assigned to the selected interface.",
+        )),
+    )
+    manager = LanManager(
+        backend_port=8000,
+        dry_run=True,
+        frontend_root=frontend,
+    )
+    assert manager.run() == 1
+    status = read_status(manager.status_path)
+    assert status["state"] == "explicit_binding_invalid"
+    assert status["safe_detail"] == "Configured LAN IP is not assigned to the selected interface."
+    assert "waiting for Windows Mobile Hotspot" not in status["safe_detail"]
+
+
 def test_firewall_plan_uses_only_stable_owned_names():
     plan = FirewallPlan(
         local_address="192.168.45.1",
@@ -212,7 +414,7 @@ def test_mdns_conflict_falls_back_and_unregisters(monkeypatch):
         return SimpleNamespace(service_type=service_type, name=name, **kwargs)
 
     monkeypatch.setitem(sys.modules, "zeroconf", SimpleNamespace(
-        IPVersion=SimpleNamespace(V4="v4"),
+        IPVersion=SimpleNamespace(V4Only="v4"),
         NonUniqueNameException=Conflict,
         ServiceInfo=service_info,
         Zeroconf=FakeZeroconf,
@@ -309,6 +511,108 @@ def test_instance_lock_rejects_duplicate_manager(tmp_path):
         with pytest.raises(RuntimeError, match="already running"):
             with InstanceLock(lock_path):
                 pass
+
+
+def test_instance_lock_recovers_stale_owner_record(tmp_path, monkeypatch):
+    lock_path = tmp_path / "manager.lock"
+    lock_path.write_text(json.dumps({"version": 1, "pid": 999999}), encoding="ascii")
+    monkeypatch.setattr(lan_manager, "_pid_is_lan_manager", lambda pid: False)
+    with InstanceLock(lock_path):
+        metadata = json.loads(lock_path.read_text(encoding="ascii"))
+        assert metadata["pid"] > 0
+        assert metadata["kind"] == "cial_lan_manager"
+    assert not lock_path.exists()
+
+
+def test_live_stale_owner_record_fails_closed(tmp_path, monkeypatch):
+    lock_path = tmp_path / "manager.lock"
+    lock_path.write_text(json.dumps({"version": 1, "pid": 4242}), encoding="ascii")
+    monkeypatch.setattr(lan_manager, "_pid_is_lan_manager", lambda pid: pid == 4242)
+    with pytest.raises(RuntimeError, match="already running"):
+        with InstanceLock(lock_path):
+            pass
+
+
+def test_hotspot_loss_and_address_changes_require_cleanup():
+    original = HotspotAdapter(
+        "Wi-Fi 3", 11, "192.168.137.1", 24, "192.168.137.0/24",
+        "windows_mobile_hotspot", "high", "fixture",
+    )
+    changed = HotspotAdapter(
+        "Wi-Fi 3", 11, "192.168.50.1", 24, "192.168.50.0/24",
+        "windows_mobile_hotspot", "high", "fixture",
+    )
+    assert needs_reconfigure(original, None) is True
+    assert needs_reconfigure(original, changed) is True
+    assert needs_reconfigure(original, original) is False
+
+
+@pytest.mark.parametrize("replacement", [None, "changed"])
+def test_runtime_hotspot_change_runs_owned_cleanup(monkeypatch, tmp_path, replacement):
+    original = HotspotAdapter(
+        "Wi-Fi 3", 11, "192.168.137.1", 24, "192.168.137.0/24",
+        "windows_mobile_hotspot", "high", "fixture",
+    )
+    changed = HotspotAdapter(
+        "Wi-Fi 3", 11, "192.168.50.1", 24, "192.168.50.0/24",
+        "windows_mobile_hotspot", "high", "fixture",
+    )
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    fake_settings = SimpleNamespace(
+        repo_path=tmp_path,
+        lan_domain="cial-knowledge-os.local",
+        lan_https_enabled=False,
+        lan_http_port=80,
+        lan_https_port=443,
+        lan_allow_ip_fallback=True,
+        lan_mode="hotspot",
+        lan_qr_enabled=False,
+        lan_keep_awake=False,
+        lan_firewall_managed=False,
+        lan_mdns_enabled=False,
+        lan_adapter_recheck_seconds=0,
+    )
+    monkeypatch.setattr(lan_manager, "settings", fake_settings)
+    detections = iter([original, changed if replacement == "changed" else None])
+    monkeypatch.setattr(lan_manager, "_detect", lambda root: next(detections))
+    monkeypatch.setattr(lan_manager.time, "sleep", lambda seconds: None)
+    manager = LanManager(backend_port=8000, frontend_root=frontend)
+    events = []
+    monkeypatch.setattr(manager, "_start_gateway", lambda adapter: events.append("start"))
+    monkeypatch.setattr(manager, "_stop_gateway", lambda: events.append("stop"))
+    monkeypatch.setattr(manager.mdns, "unregister", lambda: events.append("mdns_unregistered"))
+    monkeypatch.setattr(manager.keep_awake, "release", lambda: events.append("awake_released"))
+    assert manager.run() == 75
+    assert events == ["start", "stop", "mdns_unregistered", "awake_released"]
+    assert read_status(manager.status_path)["state"] == "reconfiguring"
+
+
+def test_launch_scripts_are_repo_venv_only_and_idempotent():
+    start = (settings.repo_path / "scripts" / "start_lan_gateway.ps1").read_text(encoding="utf-8")
+    assert 'Join-Path $RepoRoot ".venv\\Scripts\\python.exe"' in start
+    assert "Get-Command python" not in start
+    assert "Test-CialManagerProcess" in start
+    assert "already running" in start
+
+
+def test_stop_script_targets_only_recorded_owned_processes_and_is_idempotent():
+    stop = (settings.repo_path / "scripts" / "stop_lan_gateway.ps1").read_text(encoding="utf-8")
+    assert "Get-RecordedPid -Path $LockPath" in stop
+    assert "backend\\.app\\.lan\\.manager" in stop
+    assert "GeneratedCaddyfile" in stop
+    assert "Get-Process |" not in stop
+    assert "Write-StoppedStatus" in stop
+
+
+def test_firewall_script_scopes_rules_to_selected_hotspot_only():
+    source = (settings.repo_path / "scripts" / "lan_firewall.ps1").read_text(encoding="utf-8")
+    assert "-LocalAddress $LocalAddress" in source
+    assert "-RemoteAddress $RemoteSubnet" in source
+    assert "-InterfaceAlias $InterfaceAlias" in source
+    assert "-LocalPort $HttpPort" in source
+    assert "-Profile Any" in source
+    assert "Get-NetFirewallApplicationFilter" in source
 
 
 def test_https_secret_tree_acl_is_sid_scoped(monkeypatch, tmp_path):
