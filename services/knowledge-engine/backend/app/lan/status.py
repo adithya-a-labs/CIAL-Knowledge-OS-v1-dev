@@ -5,10 +5,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 
 FIELDS = {
+    "state",
     "enabled",
     "mode",
     "gateway_ready",
@@ -31,6 +33,7 @@ FIELDS = {
 
 def disabled_status() -> dict[str, Any]:
     return {
+        "state": "disabled",
         "enabled": False,
         "mode": "hotspot",
         "gateway_ready": False,
@@ -53,8 +56,15 @@ def disabled_status() -> dict[str, Any]:
 
 def sanitize_status(payload: dict[str, Any]) -> dict[str, Any]:
     clean = disabled_status() | {key: payload.get(key) for key in FIELDS if key in payload}
-    clean["safe_detail"] = str(clean.get("safe_detail") or "")[:300]
-    for key in ("hostname", "scheme", "tls_state", "firewall_state"):
+    detail = str(clean.get("safe_detail") or "")[:300]
+    detail = re.sub(r"(?i)\b[a-z]:\\[^\r\n]*", "[private path redacted]", detail)
+    detail = re.sub(
+        r"(?i)\b(secret|token|password|cookie|authorization)\s*[:=]\s*\S+",
+        r"\1=[redacted]",
+        detail,
+    )
+    clean["safe_detail"] = detail
+    for key in ("state", "hostname", "scheme", "tls_state", "firewall_state"):
         value = clean.get(key)
         clean[key] = None if value is None else str(value)[:100]
     return clean
@@ -73,4 +83,3 @@ def write_status(path: Path, payload: dict[str, Any]) -> None:
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(sanitize_status(payload), indent=2), encoding="utf-8")
     temporary.replace(path)
-

@@ -23,7 +23,11 @@ import httpx
 from backend.app.core.config import settings
 from backend.app.lan.discovery import MdnsPublisher
 from backend.app.lan.gateway import GatewayConfig, render_caddyfile
-from backend.app.lan.network import HotspotAdapter, select_hotspot_adapter
+from backend.app.lan.network import (
+    HotspotAdapter,
+    HotspotSelectionError,
+    select_hotspot_adapter,
+)
 from backend.app.lan.power import KeepAwakeLease
 from backend.app.lan.status import write_status
 
@@ -72,16 +76,24 @@ def _detect(repo_root: Path) -> HotspotAdapter | None:
 
 def _run_firewall(repo_root: Path, *, mode: str, adapter: HotspotAdapter, port: int) -> str:
     script = repo_root / "scripts" / "lan_firewall.ps1"
+    arguments = [
+        "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+        "-File", str(script), "-Mode", mode,
+        "-LocalAddress", adapter.address,
+        "-RemoteSubnet", adapter.subnet,
+        "-HttpPort", str(port),
+        "-InterfaceAlias", adapter.interface_alias,
+    ]
+    if settings.lan_mdns_enabled:
+        try:
+            import psutil
+
+            discovery_program = psutil.Process(os.getpid()).exe()
+        except Exception:  # noqa: BLE001
+            discovery_program = sys.executable
+        arguments.extend(["-DiscoveryProgram", discovery_program])
     completed = subprocess.run(
-        [
-            "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-            "-File", str(script), "-Mode", mode,
-            "-LocalAddress", adapter.address,
-            "-RemoteSubnet", adapter.subnet,
-            "-HttpPort", str(port),
-            "-InterfaceAlias", adapter.interface_alias,
-            "-DiscoveryProgram", sys.executable,
-        ],
+        arguments,
         check=False,
         capture_output=True,
         text=True,
@@ -161,22 +173,35 @@ def prepare_caddy_state(
 class InstanceLock:
     def __init__(self, path: Path) -> None:
         self.path = path
+        self.guard_path = path.with_suffix(path.suffix + ".guard")
         self.handle: Any = None
 
     def __enter__(self) -> "InstanceLock":
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with suppress(OSError, ValueError):
-            if int(self.path.read_text(encoding="ascii").strip()) == os.getpid():
+        owner_pid: int | None = None
+        with suppress(OSError, ValueError, TypeError, json.JSONDecodeError):
+            raw = self.path.read_text(encoding="utf-8").strip()
+            value = json.loads(raw) if raw.startswith("{") else {"pid": int(raw)}
+            owner_pid = int(value["pid"])
+            if owner_pid == os.getpid() or _pid_is_lan_manager(owner_pid):
                 raise RuntimeError("A CIAL LAN manager is already running.")
-        self.handle = self.path.open("a+b")
+        self.handle = self.guard_path.open(
+            "r+b" if self.guard_path.exists() else "w+b"
+        )
         acquired = False
         try:
+            self.handle.seek(0)
+            if not self.handle.read(1):
+                self.handle.write(b" ")
+                self.handle.flush()
+            self.handle.seek(0)
             msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
             acquired = True
-            self.handle.seek(0)
-            self.handle.truncate()
-            self.handle.write(str(os.getpid()).encode("ascii"))
-            self.handle.flush()
+            self.path.write_text(json.dumps({
+                "version": 1,
+                "kind": "cial_lan_manager",
+                "pid": os.getpid(),
+            }), encoding="ascii")
         except OSError as exc:
             if acquired:
                 with suppress(OSError):
@@ -198,7 +223,41 @@ class InstanceLock:
                     pass
             finally:
                 self.handle.close()
-                self.path.unlink(missing_ok=True)
+                with suppress(OSError):
+                    self.path.unlink(missing_ok=True)
+                with suppress(OSError):
+                    self.guard_path.unlink(missing_ok=True)
+
+
+def _pid_is_lan_manager(pid: int) -> bool:
+    """Check a stale owner record without exposing its command line."""
+
+    if pid <= 0:
+        return False
+    if pid == os.getpid():
+        return True
+    try:
+        import psutil
+
+        process = psutil.Process(pid)
+        command = " ".join(process.cmdline()).casefold()
+        return process.is_running() and "backend.app.lan.manager" in command
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def needs_reconfigure(
+    previous: HotspotAdapter,
+    detected: HotspotAdapter | None,
+) -> bool:
+    """Return whether owned edge resources must be torn down and rebuilt."""
+
+    return detected is None or (
+        detected.address != previous.address
+        or detected.interface_index != previous.interface_index
+        or detected.prefix_length != previous.prefix_length
+        or detected.interface_alias.casefold() != previous.interface_alias.casefold()
+    )
 
 
 class LanManager:
@@ -229,23 +288,28 @@ class LanManager:
         self.mdns = MdnsPublisher()
         self.keep_awake = KeepAwakeLease()
         self.adapter: HotspotAdapter | None = None
+        self.published_domain = settings.lan_domain
+        self.lifecycle_state = "waiting_for_hotspot"
 
-    def status(self, *, detail: str, gateway_ready: bool = False, discovery_ready: bool = False, firewall_state: str = "unmanaged") -> None:
+    def status(self, *, detail: str, state: str | None = None, gateway_ready: bool = False, discovery_ready: bool = False, firewall_state: str = "unmanaged") -> None:
         adapter = self.adapter
         hotspot_detected = adapter is not None and not self.test_bind
         scheme = "https" if settings.lan_https_enabled else "http"
         port = settings.lan_https_port if settings.lan_https_enabled else settings.lan_http_port
-        domain_url = f"{scheme}://{settings.lan_domain}" + (f":{port}" if port not in {80, 443} else "")
+        if state is not None:
+            self.lifecycle_state = state
+        domain_url = f"{scheme}://{self.published_domain}" + (f":{port}" if port not in {80, 443} else "")
         ip_url = (
             f"{scheme}://{adapter.address}" + (f":{port}" if port not in {80, 443} else "")
             if adapter and settings.lan_allow_ip_fallback else None
         )
         write_status(self.status_path, {
+            "state": self.lifecycle_state,
             "enabled": True,
             "mode": settings.lan_mode,
             "gateway_ready": gateway_ready,
             "discovery_ready": discovery_ready,
-            "hostname": settings.lan_domain,
+            "hostname": self.published_domain,
             "scheme": scheme,
             "port": port,
             "hotspot_detected": hotspot_detected,
@@ -333,7 +397,12 @@ class LanManager:
             env=env,
         )
         self.caddy_pid_path.write_text(
-            json.dumps({"pid": self.caddy_process.pid, "owner_pid": os.getpid()}),
+            json.dumps({
+                "version": 1,
+                "kind": "cial_owned_caddy",
+                "pid": self.caddy_process.pid,
+                "owner_pid": os.getpid(),
+            }),
             encoding="utf-8",
         )
         deadline = time.monotonic() + settings.lan_startup_timeout_seconds
@@ -373,40 +442,75 @@ class LanManager:
             while self.adapter is None:
                 if self.stop_path.exists():
                     return 0
-                self.adapter = (
-                    HotspotAdapter(
-                        interface_alias="loopback-test",
-                        interface_index=1,
-                        address=self.test_bind,
-                        prefix_length=8,
-                        subnet="127.0.0.0/8",
-                        category="automated_test_loopback",
-                        confidence="explicit",
-                        reason="explicit host-machine automation bind",
+                try:
+                    self.adapter = (
+                        HotspotAdapter(
+                            interface_alias="loopback-test",
+                            interface_index=1,
+                            address=self.test_bind,
+                            prefix_length=8,
+                            subnet="127.0.0.0/8",
+                            category="automated_test_loopback",
+                            confidence="explicit",
+                            reason="explicit host-machine automation bind",
+                        )
+                        if self.test_bind
+                        else _detect(self.repo_root)
                     )
-                    if self.test_bind
-                    else _detect(self.repo_root)
-                )
+                except HotspotSelectionError as exc:
+                    state = (
+                        "explicit_binding_invalid"
+                        if exc.code.startswith("explicit_")
+                        else "waiting_for_hotspot"
+                    )
+                    self.status(detail=exc.safe_detail, state=state)
+                    _event("adapter_selection_failed", state=state, error_code=exc.code)
+                    if self.dry_run:
+                        return 1
+                    time.sleep(settings.lan_adapter_recheck_seconds)
+                    continue
                 if self.adapter is None:
-                    self.status(detail="CIAL is running on this device. LAN access is waiting for Windows Mobile Hotspot.")
+                    self.status(
+                        detail="CIAL is running on this device. LAN access is waiting for Windows Mobile Hotspot.",
+                        state="waiting_for_hotspot",
+                    )
                     print("CIAL is running on this device. LAN access is waiting for Windows Mobile Hotspot.")
                     if self.dry_run:
                         return 0
                     time.sleep(settings.lan_adapter_recheck_seconds)
             _event("hotspot_detected", interface_category=self.adapter.category, state="detected")
+            self.status(
+                detail="LAN adapter detected; validating the gateway.",
+                state="adapter_detected",
+                firewall_state=firewall_state,
+            )
             if settings.lan_keep_awake and not self.dry_run:
                 self.keep_awake.acquire()
                 _event("keep_awake_acquired", state="ready" if self.keep_awake.acquired else "failed")
+            self.status(
+                detail="LAN adapter detected; validating Caddy configuration.",
+                state="caddy_validating",
+                firewall_state=firewall_state,
+            )
             self._start_gateway(self.adapter)
             if settings.lan_firewall_managed and not self.test_bind:
-                firewall_state = _run_firewall(
-                    self.repo_root,
-                    mode="Inspect" if self.dry_run else "Apply",
-                    adapter=self.adapter,
-                    port=settings.lan_https_port if settings.lan_https_enabled else settings.lan_http_port,
-                )
+                try:
+                    firewall_state = _run_firewall(
+                        self.repo_root,
+                        mode="Inspect" if self.dry_run else "Apply",
+                        adapter=self.adapter,
+                        port=settings.lan_https_port if settings.lan_https_enabled else settings.lan_http_port,
+                    )
+                except Exception:
+                    self.status(
+                        detail="LAN firewall setup failed; external access was closed.",
+                        state="firewall_failed",
+                        firewall_state="failed",
+                    )
+                    raise
                 _event("firewall_rule_verified", state=firewall_state)
             discovery_ready = False
+            mdns_failed = False
             if settings.lan_mdns_enabled and not self.dry_run and not self.test_bind:
                 try:
                     domain = self.mdns.register(
@@ -415,34 +519,42 @@ class LanManager:
                         port=settings.lan_https_port if settings.lan_https_enabled else settings.lan_http_port,
                         scheme="https" if settings.lan_https_enabled else "http",
                     )
+                    self.published_domain = domain
                     discovery_ready = True
                     _event("mdns_registered", hostname=domain, state="ready")
                 except Exception as exc:  # noqa: BLE001
+                    mdns_failed = True
                     _event("mdns_failed", state="failed", error_code=type(exc).__name__)
             self.status(
                 detail=(
                     "Loopback-only host-machine validation gateway is ready; this is not hotspot UAT."
                     if self.test_bind and not self.dry_run
+                    else "LAN gateway is ready; mDNS is unavailable, so use the IP fallback."
+                    if mdns_failed
                     else "LAN gateway is ready."
                     if not self.dry_run
                     else "LAN dry-run validation completed."
                 ),
+                state="mdns_failed" if mdns_failed else "caddy_ready",
                 gateway_ready=not self.dry_run,
                 discovery_ready=discovery_ready,
                 firewall_state=firewall_state,
             )
             if self.dry_run:
                 return 0
-            current = self.adapter.address
             while True:
                 time.sleep(settings.lan_adapter_recheck_seconds)
                 if self.stop_path.exists():
                     return 0
-                detected = self.adapter if self.test_bind else _detect(self.repo_root)
-                if detected is None or detected.address != current:
+                try:
+                    detected = self.adapter if self.test_bind else _detect(self.repo_root)
+                except HotspotSelectionError:
+                    detected = None
+                if needs_reconfigure(self.adapter, detected):
                     _event("hotspot_lost" if detected is None else "hotspot_address_changed", state="reconfigure")
                     self.status(
                         detail="Hotspot addressing changed; LAN access is reconfiguring.",
+                        state="reconfiguring",
                         gateway_ready=False,
                         discovery_ready=False,
                         firewall_state=firewall_state,
@@ -451,7 +563,12 @@ class LanManager:
         except KeyboardInterrupt:
             return 0
         except Exception as exc:  # noqa: BLE001
-            self.status(detail=f"LAN access is unavailable ({type(exc).__name__}).", firewall_state="failed" if settings.lan_firewall_managed else "unmanaged")
+            if self.lifecycle_state not in {"explicit_binding_invalid", "firewall_failed"}:
+                self.status(
+                    detail="LAN gateway startup failed. Local CIAL remains available.",
+                    state="caddy_failed",
+                    firewall_state="failed" if settings.lan_firewall_managed else "unmanaged",
+                )
             _event("gateway_failed", state="failed", error_code=type(exc).__name__)
             LOGGER.error("LAN manager failure: %s", type(exc).__name__)
             return 1
@@ -474,6 +591,7 @@ class LanManager:
             if stop_requested:
                 self.status(
                     detail="LAN access is stopped. Local CIAL remains available.",
+                    state="stopped",
                     gateway_ready=False,
                     discovery_ready=False,
                     firewall_state="unmanaged",
@@ -499,6 +617,14 @@ def main() -> int:
     )
     args = parser.parse_args()
     if not settings.lan_access_enabled and not args.dry_run:
+        write_status(
+            settings.repo_path / "outputs" / "lan-server" / "status.json",
+            {
+                "enabled": False,
+                "state": "disabled",
+                "safe_detail": "LAN access is disabled.",
+            },
+        )
         print("LAN access is disabled. Set CIAL_LAN_ACCESS_ENABLED=true or use the --lan launcher option.")
         return 2
     root = settings.repo_path / "outputs" / "lan-server"
@@ -506,13 +632,19 @@ def main() -> int:
     handler = RotatingFileHandler(root / "lan-manager.jsonl", maxBytes=5_000_000, backupCount=5, encoding="utf-8")
     LOGGER.setLevel(logging.INFO)
     LOGGER.addHandler(handler)
-    with InstanceLock(root / "manager.lock"):
-        return LanManager(
-            backend_port=args.backend_port,
-            dry_run=args.dry_run,
-            test_bind=args.test_bind,
-            frontend_root=args.frontend_root,
-        ).run()
+    try:
+        with InstanceLock(root / "manager.lock"):
+            return LanManager(
+                backend_port=args.backend_port,
+                dry_run=args.dry_run,
+                test_bind=args.test_bind,
+                frontend_root=args.frontend_root,
+            ).run()
+    except RuntimeError as exc:
+        if str(exc) == "A CIAL LAN manager is already running.":
+            print(str(exc))
+            return 0
+        raise
 
 
 if __name__ == "__main__":
