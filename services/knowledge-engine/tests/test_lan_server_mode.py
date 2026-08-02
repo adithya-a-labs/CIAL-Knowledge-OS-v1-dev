@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 import json
 from pathlib import Path
+import re
+import subprocess
 import sys
 from types import SimpleNamespace
 import uuid
@@ -17,6 +19,7 @@ from backend.app.lan.discovery import MdnsPublisher
 from backend.app.lan.gateway import GatewayConfig, render_caddyfile
 from backend.app.lan import manager as lan_manager
 from backend.app.lan.manager import (
+    FirewallOperationError,
     InstanceLock,
     LanManager,
     needs_reconfigure,
@@ -51,6 +54,26 @@ def _record(**overrides):
     }
     value.update(overrides)
     return value
+
+
+def _run_firewall_contract(expression: str) -> str:
+    script = settings.repo_path / "scripts" / "lan_firewall.ps1"
+    escaped = str(script).replace("'", "''")
+    completed = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            f". '{escaped}'; {expression}",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    return completed.stdout.strip()
 
 
 @pytest.mark.parametrize(
@@ -384,6 +407,287 @@ def test_firewall_plan_uses_only_stable_owned_names():
     )
     assert plan.rule_names() == (HTTP_RULE, MDNS_RULE)
     assert all(name.startswith("CIAL-LAN-") for name in plan.rule_names())
+
+
+def test_firewall_script_has_no_case_insensitive_parameter_collisions():
+    source = (settings.repo_path / "scripts" / "lan_firewall.ps1").read_text(
+        encoding="utf-8"
+    )
+    variables = re.findall(r"\$([A-Za-z_][A-Za-z0-9_]*)", source)
+    for parameter in (
+        "Mode",
+        "LocalAddress",
+        "RemoteSubnet",
+        "HttpPort",
+        "InterfaceAlias",
+        "DiscoveryProgram",
+    ):
+        variants = {name for name in variables if name.casefold() == parameter.casefold()}
+        assert variants == {parameter}
+    assert "$httpPortFilter" in source
+    assert "$httpAddressFilter" in source
+    assert "$httpInterfaceFilter" in source
+    assert "$mdnsRule" in source
+
+
+def test_firewall_scope_normalization_handles_cidr_and_windows_netmask():
+    output = _run_firewall_contract(
+        "[pscustomobject]@{cidr=(ConvertTo-CanonicalIpv4Scope '192.168.137.0/24');"
+        "netmask=(ConvertTo-CanonicalIpv4Scope '192.168.137.0/255.255.255.0')}"
+        " | ConvertTo-Json -Compress"
+    )
+    assert json.loads(output) == {
+        "cidr": "192.168.137.0/24",
+        "netmask": "192.168.137.0/24",
+    }
+
+
+def test_firewall_contract_verifies_filters_and_rejects_each_mismatch():
+    output = _run_firewall_contract(
+        "$rule=[pscustomobject]@{Enabled='True';Direction='Inbound';Action='Allow';Profile=@('Any')};"
+        "$port=[pscustomobject]@{Protocol=6;LocalPort=@('80')};"
+        "$address=[pscustomobject]@{LocalAddress=@('192.168.137.1');RemoteAddress=@('192.168.137.0/255.255.255.0')};"
+        "$interface=[pscustomobject]@{InterfaceAlias=@('Wi-Fi 3')};"
+        "$application=[pscustomobject]@{Program=(Join-Path (Get-Location) '.venv\\Scripts\\python.exe')};"
+        "$snapshot=[pscustomobject]@{rule=$rule;port_filter=$port;address_filter=$address;interface_filter=$interface;application_filter=$application};"
+        "$expectedProgram=$application.Program;"
+        "$valid=Test-CialRuleContract $snapshot 'TCP' '80' '192.168.137.1' '192.168.137.0/24' 'Wi-Fi 3';"
+        "$port.LocalPort='81';$badPort=Test-CialRuleContract $snapshot 'TCP' '80' '192.168.137.1' '192.168.137.0/24' 'Wi-Fi 3';$port.LocalPort='80';"
+        "$address.LocalAddress='192.168.50.1';$badLocal=Test-CialRuleContract $snapshot 'TCP' '80' '192.168.137.1' '192.168.137.0/24' 'Wi-Fi 3';$address.LocalAddress='192.168.137.1';"
+        "$address.RemoteAddress='Any';$badRemote=Test-CialRuleContract $snapshot 'TCP' '80' '192.168.137.1' '192.168.137.0/24' 'Wi-Fi 3';$address.RemoteAddress='192.168.137.0/24';"
+        "$interface.InterfaceAlias='Wi-Fi';$badInterface=Test-CialRuleContract $snapshot 'TCP' '80' '192.168.137.1' '192.168.137.0/24' 'Wi-Fi 3';$interface.InterfaceAlias='Wi-Fi 3';"
+        "$rule.Profile='Private';$badProfile=Test-CialRuleContract $snapshot 'TCP' '80' '192.168.137.1' '192.168.137.0/24' 'Wi-Fi 3';$rule.Profile='Any';"
+        "$port.Protocol=17;$badProtocol=Test-CialRuleContract $snapshot 'TCP' '80' '192.168.137.1' '192.168.137.0/24' 'Wi-Fi 3';"
+        "$port.LocalPort='5353';$mdns=Test-CialRuleContract $snapshot 'UDP' '5353' '192.168.137.1' '192.168.137.0/24' 'Wi-Fi 3' $expectedProgram;"
+        "[pscustomobject]@{valid=$valid;badPort=$badPort;badLocal=$badLocal;badRemote=$badRemote;badInterface=$badInterface;badProfile=$badProfile;badProtocol=$badProtocol;mdns=$mdns}|ConvertTo-Json -Compress"
+    )
+    result = json.loads(output)
+    assert result == {
+        "valid": True,
+        "badPort": False,
+        "badLocal": False,
+        "badRemote": False,
+        "badInterface": False,
+        "badProfile": False,
+        "badProtocol": False,
+        "mdns": True,
+    }
+
+
+def test_firewall_contract_accepts_numeric_windows_enum_values():
+    output = _run_firewall_contract(
+        "$rule=[pscustomobject]@{Enabled=1;Direction=1;Action=2;Profile=0};"
+        "$snapshot=[pscustomobject]@{rule=$rule;"
+        "port_filter=[pscustomobject]@{Protocol=6;LocalPort='80'};"
+        "address_filter=[pscustomobject]@{LocalAddress='192.168.137.1';RemoteAddress='192.168.137.0/255.255.255.0'};"
+        "interface_filter=[pscustomobject]@{InterfaceAlias='Wi-Fi 3'};application_filter=$null};"
+        "Test-CialRuleContract $snapshot 'TCP' '80' '192.168.137.1' '192.168.137.0/24' 'Wi-Fi 3'"
+    )
+    assert output == "True"
+
+
+def test_firewall_inspect_state_classification_is_truthful():
+    output = _run_firewall_contract(
+        "[pscustomobject]@{"
+        "absent=(Get-CialContractState 0 0 $true $false $false);"
+        "partial=(Get-CialContractState 1 0 $true $true $false);"
+        "mismatched=(Get-CialContractState 1 1 $true $false $true);"
+        "duplicate=(Get-CialContractState 2 1 $true $true $true);"
+        "ready=(Get-CialContractState 1 1 $true $true $true)"
+        "}|ConvertTo-Json -Compress"
+    )
+    assert json.loads(output) == {
+        "absent": "absent",
+        "partial": "partial",
+        "mismatched": "mismatched",
+        "duplicate": "mismatched",
+        "ready": "ready",
+    }
+
+
+def test_firewall_creation_commands_are_exactly_scoped():
+    source = (settings.repo_path / "scripts" / "lan_firewall.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert source.count("New-NetFirewallRule") == 2
+    assert "-Protocol TCP -LocalPort $HttpPort -LocalAddress $LocalAddress" in source
+    assert "-Protocol UDP -LocalPort 5353 -LocalAddress $LocalAddress" in source
+    assert source.count("-RemoteAddress $RemoteSubnet -InterfaceAlias $InterfaceAlias") == 2
+    assert source.count("-Direction Inbound -Action Allow -Enabled True -Profile Any") == 2
+    assert "-Program $resolvedDiscoveryProgram" in source
+    assert "-LocalAddress Any" not in source
+    assert "-RemoteAddress Any" not in source
+
+
+def test_firewall_inspect_output_redacts_discovery_program():
+    script = settings.repo_path / "scripts" / "lan_firewall.ps1"
+    completed = subprocess.run(
+        [
+            "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", str(script), "-Mode", "Inspect",
+            "-LocalAddress", "192.168.137.1",
+            "-RemoteSubnet", "192.168.137.0/24",
+            "-HttpPort", "80",
+            "-InterfaceAlias", "Wi-Fi 3",
+            "-DiscoveryProgram", sys.executable,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    result = json.loads(completed.stdout)
+    assert "program" not in json.dumps(result).casefold()
+    assert str(Path(sys.executable).parent).casefold() not in completed.stdout.casefold()
+
+
+def test_firewall_operations_are_owned_idempotent_and_rollback_safe():
+    source = (settings.repo_path / "scripts" / "lan_firewall.ps1").read_text(
+        encoding="utf-8"
+    )
+    inspect_block = source.split('if ($Mode -eq "Inspect") {', 1)[1].split(
+        'if (-not (Test-Administrator))', 1
+    )[0]
+    assert "New-NetFirewallRule" not in inspect_block
+    assert "Remove-CialRule" not in inspect_block
+    assert 'Remove-CialRule -RuleName $HttpRuleName' in source
+    assert 'Remove-CialRule -RuleName $MdnsRuleName' in source
+    assert source.count('Remove-CialRule -RuleName $HttpRuleName') >= 3
+    assert source.count('Remove-CialRule -RuleName $MdnsRuleName') >= 3
+    assert 'state = "rolled_back"' in source
+    assert 'error_code = "administrator_required"' in source
+    assert "Get-NetFirewallRule -DisplayName $RuleName" in source
+    assert "Where-Object { $_.Group -eq $FirewallGroupName }" in source
+    assert "$HttpRuleCount -eq 1" in source
+    assert "$MdnsRuleCount -eq [int]$MdnsRequired" in source
+    apply_result_body = re.search(
+        r'\[pscustomobject\]@\{\s*mode = "apply"(?P<body>.*?)\}\s*\| ConvertTo-Json',
+        source,
+        re.DOTALL,
+    ).group("body")
+    assert "discovery_program =" not in apply_result_body.casefold()
+    assert "program =" not in apply_result_body.casefold()
+
+
+def test_manager_requires_verified_firewall_json(monkeypatch, tmp_path):
+    adapter = HotspotAdapter(
+        "Wi-Fi 3", 11, "192.168.137.1", 24, "192.168.137.0/24",
+        "windows_mobile_hotspot", "high", "fixture",
+    )
+    monkeypatch.setattr(
+        lan_manager.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps({"mode": "apply", "state": "ready", "verified": True}),
+        ),
+    )
+    assert lan_manager._run_firewall(tmp_path, mode="Apply", adapter=adapter, port=80) == "ready"
+
+    monkeypatch.setattr(
+        lan_manager.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=1,
+            stdout=json.dumps({
+                "mode": "apply",
+                "state": "rolled_back",
+                "verified": False,
+                "error_code": "firewall_verification_failed",
+            }),
+        ),
+    )
+    with pytest.raises(FirewallOperationError) as captured:
+        lan_manager._run_firewall(tmp_path, mode="Apply", adapter=adapter, port=80)
+    assert captured.value.state == "rolled_back"
+    assert "rolled back" in captured.value.safe_detail
+
+
+def _manager_firewall_settings(tmp_path):
+    return SimpleNamespace(
+        repo_path=tmp_path,
+        lan_domain="cial-knowledge-os.local",
+        lan_https_enabled=False,
+        lan_http_port=80,
+        lan_https_port=443,
+        lan_allow_ip_fallback=True,
+        lan_mode="hotspot",
+        lan_qr_enabled=False,
+        lan_keep_awake=False,
+        lan_firewall_managed=True,
+        lan_mdns_enabled=False,
+        lan_adapter_recheck_seconds=0,
+    )
+
+
+def test_manager_stops_caddy_and_skips_mdns_on_firewall_failure(monkeypatch, tmp_path):
+    adapter = HotspotAdapter(
+        "Wi-Fi 3", 11, "192.168.137.1", 24, "192.168.137.0/24",
+        "windows_mobile_hotspot", "high", "fixture",
+    )
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    monkeypatch.setattr(lan_manager, "settings", _manager_firewall_settings(tmp_path))
+    monkeypatch.setattr(lan_manager, "_detect", lambda root: adapter)
+    manager = LanManager(backend_port=8000, frontend_root=frontend)
+    events = []
+    monkeypatch.setattr(manager, "_start_gateway", lambda selected: events.append("caddy_started"))
+    monkeypatch.setattr(manager, "_stop_gateway", lambda: events.append("caddy_stopped"))
+    monkeypatch.setattr(manager.mdns, "register", lambda **kwargs: events.append("mdns_started"))
+    monkeypatch.setattr(manager.mdns, "unregister", lambda: events.append("mdns_stopped"))
+    monkeypatch.setattr(manager.keep_awake, "release", lambda: events.append("awake_released"))
+
+    def firewall(root, *, mode, adapter, port):
+        if mode == "Apply":
+            raise FirewallOperationError(
+                state="rolled_back",
+                error_code="firewall_verification_failed",
+                safe_detail="CIAL firewall verification failed and owned rules were rolled back.",
+            )
+        return "absent"
+
+    monkeypatch.setattr(lan_manager, "_run_firewall", firewall)
+    assert manager.run() == 1
+    assert "caddy_started" in events and "caddy_stopped" in events
+    assert "mdns_started" not in events
+    status = read_status(manager.status_path)
+    assert status["state"] == "firewall_failed"
+    assert status["firewall_state"] == "rolled_back"
+    assert status["gateway_ready"] is False
+
+
+def test_manager_marks_ready_only_after_firewall_success(monkeypatch, tmp_path):
+    adapter = HotspotAdapter(
+        "Wi-Fi 3", 11, "192.168.137.1", 24, "192.168.137.0/24",
+        "windows_mobile_hotspot", "high", "fixture",
+    )
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    monkeypatch.setattr(lan_manager, "settings", _manager_firewall_settings(tmp_path))
+    monkeypatch.setattr(lan_manager, "_detect", lambda root: adapter)
+    monkeypatch.setattr(
+        lan_manager,
+        "_run_firewall",
+        lambda root, *, mode, adapter, port: "ready" if mode == "Apply" else "absent",
+    )
+    manager = LanManager(backend_port=8000, frontend_root=frontend)
+    monkeypatch.setattr(manager, "_start_gateway", lambda selected: None)
+    monkeypatch.setattr(manager, "_stop_gateway", lambda: None)
+    observed = []
+    original_status = manager.status
+
+    def capture_status(**kwargs):
+        observed.append(kwargs)
+        original_status(**kwargs)
+        if kwargs.get("gateway_ready"):
+            manager.stop_path.write_text("stop", encoding="ascii")
+
+    monkeypatch.setattr(manager, "status", capture_status)
+    monkeypatch.setattr(lan_manager.time, "sleep", lambda seconds: None)
+    assert manager.run() == 0
+    ready = next(item for item in observed if item.get("gateway_ready"))
+    assert ready["state"] == "ready"
+    assert ready["firewall_state"] == "ready"
 
 
 def test_mdns_conflict_falls_back_and_unregisters(monkeypatch):
