@@ -26,6 +26,15 @@ EXCLUDED_MARKERS = (
 )
 
 
+class HotspotSelectionError(RuntimeError):
+    """Safe, actionable adapter-selection failure."""
+
+    def __init__(self, code: str, safe_detail: str) -> None:
+        super().__init__(safe_detail)
+        self.code = code
+        self.safe_detail = safe_detail
+
+
 @dataclass(frozen=True)
 class HotspotAdapter:
     interface_alias: str
@@ -49,27 +58,144 @@ def _text(record: dict[str, Any]) -> str:
     ).casefold()
 
 
-def _candidate(record: dict[str, Any]) -> tuple[int, list[str]] | None:
-    status = str(record.get("status") or "").casefold()
-    if status not in {"up", "connected"}:
-        return None
-    text = _text(record)
-    if any(marker in text for marker in EXCLUDED_MARKERS):
-        return None
+def _safe_record(record: dict[str, Any], *, exclude_virtual: bool) -> bool:
+    if str(record.get("status") or "").casefold() not in {"up", "connected"}:
+        return False
+    if exclude_virtual and any(marker in _text(record) for marker in EXCLUDED_MARKERS):
+        return False
     try:
         address = ipaddress.ip_address(str(record["address"]))
         prefix = int(record["prefix_length"])
     except (KeyError, TypeError, ValueError):
-        return None
-    if (
-        address.version != 4
-        or not address.is_private
-        or address.is_loopback
-        or address.is_link_local
-        or not 1 <= prefix <= 32
-    ):
-        return None
+        return False
+    return bool(
+        address.version == 4
+        and address.is_private
+        and not address.is_loopback
+        and not address.is_link_local
+        and not address.is_multicast
+        and not address.is_unspecified
+        and 1 <= prefix <= 32
+    )
 
+
+def _adapter(record: dict[str, Any], *, category: str, confidence: str, reason: str) -> HotspotAdapter:
+    address = str(record["address"])
+    prefix = int(record["prefix_length"])
+    return HotspotAdapter(
+        interface_alias=str(record.get("interface_alias") or ""),
+        interface_index=int(record.get("interface_index") or 0),
+        address=address,
+        prefix_length=prefix,
+        subnet=subnet_for(address, prefix),
+        category=category,
+        confidence=confidence,
+        reason=reason,
+    )
+
+
+def _explicit_selection(
+    records: list[dict[str, Any]],
+    *,
+    interface_override: str,
+    ip_override: str,
+) -> HotspotAdapter:
+    interface_explicit = interface_override.strip().casefold() != "auto"
+    ip_explicit = ip_override.strip().casefold() != "auto"
+    safe = [record for record in records if _safe_record(record, exclude_virtual=False)]
+
+    interface_matches = records
+    if interface_explicit:
+        wanted = interface_override.strip().casefold()
+        interface_matches = [
+            record
+            for record in records
+            if wanted
+            in {
+                str(record.get("interface_alias") or "").strip().casefold(),
+                str(record.get("interface_index") or "").strip().casefold(),
+            }
+        ]
+        if not interface_matches:
+            raise HotspotSelectionError(
+                "explicit_interface_unavailable",
+                "Configured LAN interface is unavailable.",
+            )
+        if not any(
+            str(record.get("status") or "").casefold() in {"up", "connected"}
+            for record in interface_matches
+        ):
+            raise HotspotSelectionError(
+                "explicit_interface_down",
+                "Configured LAN interface is not Up.",
+            )
+
+    if ip_explicit:
+        try:
+            wanted_ip = ipaddress.ip_address(ip_override.strip())
+        except ValueError as exc:
+            raise HotspotSelectionError(
+                "explicit_ip_invalid", "Configured LAN IP is not a valid private IPv4 address."
+            ) from exc
+        if (
+            wanted_ip.version != 4
+            or not wanted_ip.is_private
+            or wanted_ip.is_loopback
+            or wanted_ip.is_link_local
+            or wanted_ip.is_multicast
+            or wanted_ip.is_unspecified
+        ):
+            raise HotspotSelectionError(
+                "explicit_ip_unsafe", "Configured LAN IP is not a safe private IPv4 address."
+            )
+
+    matches = safe
+    if interface_explicit:
+        allowed_ids = {id(record) for record in interface_matches}
+        matches = [record for record in matches if id(record) in allowed_ids]
+        if not matches:
+            raise HotspotSelectionError(
+                "explicit_interface_no_safe_ip",
+                "Configured LAN interface has no single safe private IPv4 address.",
+            )
+    if ip_explicit:
+        matches = [record for record in matches if str(record.get("address") or "") == ip_override.strip()]
+        if not matches:
+            detail = (
+                "Configured LAN IP is not assigned to the selected interface."
+                if interface_explicit
+                else "Configured LAN IP is not assigned to an available interface."
+            )
+            raise HotspotSelectionError("explicit_ip_not_assigned", detail)
+    if len(matches) != 1:
+        raise HotspotSelectionError(
+            "explicit_binding_ambiguous",
+            "Configured LAN binding matches multiple adapter records.",
+        )
+    return _adapter(
+        matches[0],
+        category="explicit_hotspot_binding",
+        confidence="explicit",
+        reason="matched configured LAN interface and IP",
+    )
+
+
+def _is_wireless(record: dict[str, Any]) -> bool:
+    media = str(record.get("media_type") or "").casefold()
+    text = _text(record)
+    return media in {"native 802.11", "wireless lan"} or "wi-fi" in text or "wifi" in text
+
+
+def _candidate(
+    record: dict[str, Any],
+    *,
+    all_records: list[dict[str, Any]],
+) -> tuple[int, list[str]] | None:
+    if not _safe_record(record, exclude_virtual=True):
+        return None
+    address = ipaddress.ip_address(str(record["address"]))
+    prefix = int(record["prefix_length"])
+    text = _text(record)
     score = 0
     reasons: list[str] = ["up private IPv4 interface"]
     if bool(record.get("ics")):
@@ -81,12 +207,28 @@ def _candidate(record: dict[str, Any]) -> tuple[int, list[str]] | None:
     if bool(record.get("wifi_direct")) or "wi-fi direct" in text:
         score += 60
         reasons.append("Wi-Fi Direct hotspot adapter")
+    if str(address) == "192.168.137.1" and prefix == 24:
+        score += 120
+        reasons.append("common Windows Mobile Hotspot IPv4/prefix")
+    if _is_wireless(record):
+        score += 15
+        reasons.append("wireless interface")
+    if str(address).endswith(".1"):
+        score += 20
+        reasons.append("private gateway-like IPv4")
+    upstream_exists = any(
+        other is not record
+        and _safe_record(other, exclude_virtual=True)
+        and _is_wireless(other)
+        and str(other.get("profile_category") or "").casefold() == "public"
+        for other in all_records
+    )
+    if upstream_exists:
+        score += 35
+        reasons.append("separate public wireless uplink")
     if str(record.get("profile_category") or "").casefold() == "private":
         score += 10
         reasons.append("private network profile")
-    if str(record.get("media_type") or "").casefold() in {"native 802.11", "wireless lan"}:
-        score += 5
-        reasons.append("wireless media")
     if score < 60:
         return None
     return score, reasons
@@ -98,49 +240,34 @@ def select_hotspot_adapter(
     interface_override: str = "auto",
     ip_override: str = "auto",
 ) -> HotspotAdapter | None:
-    prepared: list[tuple[int, dict[str, Any], list[str]]] = []
-    interface_override_folded = interface_override.strip().casefold()
-    ip_override_folded = ip_override.strip().casefold()
-    for record in records:
-        selection = _candidate(record)
-        if selection is None:
-            continue
-        if interface_override_folded != "auto":
-            alias = str(record.get("interface_alias") or "")
-            index = str(record.get("interface_index") or "")
-            if interface_override_folded not in {alias.casefold(), index.casefold()}:
-                continue
-        if ip_override_folded != "auto" and str(record.get("address")) != ip_override:
-            continue
-        score, reasons = selection
-        if interface_override_folded != "auto":
-            score += 1000
-            reasons.append("explicit interface override")
-        if ip_override_folded != "auto":
-            score += 1000
-            reasons.append("explicit IP override")
-        prepared.append((score, record, reasons))
+    available = list(records)
+    interface_explicit = interface_override.strip().casefold() != "auto"
+    ip_explicit = ip_override.strip().casefold() != "auto"
+    if interface_explicit or ip_explicit:
+        return _explicit_selection(
+            available,
+            interface_override=interface_override,
+            ip_override=ip_override,
+        )
 
+    prepared: list[tuple[int, dict[str, Any], list[str]]] = []
+    for record in available:
+        selection = _candidate(record, all_records=available)
+        if selection is not None:
+            score, reasons = selection
+            prepared.append((score, record, reasons))
     if not prepared:
         return None
     prepared.sort(key=lambda item: item[0], reverse=True)
     if len(prepared) > 1 and prepared[0][0] == prepared[1][0]:
-        aliases = ", ".join(str(item[1].get("interface_alias") or "?") for item in prepared[:2])
-        raise RuntimeError(
-            "Ambiguous hotspot adapters detected "
-            f"({aliases}). Set CIAL_LAN_BIND_INTERFACE or CIAL_LAN_BIND_IP."
+        raise HotspotSelectionError(
+            "automatic_detection_ambiguous",
+            "Automatic hotspot detection is ambiguous. Configure a LAN interface or IP override.",
         )
     score, record, reasons = prepared[0]
-    address = str(record["address"])
-    prefix = int(record["prefix_length"])
-    return HotspotAdapter(
-        interface_alias=str(record.get("interface_alias") or ""),
-        interface_index=int(record.get("interface_index") or 0),
-        address=address,
-        prefix_length=prefix,
-        subnet=subnet_for(address, prefix),
+    return _adapter(
+        record,
         category="windows_mobile_hotspot",
         confidence="high" if score >= 80 else "medium",
         reason="; ".join(reasons),
     )
-
