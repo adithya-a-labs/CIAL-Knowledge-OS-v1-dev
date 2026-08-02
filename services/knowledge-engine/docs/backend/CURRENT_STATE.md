@@ -956,3 +956,13 @@ On 2026-08-01, host UAT passed explicit and automatic selection of the live
 stop, and hotspot Off/On cleanup/restoration. The shell lacked Administrator
 rights, so firewall mutation and physical second-device authenticated flows
 remain pending; no browser UAT is claimed.
+
+The firewall helper now avoids PowerShell's case-insensitive parameter/local
+binding collision (`[int]$HttpPort` versus the former CIM-valued `$httpPort`).
+It verifies the complete HTTP and optional mDNS filter contract after
+normalizing Windows representations, reports truthful inspect states, rolls
+back partial owned-rule creation, and removes only its two stable rule names.
+The manager parses and requires the helper's verified JSON result; otherwise it
+reports `firewall_failed`, stops Caddy, and does not publish mDNS. Deterministic
+LAN tests cover the collision audit, scope normalization, mismatch rejection,
+rollback contract, and manager fail-closed ordering.
