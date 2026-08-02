@@ -19,6 +19,7 @@ export default function AppShell({ children }: AppShellProps) {
   const [location] = useLocation();
   const isAssistantWorkspace = location.startsWith('/assistant');
   const isDocumentWorkspace = location.startsWith('/knowledge/document/');
+  const isNotebookWorkspace = location.startsWith('/notebooks/') && location !== '/notebooks';
   const wasDocumentWorkspace = useRef(isDocumentWorkspace);
   const hasGlobalNavPreference = useRef(
     window.localStorage.getItem(GLOBAL_NAV_COLLAPSED_STORAGE_KEY) !== null,
@@ -77,7 +78,7 @@ export default function AppShell({ children }: AppShellProps) {
       <div className={`flex h-screen min-w-0 flex-col overflow-hidden transition-[padding] duration-200 ease-out ${globalNavCollapsed ? 'lg:pl-16' : 'lg:pl-60'}`}>
         <main
           className={`flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-y-auto ${
-            isAssistantWorkspace || isDocumentWorkspace
+            isAssistantWorkspace || isDocumentWorkspace || isNotebookWorkspace
               ? 'px-0 py-0'
               : 'app-content px-3 py-5 sm:px-5 md:px-7 lg:px-8 2xl:px-10'
           }`}

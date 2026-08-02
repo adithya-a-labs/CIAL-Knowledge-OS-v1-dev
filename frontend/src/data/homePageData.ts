@@ -1,6 +1,7 @@
 import {
   Bot,
   BookOpen,
+  BookOpenText,
   FileText,
   FolderOpen,
   Home,
@@ -28,6 +29,7 @@ export const homeNavItems: HomeNavItem[] = [
   { label: 'Home', path: '/', icon: Home },
   { label: 'AI Assistant', path: '/assistant/new', icon: Bot },
   { label: 'Knowledge Center', path: '/knowledge-center', icon: BookOpen },
+  { label: 'Notebooks', path: '/notebooks', icon: BookOpenText },
   // TODO: Surface department ownership in a future Admin Console, not employee navigation.
   { label: 'My Workspace', path: '/workspace', icon: UserRound },
   { label: 'Saved Knowledge', path: '/saved-knowledge', icon: Bookmark },

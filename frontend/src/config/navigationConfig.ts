@@ -3,6 +3,7 @@ import { NavItem } from '../types';
 export const NAV_ITEMS: NavItem[] = [
   { label: 'Home', path: '/', icon: 'Home' },
   { label: 'AI Assistant', path: '/assistant/new', icon: 'Bot' },
+  { label: 'Notebooks', path: '/notebooks', icon: 'BookOpenText' },
   {
     label: 'Knowledge Center',
     path: '/knowledge-center',
