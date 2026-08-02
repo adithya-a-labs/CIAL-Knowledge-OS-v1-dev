@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import MobileSidebarDrawer from './MobileSidebarDrawer';
 
 const GLOBAL_NAV_COLLAPSED_STORAGE_KEY = 'cial-global-nav-collapsed';
+const MOBILE_NAVIGATION_QUERY = '(max-width: 1023px)';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -12,6 +13,9 @@ interface AppShellProps {
 
 export default function AppShell({ children }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [mobileViewport, setMobileViewport] = useState(
+    () => window.matchMedia(MOBILE_NAVIGATION_QUERY).matches,
+  );
   const [location] = useLocation();
   const isAssistantWorkspace = location.startsWith('/assistant');
   const isDocumentWorkspace = location.startsWith('/knowledge/document/');
@@ -35,6 +39,22 @@ export default function AppShell({ children }: AppShellProps) {
     wasDocumentWorkspace.current = isDocumentWorkspace;
   }, [isDocumentWorkspace]);
 
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(MOBILE_NAVIGATION_QUERY);
+    const handleBreakpointChange = (event: MediaQueryListEvent) => {
+      setMobileViewport(event.matches);
+      if (!event.matches) setMobileOpen(false);
+    };
+    setMobileViewport(mediaQuery.matches);
+    if (!mediaQuery.matches) setMobileOpen(false);
+    mediaQuery.addEventListener('change', handleBreakpointChange);
+    return () => mediaQuery.removeEventListener('change', handleBreakpointChange);
+  }, []);
+
   const handleGlobalNavCollapsedChange = (collapsed: boolean) => {
     hasGlobalNavPreference.current = true;
     window.localStorage.setItem(GLOBAL_NAV_COLLAPSED_STORAGE_KEY, String(collapsed));
@@ -44,7 +64,7 @@ export default function AppShell({ children }: AppShellProps) {
   return (
     <div className="app-shell h-screen overflow-hidden">
       <Sidebar collapsed={globalNavCollapsed} onCollapsedChange={handleGlobalNavCollapsedChange} />
-      <MobileSidebarDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} />
+      <MobileSidebarDrawer open={mobileViewport && mobileOpen} onClose={() => setMobileOpen(false)} />
       <button
         onClick={() => setMobileOpen(true)}
         className="fixed left-3 top-3 z-40 inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg border border-border bg-popover/92 text-muted-foreground shadow-sm backdrop-blur transition hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring lg:hidden"
