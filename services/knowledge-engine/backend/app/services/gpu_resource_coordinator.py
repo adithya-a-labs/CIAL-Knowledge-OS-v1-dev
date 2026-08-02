@@ -29,7 +29,7 @@ class GpuResourceCoordinator:
             180.0,
         )
         self._owner_lock = Lock()
-        self._owners: set[str] = set()
+        self._owners: dict[str, int] = {}
         self._priority_started_epoch: float | None = None
 
     @contextmanager
@@ -39,7 +39,7 @@ class GpuResourceCoordinator:
             return
         try:
             with self._owner_lock:
-                self._owners.add(request_id)
+                self._owners[request_id] = self._owners.get(request_id, 0) + 1
                 if self._priority_started_epoch is None:
                     self._priority_started_epoch = time.time()
                 self._write_marker_locked()
@@ -47,7 +47,7 @@ class GpuResourceCoordinator:
             # Coordination is an optimization. A read-only runtime directory
             # must never make chat unavailable.
             with self._owner_lock:
-                self._owners.discard(request_id)
+                self._release_owner_locked(request_id)
                 if not self._owners:
                     self._priority_started_epoch = None
             yield
@@ -57,7 +57,7 @@ class GpuResourceCoordinator:
         finally:
             try:
                 with self._owner_lock:
-                    self._owners.discard(request_id)
+                    self._release_owner_locked(request_id)
                     if self._owners:
                         self._write_marker_locked()
                     else:
@@ -72,7 +72,7 @@ class GpuResourceCoordinator:
         started_epoch = self._priority_started_epoch or time.time()
         payload = {
             "pid": os.getpid(),
-            "owner_count": len(self._owners),
+            "owner_count": sum(self._owners.values()),
             "started_at": datetime.fromtimestamp(
                 started_epoch, timezone.utc
             ).isoformat(),
@@ -83,7 +83,14 @@ class GpuResourceCoordinator:
 
     def owner_count(self) -> int:
         with self._owner_lock:
-            return len(self._owners)
+            return sum(self._owners.values())
+
+    def _release_owner_locked(self, request_id: str) -> None:
+        count = self._owners.get(request_id, 0)
+        if count <= 1:
+            self._owners.pop(request_id, None)
+        else:
+            self._owners[request_id] = count - 1
 
     def chat_active(self) -> bool:
         try:
@@ -116,7 +123,7 @@ def inspect_gpu_runtime() -> dict[str, Any]:
         summary = subprocess.run(
             [
                 executable,
-                "--query-gpu=utilization.gpu,memory.used,memory.total",
+                "--query-gpu=name,driver_version,utilization.gpu,memory.used,memory.free,memory.total",
                 "--format=csv,noheader,nounits",
             ],
             capture_output=True,
@@ -162,9 +169,12 @@ def inspect_gpu_runtime() -> dict[str, Any]:
             )
         return {
             "available": True,
-            "utilization_percent": float(values[0]),
-            "memory_used_mb": float(values[1]),
-            "memory_total_mb": float(values[2]),
+            "device_name": values[0],
+            "driver_version": values[1],
+            "utilization_percent": float(values[2]),
+            "memory_used_mb": float(values[3]),
+            "memory_free_mb": float(values[4]),
+            "memory_total_mb": float(values[5]),
             "processes": processes,
             "ollama_memory_mb": sum(
                 float(item["memory_used_mb"] or 0)
@@ -233,6 +243,16 @@ def inspect_ollama_runtime(model_name: str | None = None) -> dict[str, Any]:
         "gpu_layers_requested": settings.ollama_num_gpu,
         "gpu_memory_used": round(size_vram / (1024 * 1024), 1),
         "cpu_offload_detected": processor_type in {"cpu", "hybrid"},
+        "placement_matches_request": not (
+            settings.ollama_num_gpu != 0 and processor_type == "cpu"
+        ),
+        "fallback_reason": (
+            "ollama_runtime_reported_cpu_despite_gpu_request"
+            if settings.ollama_num_gpu != 0 and processor_type == "cpu"
+            else "ollama_runtime_partial_gpu_offload"
+            if settings.ollama_num_gpu != 0 and processor_type == "hybrid"
+            else None
+        ),
         "context_length": selected.context_length,
         "expires_at": (
             selected.expires_at.isoformat() if selected.expires_at else None

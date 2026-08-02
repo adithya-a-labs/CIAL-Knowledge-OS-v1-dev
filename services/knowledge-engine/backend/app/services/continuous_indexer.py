@@ -1380,7 +1380,7 @@ class ContinuousIndexer:
         try:
             command = [
                 executable,
-                "--query-gpu=utilization.gpu,memory.used,memory.total",
+                "--query-gpu=name,driver_version,utilization.gpu,memory.used,memory.free,memory.total",
                 "--format=csv,noheader,nounits",
             ]
             if ":" in self.actual_device:
@@ -1393,11 +1393,14 @@ class ContinuousIndexer:
                 timeout=2,
             )
             values = [value.strip() for value in result.stdout.splitlines()[0].split(",")]
-            if len(values) == 3:
+            if len(values) == 6:
                 self._metrics["gpu"] = {
-                    "utilization_percent": float(values[0]),
-                    "memory_used_mb": float(values[1]),
-                    "memory_total_mb": float(values[2]),
+                    "device_name": values[0],
+                    "driver_version": values[1],
+                    "utilization_percent": float(values[2]),
+                    "memory_used_mb": float(values[3]),
+                    "memory_free_mb": float(values[4]),
+                    "memory_total_mb": float(values[5]),
                 }
         except (OSError, ValueError, subprocess.SubprocessError, IndexError):
             logger.debug("gpu_metrics_unavailable", exc_info=True)
