@@ -158,7 +158,7 @@ class Settings:
     )
     embedding_model_name: str = _env_str("CIAL_EMBEDDING_MODEL_NAME", "EMBEDDING_MODEL_NAME", default="BAAI/bge-m3")
     query_embedding_device: str = _env_str(
-        "CIAL_QUERY_EMBEDDING_DEVICE", default="auto"
+        "CIAL_QUERY_EMBEDDING_DEVICE", default="cpu"
     ).casefold()
     retrieval_cache_max_entries: int = _env_int(
         "CIAL_RETRIEVAL_CACHE_MAX_ENTRIES",
@@ -173,7 +173,9 @@ class Settings:
         "RERANKER_MODEL_NAME",
         default="cross-encoder/ms-marco-MiniLM-L-6-v2",
     )
-    reranker_device: str = _env_str("CIAL_RERANKER_DEVICE", default="auto")
+    reranker_device: str = _env_str(
+        "CIAL_RERANKER_DEVICE", default="auto"
+    ).casefold()
     reranker_batch_size: int = _env_int("CIAL_RERANKER_BATCH_SIZE", 16)
     reranker_local_files_only: bool = _env_bool(
         "CIAL_LOCAL_FILES_ONLY",
@@ -457,6 +459,25 @@ class Settings:
             raise ValueError(
                 "CIAL_QUERY_EMBEDDING_DEVICE must be auto, cpu, cuda, or cuda:<index>."
             )
+        if not re.fullmatch(r"(?:auto|cpu|cuda(?::\d+)?)", self.reranker_device):
+            raise ValueError(
+                "CIAL_RERANKER_DEVICE must be auto, cpu, cuda, or cuda:<index>."
+            )
+        if self.indexer_device == "cpu" and self.indexer_precision in {
+            "float16",
+            "bfloat16",
+        }:
+            raise ValueError(
+                "CIAL_INDEXER_PRECISION must be float32 or auto when "
+                "CIAL_INDEXER_DEVICE=cpu."
+            )
+        if self.ollama_num_gpu < -1:
+            raise ValueError("CIAL_OLLAMA_NUM_GPU must be -1 or a non-negative integer.")
+        if self.chat_generation_concurrency != 1:
+            raise ValueError(
+                "CIAL_CHAT_GENERATION_CONCURRENCY must be 1 for the supported "
+                "single local Ollama runner."
+            )
         if self.indexer_lease_seconds <= self.indexer_heartbeat_seconds:
             raise ValueError(
                 "CIAL_INDEXER_LEASE_SECONDS must exceed CIAL_INDEXER_HEARTBEAT_SECONDS."
@@ -489,8 +510,17 @@ class Settings:
             import ipaddress
 
             address = ipaddress.ip_address(self.lan_bind_ip)
-            if address.version != 4 or not address.is_private:
-                raise ValueError("CIAL_LAN_BIND_IP must be auto or a private IPv4 address.")
+            if (
+                address.version != 4
+                or not address.is_private
+                or address.is_loopback
+                or address.is_link_local
+                or address.is_multicast
+                or address.is_unspecified
+            ):
+                raise ValueError(
+                    "CIAL_LAN_BIND_IP must be auto or a safe private IPv4 address."
+                )
         gateway_data = resolve_repo_path(self.lan_gateway_data_dir)
         try:
             gateway_data.relative_to(self.repo_path)

@@ -12,6 +12,9 @@ from sentence_transformers import SentenceTransformer
 from .config import KnowledgeOSConfig
 
 
+_MODEL_LOAD_COUNT = 0
+
+
 def _offline_enabled(name: str) -> bool:
     return os.environ.get(name, "1").strip().lower() not in {"0", "false", "no"}
 
@@ -31,7 +34,25 @@ def resolve_embedding_device(configured_device: str) -> str:
         )
     if configured == "cuda":
         return f"cuda:{torch.cuda.current_device()}"
+    if configured.startswith("cuda:"):
+        try:
+            device_index = int(configured.split(":", 1)[1])
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid embedding CUDA device '{configured}'.") from exc
+        if device_index >= torch.cuda.device_count():
+            raise RuntimeError(
+                f"Embedding device '{configured}' was requested, but only "
+                f"{torch.cuda.device_count()} CUDA device(s) are visible."
+            )
     return configured
+
+
+def embedding_fallback_reason(configured_device: str, resolved_device: str) -> str | None:
+    """Explain the only supported automatic fallback without hiding it."""
+
+    if str(configured_device).casefold() == "auto" and resolved_device == "cpu":
+        return "auto_resolved_to_cpu_cuda_unavailable"
+    return None
 
 
 def embedding_runtime_diagnostics(
@@ -56,6 +77,12 @@ def embedding_runtime_diagnostics(
     return {
         "embedding_device_configured": str(configured_device),
         "embedding_device_actual": actual_device,
+        "embedding_device_resolved": actual_device,
+        "embedding_fallback_reason": embedding_fallback_reason(
+            configured_device,
+            actual_device,
+        ),
+        "embedding_model_load_count": _MODEL_LOAD_COUNT,
         "torch_cuda_available": bool(torch.cuda.is_available()),
         "torch_version": str(torch.__version__),
         "torch_cuda_build": torch.version.cuda,
@@ -91,12 +118,15 @@ def load_embedding_model(config: KnowledgeOSConfig) -> SentenceTransformer:
         f"(TRANSFORMERS_OFFLINE={_offline_enabled('TRANSFORMERS_OFFLINE')}, "
         f"HF_HUB_OFFLINE={_offline_enabled('HF_HUB_OFFLINE')})"
     )
+    global _MODEL_LOAD_COUNT
     try:
-        return SentenceTransformer(
+        model = SentenceTransformer(
             config.embedding_model_name,
             device=device,
             local_files_only=True,
         )
+        _MODEL_LOAD_COUNT += 1
+        return model
     except (OSError, ValueError) as exc:
         raise RuntimeError(
             f"Embedding model '{config.embedding_model_name}' is not available "

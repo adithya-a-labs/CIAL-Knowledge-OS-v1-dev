@@ -17,10 +17,28 @@ def resolve_reranker_device(configured_device: str) -> str:
         return requested
     try:
         import torch
-    except ImportError:
+    except ImportError as exc:
+        if requested != "auto":
+            raise RuntimeError(
+                f"Reranker device '{requested}' requires PyTorch with CUDA support."
+            ) from exc
         return "cpu"
     if torch.cuda.is_available():
-        return "cuda" if requested == "auto" else requested
+        if requested == "auto":
+            return f"cuda:{torch.cuda.current_device()}"
+        if requested == "cuda":
+            return f"cuda:{torch.cuda.current_device()}"
+        device_index = int(requested.split(":", 1)[1])
+        if device_index >= torch.cuda.device_count():
+            raise RuntimeError(
+                f"Reranker device '{requested}' was requested, but only "
+                f"{torch.cuda.device_count()} CUDA device(s) are visible."
+            )
+        return requested
+    if requested != "auto":
+        raise RuntimeError(
+            f"Reranker device '{requested}' was requested, but CUDA is unavailable."
+        )
     return "cpu"
 
 
@@ -146,6 +164,7 @@ class CrossEncoderReranker:
         self._gpu_memory_after_load: int | None = None
         self._warmed = False
         self._warm_duration_ms: float | None = None
+        self._model_load_count = 0
 
     @property
     def resolved_device(self) -> str:
@@ -187,6 +206,14 @@ class CrossEncoderReranker:
             "reranker_device": self.resolved_device,
             "reranker_dtype": self._model_dtype(self._model),
             "reranker_model_loaded": self._model is not None,
+            "reranker_model_load_count": self._model_load_count,
+            "reranker_device_configured": self.configured_device,
+            "reranker_fallback_reason": (
+                "auto_resolved_to_cpu_cuda_unavailable"
+                if self.configured_device.casefold() == "auto"
+                and self.resolved_device == "cpu"
+                else None
+            ),
             "reranker_warmed": self._warmed,
             "reranker_warm_duration_ms": self._warm_duration_ms,
             "reranker_gpu_memory": {
@@ -219,6 +246,7 @@ class CrossEncoderReranker:
                 local_files_only=True,
                 **model_kwargs,
             )
+            self._model_load_count += 1
             is_local_path = Path(self.model_name).expanduser().exists()
             self.load_source = "local path" if is_local_path else "cache"
             location = (
@@ -276,6 +304,7 @@ class CrossEncoderReranker:
                 "tests that must not access model files or the network."
             ) from download_exc
         self.load_source = "download"
+        self._model_load_count += 1
         self._gpu_memory_after_load = self._gpu_memory_allocated()
         _print_status(
             "✓ Reranker downloaded and cached successfully.",
