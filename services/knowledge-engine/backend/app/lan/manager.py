@@ -36,6 +36,16 @@ LOGGER = logging.getLogger("cial.lan")
 _SID_PATTERN = re.compile(r"^S-\d(?:-\d+)+$")
 
 
+class FirewallOperationError(RuntimeError):
+    """Sanitized failure returned by the owned Windows firewall helper."""
+
+    def __init__(self, *, state: str, error_code: str, safe_detail: str) -> None:
+        super().__init__(safe_detail)
+        self.state = state
+        self.error_code = error_code
+        self.safe_detail = safe_detail
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -99,9 +109,42 @@ def _run_firewall(repo_root: Path, *, mode: str, adapter: HotspotAdapter, port: 
         text=True,
         timeout=20,
     )
-    if completed.returncode:
-        raise RuntimeError(f"firewall_{mode.casefold()}_failed")
-    return "ready" if mode == "Apply" else "verified"
+    try:
+        result = json.loads((completed.stdout or "").strip())
+    except (TypeError, ValueError):
+        result = {}
+    if completed.returncode or not isinstance(result, dict):
+        error_code = str(result.get("error_code") or "firewall_helper_failed")
+        state = str(result.get("state") or "failed")
+        details = {
+            "administrator_required": "LAN firewall management requires an Administrator PowerShell session.",
+            "discovery_program_unavailable": "The configured mDNS runtime is unavailable for firewall scoping.",
+            "firewall_creation_failed": "CIAL firewall rule creation failed and owned partial rules were removed.",
+            "firewall_verification_failed": "CIAL firewall verification failed and owned rules were rolled back.",
+        }
+        raise FirewallOperationError(
+            state=state,
+            error_code=error_code,
+            safe_detail=details.get(
+                error_code,
+                "CIAL firewall management failed; external access was closed.",
+            ),
+        )
+    state = str(result.get("state") or "unknown")
+    verified = result.get("verified") is True
+    if mode == "Apply" and (state != "ready" or not verified):
+        raise FirewallOperationError(
+            state=state,
+            error_code="firewall_verification_failed",
+            safe_detail="CIAL firewall verification failed and owned rules were rolled back.",
+        )
+    if mode == "Remove" and (state != "absent" or not verified):
+        raise FirewallOperationError(
+            state=state,
+            error_code="firewall_remove_failed",
+            safe_detail="CIAL-owned firewall rules could not be removed.",
+        )
+    return state
 
 
 def restrict_secret_tree(path: Path) -> None:
@@ -501,9 +544,16 @@ class LanManager:
                         adapter=self.adapter,
                         port=settings.lan_https_port if settings.lan_https_enabled else settings.lan_http_port,
                     )
+                except FirewallOperationError as exc:
+                    self.status(
+                        detail=exc.safe_detail,
+                        state="firewall_failed",
+                        firewall_state=exc.state,
+                    )
+                    raise
                 except Exception:
                     self.status(
-                        detail="LAN firewall setup failed; external access was closed.",
+                        detail="CIAL firewall helper failed; external access was closed.",
                         state="firewall_failed",
                         firewall_state="failed",
                     )
@@ -535,7 +585,7 @@ class LanManager:
                     if not self.dry_run
                     else "LAN dry-run validation completed."
                 ),
-                state="mdns_failed" if mdns_failed else "caddy_ready",
+                state="mdns_failed" if mdns_failed else "ready",
                 gateway_ready=not self.dry_run,
                 discovery_ready=discovery_ready,
                 firewall_state=firewall_state,
