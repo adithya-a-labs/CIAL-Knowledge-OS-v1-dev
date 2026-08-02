@@ -138,10 +138,20 @@ be unclassified or Public, but the local address, remote subnet, interface,
 protocol, and port constraints remain mandatory and are verified after
 creation. Internal service ports are never opened.
 
-Inspect/dry-run prints the proposed commands without mutation. Disable and
-uninstall remove only the stable CIAL-owned rule names. A manager does not
-report `firewall_state=ready` until effective rule address, protocol, port,
-program, and remote scope match.
+Inspect reports `absent`, `partial`, `mismatched`, or `ready` without mutation.
+It normalizes PowerShell scalars/arrays, numeric or named protocols, and the
+CIDR or dotted-netmask forms returned by Windows before comparing the effective
+filters. Apply reconciles the two stable CIAL-owned names and rolls both back
+if creation or verification fails; Remove is idempotent and never selects
+unrelated rules. A manager does not report `firewall_state=ready` until the
+effective rule address, interface, profile, protocol, port, program, and remote
+scope match. Firewall failure is fail-closed: Caddy is stopped and mDNS is not
+started.
+
+PowerShell variable names are case-insensitive. In particular, a typed
+`[int]$HttpPort` parameter must not be reused as `$httpPort` for a CIM port
+filter; use distinct names such as `$httpPortFilter`. Launching the script from
+`cmd.exe` does not change this PowerShell binding rule.
 
 ## Authentication, cookies, and hosts
 
@@ -246,7 +256,7 @@ absolute repository/executable/workspace paths.
 
 `state` is one of `disabled`, `waiting_for_hotspot`,
 `explicit_binding_invalid`, `adapter_detected`, `caddy_validating`,
-`caddy_ready`, `firewall_failed`, `mdns_failed`, `reconfiguring`, or `stopped`
+`ready`, `firewall_failed`, `mdns_failed`, `reconfiguring`, or `stopped`
 for the corresponding lifecycle point. mDNS failure may coexist with
 `gateway_ready=true` and a working IP fallback. Explicit-binding failures use
 messages such as “Configured LAN interface is unavailable” or “Configured LAN
@@ -327,6 +337,20 @@ Get-NetTCPConnection -State Listen | Where-Object LocalPort -In 80,443,8000,6335
 Get-NetFirewallRule -Group "CIAL Knowledge OS LAN"
 .\scripts\stop_lan_gateway.ps1
 ```
+
+For direct elevated firewall diagnosis, use the exact detected scope. These
+commands are safe to repeat:
+
+```powershell
+.\scripts\lan_firewall.ps1 -Mode Apply -LocalAddress 192.168.137.1 -RemoteSubnet 192.168.137.0/24 -HttpPort 80 -InterfaceAlias 'Wi-Fi 3' -DiscoveryProgram .\.venv\Scripts\python.exe
+.\scripts\lan_firewall.ps1 -Mode Inspect -LocalAddress 192.168.137.1 -RemoteSubnet 192.168.137.0/24 -HttpPort 80 -InterfaceAlias 'Wi-Fi 3' -DiscoveryProgram .\.venv\Scripts\python.exe
+.\scripts\lan_firewall.ps1 -Mode Remove
+```
+
+Apply and Remove require an Administrator token. Inspect does not. Consume the
+JSON result and require `state=ready` plus `verified=true` before treating
+Apply as successful; `rolled_back`, `permission_denied`, and malformed output
+are failures.
 
 Exactly one process command line may contain `backend.app.lan.manager`; its
 owner PID must equal `manager.lock.pid`. Port 80/443 must listen on only the
