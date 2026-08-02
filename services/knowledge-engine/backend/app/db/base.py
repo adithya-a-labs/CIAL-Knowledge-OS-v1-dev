@@ -39,4 +39,4 @@ class TimestampMixin:
 def import_models() -> None:
     """Import model modules so Alembic can discover metadata."""
 
-    from backend.app.models import conversations, identity, knowledge, operations, workspace_content  # noqa: F401
+    from backend.app.models import conversations, identity, knowledge, notebooks, operations, workspace_content  # noqa: F401
