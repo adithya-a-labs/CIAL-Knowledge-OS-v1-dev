@@ -50,6 +50,27 @@ def test_gpu_priority_marker_remains_until_every_overlapping_chat_releases(tmp_p
     assert reader.chat_active() is False
 
 
+def test_gpu_priority_reference_counts_nested_same_request_owner(tmp_path):
+    marker = tmp_path / "chat-priority.json"
+    coordinator = GpuResourceCoordinator(marker)
+    reader = GpuResourceCoordinator(marker)
+    first = coordinator.chat_priority("request-1")
+    nested = coordinator.chat_priority("request-1")
+
+    first.__enter__()
+    nested.__enter__()
+    try:
+        assert coordinator.owner_count() == 2
+        first.__exit__(None, None, None)
+        assert coordinator.owner_count() == 1
+        assert reader.chat_active() is True
+    finally:
+        nested.__exit__(None, None, None)
+
+    assert coordinator.owner_count() == 0
+    assert reader.chat_active() is False
+
+
 def test_indexer_yields_and_releases_gpu_for_active_chat():
     released: list[bool] = []
     indexer = ContinuousIndexer.__new__(ContinuousIndexer)
@@ -169,6 +190,14 @@ def test_auto_embedding_device_falls_back_only_when_cuda_unavailable(monkeypatch
         resolve_embedding_device("cuda")
 
 
+def test_explicit_embedding_cuda_index_must_be_visible(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 1)
+
+    with pytest.raises(RuntimeError, match="only 1 CUDA device"):
+        resolve_embedding_device("cuda:1")
+
+
 def test_embedding_runtime_diagnostics_reports_actual_model_device(monkeypatch):
     model = SimpleNamespace(
         device="cpu",
@@ -217,7 +246,9 @@ def test_embedding_batch_telemetry_uses_measured_device_and_memory():
 def test_gpu_process_telemetry_keeps_windows_na_memory(monkeypatch):
     responses = iter(
         [
-            SimpleNamespace(stdout="50, 7000, 12227\n"),
+            SimpleNamespace(
+                stdout="NVIDIA GeForce RTX 5070 Ti Laptop GPU, 591.84, 50, 7000, 5227, 12227\n"
+            ),
             SimpleNamespace(
                 stdout=(
                     "101, C:\\Program Files\\Ollama\\ollama.exe, [N/A]\n"
@@ -239,6 +270,9 @@ def test_gpu_process_telemetry_keeps_windows_na_memory(monkeypatch):
 
     assert sample["available"] is True
     assert sample["memory_used_mb"] == 7000
+    assert sample["memory_free_mb"] == 5227
+    assert sample["device_name"] == "NVIDIA GeForce RTX 5070 Ti Laptop GPU"
+    assert sample["driver_version"] == "591.84"
     assert sample["processes"][0]["kind"] == "ollama"
     assert sample["processes"][0]["memory_used_mb"] is None
 

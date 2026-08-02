@@ -180,12 +180,26 @@ class RerankerAndSelectionTests(unittest.TestCase):
         )
 
     def test_reranker_auto_uses_cuda_when_available(self) -> None:
-        with patch("torch.cuda.is_available", return_value=True):
-            self.assertEqual(resolve_reranker_device("auto"), "cuda")
+        with patch("torch.cuda.is_available", return_value=True), patch(
+            "torch.cuda.current_device", return_value=0
+        ):
+            self.assertEqual(resolve_reranker_device("auto"), "cuda:0")
 
     def test_reranker_auto_falls_back_to_cpu_without_cuda(self) -> None:
         with patch("torch.cuda.is_available", return_value=False):
             self.assertEqual(resolve_reranker_device("auto"), "cpu")
+
+    def test_explicit_cuda_reranker_fails_without_cuda(self) -> None:
+        with patch("torch.cuda.is_available", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "CUDA is unavailable"):
+                resolve_reranker_device("cuda")
+
+    def test_explicit_reranker_cuda_index_must_be_visible(self) -> None:
+        with patch("torch.cuda.is_available", return_value=True), patch(
+            "torch.cuda.device_count", return_value=1
+        ):
+            with self.assertRaisesRegex(RuntimeError, "only 1 CUDA device"):
+                resolve_reranker_device("cuda:1")
 
     def test_explicit_cpu_reranker_remains_on_cpu(self) -> None:
         self.assertEqual(resolve_reranker_device("cpu"), "cpu")
