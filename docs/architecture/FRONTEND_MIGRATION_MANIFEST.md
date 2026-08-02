@@ -25,6 +25,10 @@ Verified on 2026-07-28 against the integrated application in `frontend/`:
   Automated coverage lives in `scripts/verify_dark_mode.mjs` and writes its
   default report/screenshots to `outputs/playwright/dark-mode/`; the validated
   refinement evidence is under `outputs/playwright/dark-mode-refinement/`.
+- Responsive global navigation and modal ownership are defined by
+  [`RESPONSIVE_NAVIGATION_LIFECYCLE.md`](./RESPONSIVE_NAVIGATION_LIFECYCLE.md).
+  Mobile navigation is controlled by `AppShell`, closes on routes and the
+  1024px desktop transition, and delegates scroll/focus cleanup to Radix Sheet.
 
 The remaining sections preserve the original source-repository migration
 inventory; this verified integrated state supersedes historical light-only
