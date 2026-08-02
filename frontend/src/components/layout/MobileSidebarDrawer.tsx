@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
 import { Bell, HelpCircle, LogOut, MessageSquarePlus, X, Search } from 'lucide-react';
 import { THEME } from '@/config/themeConfig';
@@ -8,6 +7,12 @@ import { homeNavItems } from '@/data/homePageData';
 import { useCommandPalette } from '@/components/common/CommandPalette';
 import { startNewConversation } from '@/lib/assistantNavigation';
 import AppearanceToggle from '@/components/theme/AppearanceToggle';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from '@/components/ui/sheet';
 
 interface MobileSidebarDrawerProps {
   open: boolean;
@@ -18,61 +23,7 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
   const [location, navigate] = useLocation();
   const { setOpen } = useCommandPalette();
   const { logout, userView } = useAuth();
-  const drawerRef = React.useRef<HTMLElement>(null);
-  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
-  const previousFocusRef = React.useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      previousFocusRef.current = document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-      window.requestAnimationFrame(() => closeButtonRef.current?.focus());
-    }
-    document.body.style.overflow = open ? 'hidden' : '';
-    return () => {
-      document.body.style.overflow = '';
-      if (open) previousFocusRef.current?.focus();
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        if (event.target instanceof Element && event.target.closest('[role="menu"]')) {
-          return;
-        }
-        event.preventDefault();
-        onClose();
-        return;
-      }
-      if (event.key !== 'Tab' || !drawerRef.current) return;
-      const focusable = Array.from(
-        drawerRef.current.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ),
-      ).filter((element) => element.getClientRects().length > 0);
-      const first = focusable[0];
-      const last = focusable.at(-1);
-      if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, open]);
-
-  useEffect(() => {
-    onClose();
-  }, [location]);
-
-  if (!open) return null;
+  const searchHandoffPending = React.useRef(false);
 
   const isActive = (label: string, path: string) => {
     if (label === 'Conversations') return false;
@@ -89,16 +40,22 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
   const primaryNavItems = homeNavItems.filter((item) => item.label !== 'Conversations');
 
   return (
-    <div className="fixed inset-0 z-50 flex lg:hidden">
-      <div className="absolute inset-0 bg-black/55 backdrop-blur-sm dark:bg-black/80" onClick={onClose} data-testid="sidebar-overlay" />
-      <aside
-        ref={drawerRef}
-        className="relative flex h-full w-[min(19rem,86vw)] flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-2xl animate-in slide-in-from-left duration-[180ms]"
+    <Sheet open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
+      <SheetContent
+        side="left"
+        showCloseButton={false}
+        onCloseAutoFocus={(event) => {
+          if (!searchHandoffPending.current) return;
+          event.preventDefault();
+          searchHandoffPending.current = false;
+          window.requestAnimationFrame(() => setOpen(true));
+        }}
+        className="flex h-full w-[min(19rem,86vw)] flex-col gap-0 border-r border-sidebar-border bg-sidebar p-0 text-sidebar-foreground shadow-2xl sm:max-w-[19rem]"
         data-testid="mobile-sidebar"
-        role="dialog"
-        aria-modal="true"
         aria-label="Global application navigation"
       >
+        <SheetTitle className="sr-only">Global application navigation</SheetTitle>
+        <SheetDescription className="sr-only">Navigate CIAL Knowledge OS on a compact screen.</SheetDescription>
         <div className="flex items-center justify-between border-b border-sidebar-border px-4 py-4">
           <div className="flex items-center gap-3">
             <img src={THEME.logoPath} alt="CIAL Logo" className="h-9 w-auto object-contain" />
@@ -107,7 +64,7 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
               <div className="text-xs text-muted-foreground">Knowledge OS</div>
             </div>
           </div>
-          <button ref={closeButtonRef} onClick={onClose} className="ce-icon-button" data-testid="button-close-sidebar" aria-label="Close sidebar">
+          <button onClick={onClose} className="ce-icon-button" data-testid="button-close-sidebar" aria-label="Close sidebar">
             <X size={18} />
           </button>
         </div>
@@ -123,10 +80,11 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
                 <Link
                   href={item.path}
                   onClick={(event) => {
-                    if (item.label !== 'AI Assistant') return;
-                    event.preventDefault();
                     onClose();
-                    startNewConversation(navigate);
+                    if (item.label === 'AI Assistant') {
+                      event.preventDefault();
+                      startNewConversation(navigate);
+                    }
                   }}
                   className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${
                     active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
@@ -141,8 +99,8 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
                   <button
                     type="button"
                     onClick={() => {
+                      searchHandoffPending.current = true;
                       onClose();
-                      setOpen(true);
                     }}
                     className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-sidebar-foreground/80 transition hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                   >
@@ -191,14 +149,17 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
           </div>
           <button
             type="button"
-            onClick={() => void logout()}
+            onClick={() => {
+              onClose();
+              void logout();
+            }}
             className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-sidebar-foreground/80 transition hover:bg-sidebar-accent"
           >
             <LogOut size={18} className="text-muted-foreground" />
             <span>Log Out</span>
           </button>
         </div>
-      </aside>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }
