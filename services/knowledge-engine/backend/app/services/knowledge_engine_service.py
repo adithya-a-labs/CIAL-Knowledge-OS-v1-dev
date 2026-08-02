@@ -243,6 +243,7 @@ class KnowledgeEngineService:
             "qdrant_payload_indexes_created": [],
         }
         self._cached_embedding_model: Any | None = None
+        self._embedding_runtime_diagnostics: dict[str, Any] = {}
         self._indexer_embedding_target_device: str | None = None
         self._indexer_embedding_gpu_resident = False
         self._gpu_coordinator = GpuResourceCoordinator()
@@ -532,6 +533,7 @@ class KnowledgeEngineService:
             "query_embedding_cache_status": (
                 "model_reused" if embedding_model is not None else "unavailable"
             ),
+            **dict(self._embedding_runtime_diagnostics),
             **dict(self._qdrant_index_metrics),
             **self._retrieval_cache.diagnostics(),
             "indexer_embedding_gpu_resident": self._indexer_embedding_gpu_resident,
@@ -708,6 +710,7 @@ class KnowledgeEngineService:
                 pipeline.embedding_model,
                 configured_device=configured_embedding_device,
             )
+            self._embedding_runtime_diagnostics = dict(embedding_diagnostics)
             if (
                 embedding_diagnostics["embedding_device_actual"]
                 != resolved_embedding_device

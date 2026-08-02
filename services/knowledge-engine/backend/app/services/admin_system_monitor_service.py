@@ -394,9 +394,13 @@ class AdminSystemMonitorService:
                     and str(queue.get("embedding_device") or "").startswith("cuda")
                 ),
                 "device": queue.get("embedding_device") or settings.indexer_device,
+                "device_name": gpu_metrics.get("device_name"),
+                "driver_version": gpu_metrics.get("driver_version"),
                 "utilization_percent": gpu_metrics.get("utilization_percent"),
                 "memory_used_mb": gpu_metrics.get("memory_used_mb"),
+                "memory_free_mb": gpu_metrics.get("memory_free_mb"),
                 "memory_total_mb": gpu_metrics.get("memory_total_mb"),
+                "vram_target_ratio": settings.indexer_embed_vram_target_ratio,
                 "embedding_device": (
                     (queue.get("worker_metrics") or {}).get(
                         "embedding_device_actual"
@@ -503,6 +507,38 @@ class AdminSystemMonitorService:
                     "reranker_gpu_memory"
                 )
                 or {},
+                "query_embedding_requested_device": settings.query_embedding_device,
+                "query_embedding_fallback_reason": diagnostics.get(
+                    "embedding_fallback_reason"
+                ),
+                "query_embedding_model_load_count": diagnostics.get(
+                    "embedding_model_load_count"
+                ),
+                "reranker_requested_device": diagnostics.get(
+                    "reranker_device_configured",
+                    settings.reranker_device,
+                ),
+                "reranker_fallback_reason": diagnostics.get(
+                    "reranker_fallback_reason"
+                ),
+                "reranker_model_load_count": diagnostics.get(
+                    "reranker_model_load_count"
+                ),
+                "device_fallback_count": {
+                    "query_embedding": int(
+                        bool(diagnostics.get("embedding_fallback_reason"))
+                    ),
+                    "reranker": int(
+                        bool(diagnostics.get("reranker_fallback_reason"))
+                    ),
+                    "ollama": int(
+                        bool(
+                            (diagnostics.get("ollama_runtime") or {}).get(
+                                "fallback_reason"
+                            )
+                        )
+                    ),
+                },
             },
             "query": {
                 "active_chat_requests": active_chat_requests,

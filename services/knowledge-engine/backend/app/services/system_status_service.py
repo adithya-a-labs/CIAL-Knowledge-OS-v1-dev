@@ -327,6 +327,17 @@ class SystemStatusService:
                 "embedding": settings.embedding_model_name,
                 "embedding_device": diagnostics.get("embedding_device") or configured_device,
                 "embedding_ready": embedding_ready,
+                "query_embedding_requested_device": settings.query_embedding_device,
+                "query_embedding_resolved_device": diagnostics.get(
+                    "embedding_device_resolved"
+                ),
+                "query_embedding_dtype": diagnostics.get("query_embedding_dtype"),
+                "query_embedding_fallback_reason": diagnostics.get(
+                    "embedding_fallback_reason"
+                ),
+                "query_embedding_model_load_count": diagnostics.get(
+                    "embedding_model_load_count"
+                ),
                 "dense_model_status": diagnostics.get(
                     "dense_model_status",
                     "unavailable",
@@ -334,6 +345,18 @@ class SystemStatusService:
                 "reranker_status": diagnostics.get(
                     "reranker_status",
                     "unavailable",
+                ),
+                "reranker_requested_device": diagnostics.get(
+                    "reranker_device_configured",
+                    settings.reranker_device,
+                ),
+                "reranker_resolved_device": diagnostics.get("reranker_device"),
+                "reranker_dtype": diagnostics.get("reranker_dtype"),
+                "reranker_fallback_reason": diagnostics.get(
+                    "reranker_fallback_reason"
+                ),
+                "reranker_model_load_count": diagnostics.get(
+                    "reranker_model_load_count"
                 ),
                 "bm25_status": diagnostics.get(
                     "bm25_status",
@@ -344,9 +367,15 @@ class SystemStatusService:
                 "available": gpu_available,
                 "requested": gpu_requested,
                 "device": configured_device,
+                "device_name": gpu_metrics.get("device_name"),
+                "driver_version": gpu_metrics.get("driver_version"),
                 "utilization_percent": gpu_metrics.get("utilization_percent"),
                 "memory_used_mb": gpu_metrics.get("memory_used_mb"),
+                "memory_free_mb": gpu_metrics.get("memory_free_mb"),
                 "memory_total_mb": gpu_metrics.get("memory_total_mb"),
+                "vram_total_mb": gpu_metrics.get("memory_total_mb"),
+                "vram_used_mb": gpu_metrics.get("memory_used_mb"),
+                "ollama": diagnostics.get("ollama_runtime") or {},
             },
             "timestamps": {
                 "generated_at": checked_at,
