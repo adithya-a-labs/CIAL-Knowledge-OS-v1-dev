@@ -153,9 +153,12 @@ heartbeat, but continues serving an existing committed generation.
 
 ## Shared GPU Runtime
 
-The query process defaults BGE-M3 device selection to `auto`, verifies CUDA,
-warms one model instance, and reuses it for single-query embeddings; CPU is
-only the unavailable-CUDA fallback. The standalone indexer retains independent
+The hardware-specific measured policy and evidence are authoritative in
+`GPU_WORKLOAD_PLACEMENT.md`.
+
+The query process defaults BGE-M3 to CPU and reuses one warmed model instance;
+this preserves measured VRAM headroom for the latency-priority Ollama runner.
+The standalone indexer retains independent
 GPU batches, releases its model from CUDA when idle, and yields between bounded
 batches while chat holds priority. Ollama uses an explicit keep-alive and
 remains the latency-priority generation workload. These rules do not alter
@@ -220,3 +223,17 @@ Authentication, authorization, streaming, preview, corpus, workspace, and
 retrieval flows continue through the existing API contracts. The sanitized
 `lan_access` health projection is additive and non-critical; an edge failure
 does not make the local stack unhealthy.
+
+Explicit interface/IP bindings are validated before heuristic scoring and do
+not depend on ICS, NAT, or Wi-Fi Direct probe flags. Automatic selection also
+recognizes a secondary Up wireless gateway interface when a separate public
+wireless uplink exists, while excluding WSL, Hyper-V, Docker, VPN, Bluetooth,
+and disconnected records. Equal candidates fail closed.
+
+The repository `.venv` is the only permitted LAN-manager interpreter. A
+readable PID metadata file and separate OS byte lock make start idempotent and
+permit stale-lock recovery without deleting a live lock. Reconfiguration and
+stop tear down owned Caddy, CIAL-owned firewall rules, mDNS, QR output, and the
+keep-awake lease before rebinding. Caddy listens only on the selected hotspot
+address; the firewall permits the gateway port only for that local address,
+interface, and derived hotspot subnet. Internal services remain loopback-only.

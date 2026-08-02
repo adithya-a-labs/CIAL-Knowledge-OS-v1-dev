@@ -776,8 +776,9 @@ Generating, Completed, and Failed.
 ## Query-Priority GPU Runtime
 
 The API and standalone indexer remain independent processes. The API now
-defaults `CIAL_QUERY_EMBEDDING_DEVICE=auto`, resolves it once to `cuda:<index>`
-when CUDA is available, and falls back to CPU only when CUDA is unavailable.
+defaults `CIAL_QUERY_EMBEDDING_DEVICE=cpu` and resolves that explicit policy
+once at model load. If an operator selects `auto`, it may fall back to CPU only
+when CUDA is unavailable and records the reason.
 The same warmed BGE-M3 instance is reused for every single-vector query; it is
 not loaded per request. The indexer independently retains
 `CIAL_INDEXER_DEVICE=auto` for throughput-oriented batches and continues to
@@ -924,14 +925,34 @@ across Ollama and two Python CUDA processes.
 
 ## Optional Windows Hotspot Edge
 
-The repository now contains an opt-in, disabled-by-default LAN Server Mode.
-It detects a Windows Mobile Hotspot adapter fail-closed, binds Caddy only to
-that address, keeps internal services on loopback, publishes mDNS with an IP
-fallback, scopes owned firewall rules to the hotspot subnet, and reports
-sanitized health through the existing status APIs. HTTP and internal-CA HTTPS
-configurations have passed real Caddy validation; HTTP passed loopback
-host-machine browser automation. HTTPS startup now fails closed unless the
-app-owned Caddy state tree verifies an exact current-user/SYSTEM/Administrators
-DACL, and targeted tests confirm existing state is preserved. Physical
-second-device hotspot, consumer `.local`, and internal-CA client trust-store
-UAT remain pending and are not claimed as complete.
+The repository contains an opt-in, disabled-by-default LAN Server Mode.
+Explicit interface/IP bindings now bypass inconclusive ICS/NAT/Wi-Fi Direct
+heuristics but still require one Up interface owning one safe private IPv4.
+Automatic selection recognizes the observed secondary MediaTek wireless
+hotspot shape, including the common Windows `192.168.137.1/24` default when a
+separate public Wi-Fi uplink is present; that address is not universal.
+
+The manager binds Caddy only to the selected address, keeps FastAPI,
+PostgreSQL, Qdrant, Ollama, and Vite on loopback, publishes best-effort mDNS
+with an independent IP fallback, and scopes owned firewall rules to the exact
+local address, interface, port, and derived subnet. The repository `.venv` is
+mandatory. PID metadata plus a separate OS lock prevents duplicate managers,
+supports stale recovery, and lets stop/reconfigure clean only owned Caddy,
+firewall, discovery, QR, and keep-awake resources. Sanitized status now
+distinguishes disabled, waiting, invalid explicit binding, adapter detected,
+Caddy validation/ready, firewall failure, mDNS failure, reconfiguration, and
+stopped states.
+
+HTTP and internal-CA HTTPS configurations have passed real Caddy validation;
+HTTP previously passed loopback host-machine browser automation. HTTPS remains
+fail-closed unless the app-owned state tree verifies the exact
+current-user/SYSTEM/Administrators DACL. Physical second-device hotspot,
+consumer `.local`, and internal-CA trust-store results must be recorded from a
+real client and are never inferred from host-only tests.
+
+On 2026-08-01, host UAT passed explicit and automatic selection of the live
+`Wi-Fi 3` / `192.168.137.1/24` adapter, interface-only Caddy binding, IP and
+`.local` SPA access, proxied API health, mDNS registration, idempotent start/
+stop, and hotspot Off/On cleanup/restoration. The shell lacked Administrator
+rights, so firewall mutation and physical second-device authenticated flows
+remain pending; no browser UAT is claimed.

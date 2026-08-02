@@ -103,6 +103,8 @@ pnpm run build
 ```
 
 Full-stack integration notes are in `docs/architecture/FULL_STACK_INTEGRATION.md`.
+Measured CPU/GPU placement, benchmarks, the VRAM budget, and troubleshooting
+are in `docs/architecture/GPU_WORKLOAD_PLACEMENT.md`.
 
 ## Optional Windows Hotspot LAN Server Mode
 
@@ -113,6 +115,13 @@ disabled by default and waits safely when Windows Mobile Hotspot is absent.
 Its target URL is `http://cial-knowledge-os.local` with a detected hotspot-IP
 fallback. Managed firewall and mDNS publication apply only to the detected
 hotspot interface/subnet.
+
+Explicit `CIAL_LAN_BIND_INTERFACE`/`CIAL_LAN_BIND_IP` values take precedence
+over automatic hotspot heuristics and must identify one Up interface with one
+safe private IPv4 address. Repeated starts are idempotent, use only the
+repository `.venv`, and retain a readable PID record plus an OS lock. Use
+`.\scripts\stop_lan_gateway.ps1` for owned Caddy, mDNS, firewall, and lock
+cleanup; it never searches for and kills arbitrary Python or Caddy processes.
 
 Caddy must be installed and `CIAL_CADDY_PATH` must identify `caddy.exe`.
 HTTP is the controlled-hotspot default; HTTPS is opt-in and requires client

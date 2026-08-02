@@ -80,11 +80,25 @@ non-link-local IPv4 address and prefix. Loopback, VPN, tunnel, Bluetooth,
 Docker, Hyper-V, WSL, and other virtualization adapters are excluded unless
 an explicit override selects them.
 
-Candidates receive evidence and a confidence explanation. More than one
-equally plausible candidate fails closed. `CIAL_LAN_BIND_INTERFACE` or
-`CIAL_LAN_BIND_IP` can resolve an operator-reviewed ambiguity. No interface
-name, index, address, or subnet is hardcoded. IPv4 plus prefix is converted
-with the standard IP network operation, including `/16`, `/20`, and `/24`.
+Explicit binding is evaluated before hotspot scoring. An interface override is
+case-insensitive, an IP override is exact, and a combined override must match
+the same probe record. Interface-only and IP-only modes must each resolve one
+Up record with one safe private IPv4. Loopback, link-local, multicast, and
+unspecified addresses are rejected. A missing, down, mismatched, or ambiguous
+explicit binding raises an actionable safe error and never becomes the generic
+waiting-for-hotspot state. Explicit selection does not require ICS, NAT, or
+Wi-Fi Direct evidence.
+
+Automatic candidates receive evidence and a confidence explanation. In
+addition to ICS/NAT/Wi-Fi Direct evidence, scoring recognizes the common
+Windows Mobile Hotspot `192.168.137.1/24` shape, a secondary Up wireless
+gateway-like address, and a separate public wireless uplink. The observed
+address on this workstation is `192.168.137.1`; it is a common default, not a
+universal constant. WSL, generic Hyper-V, Docker, VPN, Bluetooth, tunnel, and
+disconnected adapters are excluded. More than one equally plausible candidate
+fails closed. No single interface alias is hardcoded. IPv4 plus prefix is
+converted with the standard IP network operation, including `/16`, `/20`, and
+`/24`.
 
 The manager revalidates before binding and periodically thereafter. If the
 hotspot is absent, local CIAL remains available and LAN status says:
@@ -119,7 +133,10 @@ Rules are idempotent, grouped as `CIAL Knowledge OS LAN`, and named with the
 `CIAL-LAN-` prefix. TCP is limited to the configured gateway port, hotspot
 local address, and hotspot subnet. UDP 5353 is added only for enabled mDNS and
 is scoped to the discovery program/interface capabilities supported by
-Windows. Internal service ports are never opened.
+Windows. Rules use all Windows network profiles because hotspot interfaces may
+be unclassified or Public, but the local address, remote subnet, interface,
+protocol, and port constraints remain mandatory and are verified after
+creation. Internal service ports are never opened.
 
 Inspect/dry-run prints the proposed commands without mutation. Disable and
 uninstall remove only the stable CIAL-owned rule names. A manager does not
@@ -156,8 +173,14 @@ execution-state lease, CIAL-owned firewall state, rotating LAN logs, and a
 sanitized health file. It never imports retrieval/indexing models, reads the
 corpus, or opens Qdrant collections.
 
-A file lock prevents duplicate managers. PID metadata includes ownership
-tokens, so shutdown never kills an unrelated Caddy. `SetThreadExecutionState`
+A readable JSON owner file plus a separate OS byte lock prevents duplicate
+managers. The owner PID is checked against the LAN-manager module before start
+or forced stop. An unlocked record whose PID is absent or no longer a LAN
+manager is recovered as stale; a live lock is never deleted. The start script
+invokes only `<repo>\.venv\Scripts\python.exe` and repeated start is
+idempotent. Caddy PID metadata includes its manager owner and the stop path
+also verifies the generated Caddy configuration before terminating it, so
+shutdown never kills an unrelated Python or Caddy process. `SetThreadExecutionState`
 prevents system sleep without changing a power plan or forcing the display on;
 the lease is released in `finally`. Closing the lid may still suspend the
 laptop according to Windows policy.
@@ -211,7 +234,7 @@ overrides, and app-owned paths are validated before mutation.
 ## Status contract
 
 Authenticated `/api/system/status` and the authorized admin monitor add a
-non-critical `lan_access` object: `enabled`, `mode`, `gateway_ready`,
+non-critical `lan_access` object: `state`, `enabled`, `mode`, `gateway_ready`,
 `discovery_ready`, `hostname`, `scheme`, `port`, `hotspot_detected`,
 `bind_address_available`, `ip_fallback_available`, `tls_state`,
 `firewall_state`, `keep_awake`, `checked_at`, and `safe_detail`.
@@ -220,6 +243,15 @@ The backend reads only the sanitized manager health file. LAN failure never
 changes `chat_available` for localhost use. The projection excludes SSID,
 password, MAC/GUID, client identities or history, cookies, secrets, and
 absolute repository/executable/workspace paths.
+
+`state` is one of `disabled`, `waiting_for_hotspot`,
+`explicit_binding_invalid`, `adapter_detected`, `caddy_validating`,
+`caddy_ready`, `firewall_failed`, `mdns_failed`, `reconfiguring`, or `stopped`
+for the corresponding lifecycle point. mDNS failure may coexist with
+`gateway_ready=true` and a working IP fallback. Explicit-binding failures use
+messages such as “Configured LAN interface is unavailable” or “Configured LAN
+IP is not assigned to the selected interface”; they are not misreported as a
+missing hotspot.
 
 ## Failure behavior
 
@@ -251,6 +283,58 @@ Physical-device UAT must record only device family/browser/OS and verify
 domain, IP fallback, login, chat, citation preview, theme/mobile layout, and
 reconnect. Until performed, domain interoperability and trusted HTTPS remain
 explicitly pending.
+
+### Current-machine UAT (2026-08-01)
+
+The live Windows probe observed `Wi-Fi 3`, interface index 11,
+`192.168.137.1/24`, Up, on the MediaTek adapter, with all ICS/NAT/Wi-Fi Direct
+flags false and a separate Public Wi-Fi uplink. Both explicit and automatic
+dry runs selected it and real Caddy validation produced `bind 192.168.137.1`.
+Host UAT then measured:
+
+- exactly one lock-owning manager launched through the repository `.venv`;
+  Windows' venv redirector also retains one waiting parent launcher process;
+- one Caddy child owned by that manager and one listener at
+  `192.168.137.1:80`;
+- HTTP 200 for the SPA by IP and by `cial-knowledge-os.local`, and HTTP 200 for
+  `/api/health` through both names;
+- live mDNS registration resolving `cial-knowledge-os.local` to
+  `192.168.137.1` after updating the installed zeroconf API usage to
+  `IPVersion.V4Only`;
+- hotspot Off removed Caddy/listener and reported
+  `explicit_binding_invalid`; hotspot On restored the same waiting manager,
+  listener, mDNS, and IP fallback;
+- repeated start preserved the owner PID; two repeated stops returned success
+  and left no listener, manager owner, Caddy process, PID file, or lock.
+
+The validation shell was not an Administrator. Firewall Inspect confirmed the
+requested local address `192.168.137.1`, remote subnet `192.168.137.0/24`, port
+80, and interface `Wi-Fi 3`, but Apply could not be executed. No CIAL-owned
+rules were present. Therefore administrator firewall Apply/Remove and physical
+second-device login/session/chat/document/citation checks remain pending and
+browser automation was intentionally not opened.
+
+## Operations and troubleshooting
+
+From the repository root:
+
+```powershell
+.\scripts\get_lan_adapter.ps1
+.\scripts\start_lan_gateway.ps1 -BackendPort 8000
+Get-Content .\outputs\lan-server\manager.lock
+Get-Content .\outputs\lan-server\status.json
+Get-NetTCPConnection -State Listen | Where-Object LocalPort -In 80,443,8000,6335,5432,11434
+Get-NetFirewallRule -Group "CIAL Knowledge OS LAN"
+.\scripts\stop_lan_gateway.ps1
+```
+
+Exactly one process command line may contain `backend.app.lan.manager`; its
+owner PID must equal `manager.lock.pid`. Port 80/443 must listen on only the
+selected hotspot address. Ports 8000, 6335, 5432, and 11434 must remain on
+loopback. If status says `explicit_binding_invalid`, compare the configured
+alias/IP with the current probe rather than deleting the lock or weakening
+detection. If `mdns_failed`, use `ip_fallback_url`; IP access is intentionally
+independent from `.local` support.
 
 ## Limitations and enterprise path
 
