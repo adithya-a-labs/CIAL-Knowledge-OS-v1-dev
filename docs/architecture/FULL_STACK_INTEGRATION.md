@@ -237,3 +237,13 @@ stop tear down owned Caddy, CIAL-owned firewall rules, mDNS, QR output, and the
 keep-awake lease before rebinding. Caddy listens only on the selected hotspot
 address; the firewall permits the gateway port only for that local address,
 interface, and derived hotspot subnet. Internal services remain loopback-only.
+
+## Notebook Workspace Flow
+
+`/api/notebooks` persists private workspace metadata and authorized references.
+The bound ordinary Assistant session receives only the notebook's ready active
+document IDs and current indexed note revisions. Uploads still commit through
+the personal workspace ingestion service, indexing still flows through the
+PostgreSQL queue and standalone indexer, chat still uses the existing streamed
+multi-request path, previews still use the shared viewer, and Studio outputs
+still use the summary service and export endpoints.

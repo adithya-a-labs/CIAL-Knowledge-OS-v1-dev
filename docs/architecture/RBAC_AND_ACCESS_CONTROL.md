@@ -162,3 +162,12 @@ uses `Secure=false` with `SameSite=Lax`; managed HTTPS uses `Secure=true`.
 There is no wildcard authenticated CORS policy. Host validation rejects
 unexpected hostnames, and only the loopback Caddy hop is trusted to supply
 forwarded headers.
+
+## Notebook Authorization Boundary
+
+Notebooks are private owner-scoped records. Every notebook query constrains
+owner, organization, lifecycle, and personal workspace. Attached document IDs
+are re-authorized with the ordinary document ACL filter when attached and each
+time they are projected into chat or Studio. Missing or revoked targets remain
+unavailable references and never enter retrieval. Notes require the owner and
+their current indexed revision; client payloads cannot supply access metadata.

@@ -107,3 +107,12 @@ one transaction. The response exposes queued status immediately; the
 standalone indexer moves it through extraction, embedding, verification, and
 indexed state. Deletion queues `delete_asset`. See
 [Continuous Indexing Architecture](CONTINUOUS_INDEXING_ARCHITECTURE.md).
+
+## Notebook Composition
+
+A notebook is a persistent personal-workspace composition over existing
+documents, notes, one Assistant session, and summary artifacts. It owns only
+metadata and references. Source attachment, preview, upload, note editing,
+retrieval, exports, and indexing remain owned by their existing workspace
+services. Attached and active state are independent, and the active set is
+synchronized into the bound selected-context chat only after readiness checks.
