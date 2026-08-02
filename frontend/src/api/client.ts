@@ -30,8 +30,12 @@ import type {
   RecentSearchList,
   SavedKnowledgeList,
   SavedKnowledgeRecord,
+  NotebookArtifactRecord,
+  NotebookChatBinding,
+  NotebookRecord,
+  NotebookSourceList,
 } from './types';
-import type { WorkspaceFolderResponse, WorkspaceNote, WorkspaceNoteList, WorkspacePreferences, WorkspaceSummaryResponse, WorkspaceTreeResponse } from '@/data/workspace/workspaceTypes';
+import type { WorkspaceFile, WorkspaceFolderResponse, WorkspaceNote, WorkspaceNoteList, WorkspacePreferences, WorkspaceSummaryResponse, WorkspaceTreeResponse } from '@/data/workspace/workspaceTypes';
 import { ApiError } from './types';
 
 const CONFIGURED_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
@@ -95,12 +99,9 @@ async function request<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
   });
 
   if (!response.ok) {
-    let detail: unknown = null;
-    try {
-      detail = await response.json();
-    } catch {
-      detail = await response.text();
-    }
+    const responseText = await response.text();
+    let detail: unknown = responseText;
+    try { detail = responseText ? JSON.parse(responseText) : null; } catch { /* retain the safe text response */ }
     const rawDetail =
       typeof detail === 'object' && detail !== null && 'detail' in detail
         ? (detail as { detail: unknown }).detail
@@ -215,6 +216,49 @@ export function logOut() {
   });
 }
 
+export function listNotebooks(signal?: AbortSignal) {
+  return request<{ items: NotebookRecord[] }>('/api/notebooks', { signal });
+}
+export function getNotebook(id: string, signal?: AbortSignal) {
+  return request<NotebookRecord>(`/api/notebooks/${encodeURIComponent(id)}`, { signal });
+}
+export function createNotebook(payload: { title: string; description?: string | null }) {
+  return request<NotebookRecord>('/api/notebooks', { method: 'POST', body: JSON.stringify(payload) });
+}
+export function updateNotebook(id: string, payload: { title?: string; description?: string | null }) {
+  return request<NotebookRecord>(`/api/notebooks/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) });
+}
+export async function deleteNotebook(id: string) {
+  const response = await fetch(apiUrl(`/api/notebooks/${encodeURIComponent(id)}`), { method: 'DELETE', credentials: 'include' });
+  if (!response.ok) throw new ApiError('Could not delete notebook.', response.status, null);
+}
+export function listNotebookSources(id: string, signal?: AbortSignal) {
+  return request<NotebookSourceList>(`/api/notebooks/${encodeURIComponent(id)}/sources`, { signal });
+}
+export function attachNotebookSources(id: string, sources: Array<{ source_type: 'document' | 'note' | 'summary'; document_id?: string; note_id?: string; summary_artifact_id?: string; is_default_active?: boolean }>) {
+  return request<NotebookSourceList>(`/api/notebooks/${encodeURIComponent(id)}/sources`, { method: 'POST', body: JSON.stringify({ sources }) });
+}
+export function updateNotebookSource(id: string, sourceId: string, isDefaultActive: boolean) {
+  return request(`/api/notebooks/${encodeURIComponent(id)}/sources/${encodeURIComponent(sourceId)}`, { method: 'PATCH', body: JSON.stringify({ is_default_active: isDefaultActive }) });
+}
+export async function detachNotebookSource(id: string, sourceId: string) {
+  const response = await fetch(apiUrl(`/api/notebooks/${encodeURIComponent(id)}/sources/${encodeURIComponent(sourceId)}`), { method: 'DELETE', credentials: 'include' });
+  if (!response.ok) throw new ApiError('Could not detach source.', response.status, null);
+}
+export function getNotebookChatBinding(id: string, signal?: AbortSignal) {
+  return request<NotebookChatBinding>(`/api/notebooks/${encodeURIComponent(id)}/chat-session`, { signal });
+}
+export function listNotebookArtifacts(id: string, signal?: AbortSignal) {
+  return request<{ items: NotebookArtifactRecord[] }>(`/api/notebooks/${encodeURIComponent(id)}/artifacts`, { signal });
+}
+export function createNotebookArtifact(id: string, payload: { artifact_type: NotebookArtifactRecord['artifact_type']; title?: string; summary_length?: 'brief' | 'standard' | 'detailed'; custom_instructions?: string }) {
+  return request<NotebookArtifactRecord>(`/api/notebooks/${encodeURIComponent(id)}/artifacts`, { method: 'POST', body: JSON.stringify(payload) });
+}
+export async function deleteNotebookArtifact(id: string, artifactId: string) {
+  const response = await fetch(apiUrl(`/api/notebooks/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(artifactId)}`), { method: 'DELETE', credentials: 'include' });
+  if (!response.ok) throw new ApiError('Could not delete artifact.', response.status, null);
+}
+
 export function getMyWorkspaceTree() {
   return request<WorkspaceTreeResponse>('/api/workspaces/me/tree');
 }
@@ -248,7 +292,7 @@ export function uploadMyWorkspaceFiles(files: File[], folderId?: string | null) 
     const body = new FormData();
     body.append('file', file);
     if (folderId) body.append('folder_id', folderId);
-    return request('/api/workspaces/me/documents/upload', { method: 'POST', body });
+    return request<WorkspaceFile>('/api/workspaces/me/documents/upload', { method: 'POST', body });
   }));
 }
 

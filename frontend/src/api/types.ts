@@ -800,6 +800,76 @@ export interface CorpusSyncResponse {
   message: string;
 }
 
+export interface NotebookRecord {
+  id: string;
+  organization_id: string;
+  workspace_id: string;
+  title: string;
+  description: string | null;
+  visibility: 'private';
+  lifecycle_status: 'active' | 'archived';
+  source_count: number;
+  active_source_count: number;
+  artifact_count: number;
+  chat_session_id: string | null;
+  created_at: string;
+  updated_at: string;
+  last_activity_at: string;
+}
+
+export interface NotebookSourceRecord {
+  id: string;
+  notebook_id: string;
+  source_type: 'document' | 'note' | 'summary';
+  target_id: string;
+  title: string;
+  origin: 'my_workspace' | 'knowledge_center' | 'note' | 'summary';
+  position: number;
+  is_default_active: boolean;
+  available: boolean;
+  ready: boolean;
+  indexing_status: string | null;
+  file_type: string | null;
+  mime_type: string | null;
+  page_count: number | null;
+  size_bytes: number | null;
+  preview_document_id: string | null;
+  unavailable_reason: string | null;
+  created_at: string;
+}
+
+export interface NotebookSourceList {
+  items: NotebookSourceRecord[];
+  attached_count: number;
+  active_count: number;
+  ready_count: number;
+}
+
+export interface NotebookChatBinding {
+  notebook_id: string;
+  chat_session_id: string;
+  selected_document_ids: string[];
+  selected_note_ids: string[];
+  context_snapshot: SelectedContextItem[];
+  created_at: string;
+}
+
+export interface NotebookArtifactRecord {
+  id: string;
+  notebook_id: string;
+  artifact_type: 'executive' | 'detailed' | 'key_points' | 'action_items' | 'comparison';
+  status: string;
+  title: string;
+  source_snapshot: Array<Record<string, unknown>>;
+  summary_artifact_id: string | null;
+  note_id: string | null;
+  citation_count: number;
+  source_count: number;
+  error_code: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DocumentPreview extends CorpusDocument {
   document_id?: string;
   relative_path: string;
