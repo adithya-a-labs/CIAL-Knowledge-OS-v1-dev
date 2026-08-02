@@ -84,7 +84,7 @@ interface LiveRequestRuntime {
   degraded: { stage: string; reason: string } | null;
 }
 
-export default function ChatPanel() {
+export default function ChatPanel({ contextLocked = false }: { contextLocked?: boolean } = {}) {
   const {
     activeSession,
     updateActiveSession,
@@ -780,7 +780,7 @@ export default function ChatPanel() {
                 uploadedFileCount={uploadedFiles.length}
                 onSearchScopeChange={(value) => updateActiveSession({ searchScope: value })}
                 onActiveProfileChange={(value) => updateActiveSession({ activeProfile: value })}
-                onManageContext={() => setContextManagerOpen(true)}
+                onManageContext={() => contextLocked ? toast({ title: 'Notebook sources are managed in Sources', description: 'Activate or deactivate attached sources from the notebook Sources panel.' }) : setContextManagerOpen(true)}
                 onClearContext={clearActiveContext}
                 includeSourceExcerpts={includeSourceExcerpts}
                 showRetrievalDetails={showRetrievalDetails}
@@ -798,7 +798,7 @@ export default function ChatPanel() {
                     searchScope={searchScope}
                     onRemoveContext={(id) => activeSession.contextScope==='all_accessible' ? updateActiveSession({ selectedContextItems: selectedContextItems.filter((context) => context.id !== id) }) : toast({title:'Context is pinned',description:'Start a new conversation to use different context.'})}
                     onRemoveFile={(id) => updateActiveSession({ uploadedFiles: uploadedFiles.filter((file) => file.id !== id) })}
-                    onManageContext={() => setContextManagerOpen(true)}
+                    onManageContext={() => contextLocked ? toast({ title: 'Notebook sources are managed in Sources' }) : setContextManagerOpen(true)}
                   />
                 )}
               />
@@ -824,12 +824,12 @@ export default function ChatPanel() {
         </div>
       </div>
 
-      <ContextManagerDialog
+      {!contextLocked ? <ContextManagerDialog
         open={contextManagerOpen}
         selectedItems={selectedContextItems}
         onApply={(items) => updateActiveSession({ selectedContextItems: items })}
         onClose={() => setContextManagerOpen(false)}
-      />
+      /> : null}
       <SaveToKnowledgeDialog message={saveKnowledgeMessage} suggestedTitle={saveKnowledgeMessage?messages.slice(0,messages.findIndex((item)=>item.id===saveKnowledgeMessage.id)).reverse().find((item)=>item.role==='user')?.content:null} onClose={()=>setSaveKnowledgeMessage(null)}/>
     </div>
   );

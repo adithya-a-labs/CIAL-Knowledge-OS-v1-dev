@@ -140,7 +140,17 @@ function titleFrom(messages: AssistantChatMessage[]) {
     ?? 'New conversation';
 }
 
-export function AssistantSessionsProvider({ children }: { children: ReactNode }) {
+export function AssistantSessionsProvider({
+  children,
+  boundSessionId,
+  boundTitle,
+  boundContextItems,
+}: {
+  children: ReactNode;
+  boundSessionId?: string;
+  boundTitle?: string;
+  boundContextItems?: SelectedContextItem[];
+}) {
   const { status, user } = useAuth();
   const [location, navigate] = useLocation();
   const [sessions, setSessions] = useState<AssistantSession[]>([]);
@@ -169,6 +179,13 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
   }, []);
 
   useEffect(() => {
+    if (boundSessionId) {
+      activeDraftIdRef.current = null;
+      setDraftSession(null);
+      setPendingComposer(null);
+      setActiveSessionId(boundSessionId);
+      return;
+    }
     const pathname = window.location.pathname;
     const query = new URLSearchParams(window.location.search);
     const routeMatch = pathname.match(/^\/assistant\/conversations\/([^/]+)$/);
@@ -199,7 +216,17 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
       ? { question: handoff.question, profile: handoff.profile, autoSubmit: Boolean(handoff.autoSubmit) }
       : null);
     clearConversationNavigationState();
-  }, [location, navigate]);
+  }, [boundSessionId, location, navigate]);
+
+  useEffect(() => {
+    if (!boundSessionId) return;
+    setSessions((current) => current.map((session) => session.id === boundSessionId ? {
+      ...session,
+      title: boundTitle ?? session.title,
+      selectedContextItems: boundContextItems ?? session.selectedContextItems,
+      contextScope: 'selected_context',
+    } : session));
+  }, [boundContextItems, boundSessionId, boundTitle]);
 
   useEffect(() => {
     if (status !== 'authenticated' || !user) return;
@@ -218,7 +245,15 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
     setHistoryError(null);
     void listChatSessions(controller.signal).then(({ sessions: records }) => {
       if (generation !== requestGeneration.current || controller.signal.aborted) return;
-      const hydrated = records.map(fromApi);
+      const hydrated = records.map((record) => {
+        const session = fromApi(record);
+        return record.id === boundSessionId ? {
+          ...session,
+          title: boundTitle ?? session.title,
+          selectedContextItems: boundContextItems ?? session.selectedContextItems,
+          contextScope: 'selected_context',
+        } : session;
+      });
       setSessions((current) => {
         const hydratedIds = new Set(hydrated.map((item) => item.id));
         return [...current.filter((item) => !hydratedIds.has(item.id)), ...hydrated];
@@ -230,7 +265,7 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
       if (generation === requestGeneration.current) setHistoryLoading(false);
     });
     return () => controller.abort();
-  }, [reload, status, user?.id]);
+  }, [boundContextItems, boundSessionId, boundTitle, reload, status, user?.id]);
 
   const createNewSession = useCallback(() => {
     startNewConversation(navigate);
@@ -244,7 +279,13 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
     navigate(assistantConversationPath(sessionId));
   }, [navigate]);
 
-  const fallbackDraft = useMemo(() => buildSession(), []);
+  const fallbackDraft = useMemo(() => buildSession(boundSessionId ? {
+    id: boundSessionId,
+    requestSessionId: boundSessionId,
+    title: boundTitle ?? 'Notebook conversation',
+    selectedContextItems: boundContextItems ?? [],
+    contextScope: 'selected_context',
+  } : {}), [boundContextItems, boundSessionId, boundTitle]);
   const activeSession = draftSession
     ?? sessions.find((item) => item.id === activeSessionId)
     ?? fallbackDraft;

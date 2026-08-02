@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import DocumentViewerPanel from './DocumentViewerPanel';
 import type { ChatSource } from '@/types/assistant';
 
@@ -18,6 +18,7 @@ export default function SourceViewerPanel({
   onSelectSource,
 }: SourceViewerPanelProps) {
   const [isDesktopViewport, setIsDesktopViewport] = useState(() => window.innerWidth >= 1024);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(min-width: 1024px)');
@@ -26,6 +27,19 @@ export default function SourceViewerPanel({
     mediaQuery.addEventListener('change', onChange);
     return () => mediaQuery.removeEventListener('change', onChange);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    previouslyFocused.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onClose();
+      window.setTimeout(() => previouslyFocused.current?.focus(), 0);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose, open]);
 
   if (!open) return null;
 
