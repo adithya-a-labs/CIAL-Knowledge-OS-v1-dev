@@ -295,17 +295,21 @@ function AuthorizedMonitor() {
               <div className="mt-2 h-2 rounded-full bg-muted"><div className="h-2 rounded-full bg-info/100 transition-all" style={{ width: `${data.gpu.memory_total_mb ? Math.min((data.gpu.memory_used_mb ?? 0) / data.gpu.memory_total_mb * 100, 100) : 0}%` }} /></div>
             </div>
             <div className="grid grid-cols-2 gap-2">
+              <Metric label="GPU" value={data.gpu.device_name ?? 'Unavailable'} detail={data.gpu.driver_version ? `Driver ${data.gpu.driver_version}` : undefined} />
               <Metric label="Precision" value={data.gpu.precision} />
               <Metric label="Batch size" value={data.gpu.batch_size} />
+              <Metric label="Free VRAM" value={data.gpu.memory_free_mb == null ? 'Unavailable' : `${data.gpu.memory_free_mb} MB`} detail={data.gpu.vram_target_ratio == null ? undefined : `${Math.round(data.gpu.vram_target_ratio * 100)}% indexer target`} />
               <Metric label="Device" value={data.gpu.embedding_device} />
               <Metric label="Configured device" value={data.gpu.embedding_device_configured ?? 'unknown'} />
               <Metric label="Actual model device" value={data.gpu.embedding_device_actual ?? 'unknown'} />
               <Metric label="Embedding model" value={data.gpu.embedding_model_status ?? 'unknown'} />
               <Metric label="Batch latency" value={formatNumber(data.gpu.embedding_batch?.duration_ms, ' ms')} />
             <Metric label="Query embedding" value={data.models.query_embedding_device ?? 'unknown'} detail={[data.models.query_embedding_dtype, data.models.query_embedding_model_state].filter(Boolean).join(' · ') || undefined} />
+            <Metric label="Query policy" value={data.models.query_embedding_requested_device ?? 'unknown'} detail={[data.models.query_embedding_fallback_reason, `loads ${data.models.query_embedding_model_load_count ?? 0}`].filter(Boolean).join(' · ')} />
             <Metric label="Dense model" value={data.models.dense_model_status ?? 'unavailable'} />
             <Metric label="Reranker status" value={data.models.reranker_status ?? 'unavailable'} />
-            <Metric label="Reranker device" value={data.models.reranker_device ?? 'Unavailable'} detail={data.models.reranker_dtype ?? undefined} />
+            <Metric label="Reranker device" value={data.models.reranker_device ?? 'Unavailable'} detail={[`requested ${data.models.reranker_requested_device ?? 'unknown'}`, data.models.reranker_dtype, data.models.reranker_fallback_reason, `loads ${data.models.reranker_model_load_count ?? 0}`].filter(Boolean).join(' · ')} />
+            <Metric label="Device fallbacks" value={(data.models.device_fallback_count?.query_embedding ?? 0) + (data.models.device_fallback_count?.reranker ?? 0) + (data.models.device_fallback_count?.ollama ?? 0)} detail="query · reranker · Ollama" />
             <Metric label="BM25 runtime" value={data.models.bm25_status ?? 'unavailable'} />
               <Metric label="GPU state" value={data.gpu.state ?? 'unknown'} />
               <Metric label="Embedding jobs" value={data.gpu.active_embedding_jobs ?? 0} />

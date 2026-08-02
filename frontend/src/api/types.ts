@@ -193,9 +193,13 @@ export interface AdminSystemMonitor {
   gpu: {
     cuda_available: boolean;
     device: string;
+    device_name?: string | null;
+    driver_version?: string | null;
     utilization_percent: number | null;
     memory_used_mb: number | null;
+    memory_free_mb?: number | null;
     memory_total_mb: number | null;
+    vram_target_ratio?: number;
     embedding_device: string;
     embedding_device_configured?: string;
     embedding_device_actual?: string | null;
@@ -234,7 +238,10 @@ export interface AdminSystemMonitor {
     embedding_model: string;
     embedding_model_ready: boolean;
     query_embedding_device?: string;
+    query_embedding_requested_device?: string;
     query_embedding_dtype?: string | null;
+    query_embedding_fallback_reason?: string | null;
+    query_embedding_model_load_count?: number;
     query_embedding_model_state?: string | null;
     query_embedding_cache_status?: string | null;
     reranker_model: string;
@@ -243,8 +250,16 @@ export interface AdminSystemMonitor {
     reranker_status?: string;
     bm25_status?: string;
     reranker_device?: string | null;
+    reranker_requested_device?: string;
     reranker_dtype?: string | null;
+    reranker_fallback_reason?: string | null;
+    reranker_model_load_count?: number;
     reranker_model_loaded?: boolean | null;
+    device_fallback_count?: {
+      query_embedding?: number;
+      reranker?: number;
+      ollama?: number;
+    };
     reranker_gpu_memory?: {
       allocated_bytes?: number | null;
       load_delta_bytes?: number | null;
