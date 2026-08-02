@@ -843,3 +843,13 @@ keeps relative API URLs and requires no LAN-only CORS or absolute backend
 address. Admin System Monitor consumes the additive `lan_access` projection
 and displays only sanitized state, URLs, transport, firewall, and discovery
 readiness.
+
+## Notebook Workspace Additions
+
+The protected `/notebooks` and `/notebooks/:notebookId` routes compose the
+existing Assistant session provider/chat panel, source viewer, Notes workspace,
+workspace/corpus/upload clients, and summary exports. Migrate both notebook
+pages plus their API types/client methods and navigation entries. Preserve one
+mounted state owner for Sources, Chat, Studio, and Notes across responsive
+layouts; mobile uses named tabs and desktop uses a contextual or persistent
+right panel.

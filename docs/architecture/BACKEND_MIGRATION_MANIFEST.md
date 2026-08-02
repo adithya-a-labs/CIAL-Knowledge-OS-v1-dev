@@ -829,3 +829,11 @@ The worker's operational defaults are eight bounded extraction workers,
 adaptive 64-to-256 GPU embedding batches with OOM reduction, FP16 with safe
 CPU fallback, and 256-point Qdrant write batches. Preserve the
 `/api/indexer/status` alias and CPU/GPU/rate telemetry when migrating the API.
+
+## Notebook Workspace Additions
+
+Migrate `20260802_0019_notebook_workspaces.py` together with the notebook model,
+schema, service, and router modules. The four additive tables store notebook
+metadata and references only. Preserve the existing `documents`, `notes`,
+`summary_artifacts`, `chat_sessions`, ACL, audit, and standalone indexer owners;
+do not replace them with notebook-specific copies or workers.

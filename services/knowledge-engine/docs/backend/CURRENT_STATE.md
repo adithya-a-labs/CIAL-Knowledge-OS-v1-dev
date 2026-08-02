@@ -966,3 +966,13 @@ The manager parses and requires the helper's verified JSON result; otherwise it
 reports `firewall_failed`, stops Caddy, and does not publish mDNS. Deterministic
 LAN tests cover the collision audit, scope normalization, mismatch rejection,
 rollback contract, and manager fail-closed ordering.
+
+## Persistent Notebook Workspaces
+
+Revision `20260802_0019` adds private owner-scoped notebooks, governed source
+references, a binding to an ordinary Assistant `chat_session`, and references
+to supported summary artifacts. Notebook APIs live under `/api/notebooks` and
+reuse document ACL filtering, personal notes, summaries, audit, and the
+standalone indexer. They do not store copied document bodies or create a second
+retrieval path. Only ready indexed documents and the current indexed revision
+of a note synchronize into the notebook's selected-context chat session.
