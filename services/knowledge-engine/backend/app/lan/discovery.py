@@ -26,7 +26,7 @@ class MdnsPublisher:
                 server=f"{candidate}.",
                 properties={"product": "cial-knowledge-os", "version": "0.1.0", "scheme": scheme},
             )
-            zc = Zeroconf(interfaces=[address], ip_version=IPVersion.V4)
+            zc = Zeroconf(interfaces=[address], ip_version=IPVersion.V4Only)
             try:
                 zc.register_service(info, allow_name_change=False)
                 self.zeroconf, self.info, selected = zc, info, candidate
