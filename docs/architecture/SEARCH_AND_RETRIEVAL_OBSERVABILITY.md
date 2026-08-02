@@ -391,3 +391,13 @@ projects only a sanitized `lan_access` health object; it excludes secrets,
 tokens, cookies, MAC addresses, repository paths, and hotspot credentials.
 Gateway or discovery degradation is non-critical to retrieval health and does
 not alter retrieval tracing, authorization, or cache keys.
+
+## Device placement telemetry
+
+Authenticated status now distinguishes requested and resolved device, dtype,
+model-load count, and bounded fallback reason for query embedding and
+reranking. GPU telemetry adds device name, driver, and used/free/total VRAM.
+The measured production choice is CPU for query BGE-M3 and CUDA for the small
+reranker; benchmark and contention evidence are in
+`GPU_WORKLOAD_PLACEMENT.md`. These fields remain content-free and do not expose
+questions, documents, paths, credentials, or raw process command lines.

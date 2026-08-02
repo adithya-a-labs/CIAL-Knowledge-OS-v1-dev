@@ -605,3 +605,11 @@ LAN clients can observe indexing readiness only through existing authenticated
 same-origin API projections. Hotspot loss, mDNS failure, or gateway restart
 does not change queue durability, publication activation, or cache
 invalidation behavior.
+
+## Measured device policy
+
+The indexer remains the only document-embedding GPU owner. Its BGE-M3 model is
+`cuda:0`/fp16 during active batches, releases to CPU while idle or yielding,
+and restores the resolved CUDA target before the next encode. Measured batch
+throughput, VRAM use, the 0.70 budget, and chat arbitration evidence are in
+`GPU_WORKLOAD_PLACEMENT.md`.
