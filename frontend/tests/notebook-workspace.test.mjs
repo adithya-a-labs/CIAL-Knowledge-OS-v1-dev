@@ -9,6 +9,9 @@ const library = readFileSync(new URL('../src/pages/NotebooksPage.tsx', import.me
 const sessions = readFileSync(new URL('../src/components/assistant/AssistantSessionContext.tsx', import.meta.url), 'utf8');
 const chat = readFileSync(new URL('../src/components/assistant/ChatPanel.tsx', import.meta.url), 'utf8');
 const shell = readFileSync(new URL('../src/components/layout/AppShell.tsx', import.meta.url), 'utf8');
+const picker = readFileSync(new URL('../src/components/notebooks/NotebookSourcePicker.tsx', import.meta.url), 'utf8');
+const corpusExplorer = readFileSync(new URL('../src/components/corpus/CorpusExplorer.tsx', import.meta.url), 'utf8');
+const knowledgeCenter = readFileSync(new URL('../src/components/knowledge-center/KnowledgeCenter.tsx', import.meta.url), 'utf8');
 
 test('notebook library and workspace routes are first-class protected routes', () => {
   assert.match(app, /path="\/notebooks" component=\{NotebooksPage\}/);
@@ -37,14 +40,52 @@ test('notebook chat composes the existing multi-request assistant and locks scop
 });
 
 test('source picker unifies governed workspace, corpus, upload, and note flows', () => {
-  assert.match(page, />My Workspace</);
-  assert.match(page, />Knowledge Center</);
-  assert.match(page, />Upload</);
-  assert.match(page, />Notes</);
-  assert.match(page, /uploadMyWorkspaceFiles/);
-  assert.match(page, /getCorpusTree/);
-  assert.match(page, /DocumentViewerPanel/);
-  assert.match(page, /Checkbox/);
+  assert.match(page, /NotebookSourcePicker/);
+  assert.match(picker, />My Workspace</);
+  assert.match(picker, />Knowledge Center</);
+  assert.match(picker, />Upload</);
+  assert.match(picker, />Notes</);
+  assert.match(picker, /uploadMyWorkspaceFiles/);
+  assert.match(picker, /DocumentViewerPanel/);
+  assert.match(picker, /Checkbox/);
+});
+
+test('notebook Knowledge Center reuses the shared hierarchical CorpusExplorer and removes the flat corpus list', () => {
+  assert.match(knowledgeCenter, /<CorpusExplorer/);
+  assert.match(picker, /<CorpusExplorer mode="select" embedded/);
+  assert.match(corpusExplorer, /queryKey: \['corpus-tree'\]/);
+  assert.match(corpusExplorer, /queryKey: \['corpus-folder', activePath\]/);
+  assert.match(corpusExplorer, /<CorpusTree/);
+  assert.match(corpusExplorer, /Corpus breadcrumbs/);
+  assert.match(corpusExplorer, /Sort Corpus items/);
+  assert.match(corpusExplorer, /Grid view/);
+  assert.match(corpusExplorer, /List view/);
+  assert.doesNotMatch(picker, /flattenCorpusTree|filteredCorpus|corpusDocuments/);
+});
+
+test('folder selections resolve authorized descendants and exclude duplicates and unavailable documents', () => {
+  assert.match(corpusExplorer, /collectDocuments\(node\)/);
+  assert.match(corpusExplorer, /document\.indexing_status === 'indexed' && !attachedDocumentIds\.has\(document\.id\)/);
+  assert.match(corpusExplorer, /alreadyAttachedCount/);
+  assert.match(corpusExplorer, /unavailableCount/);
+  assert.match(corpusExplorer, /'indeterminate'/);
+  assert.match(picker, /corpusSummary\.newDocuments/);
+  assert.match(picker, /resolved documents/);
+  assert.match(picker, /already attached/);
+  assert.match(picker, /unavailable/);
+  assert.match(picker, /disabled=\{attachmentPayload\.length === 0/);
+});
+
+test('embedded corpus preview preserves dialog selection and responsive layout contracts', () => {
+  assert.match(picker, /onOpenDocument=\{openCorpusPreview\}/);
+  assert.match(picker, /previewTrigger\.current/);
+  assert.match(picker, /closePreview/);
+  assert.match(picker, /sm:h-\[88vh\]/);
+  assert.match(picker, /sm:w-\[90vw\]/);
+  assert.match(picker, /safe-area-inset-bottom/);
+  assert.match(corpusExplorer, /lg:hidden/);
+  assert.match(corpusExplorer, /compact=\{embedded\}/);
+  assert.match(corpusExplorer, /overflow-hidden/);
 });
 
 test('shared viewer, notes editor, supported outputs, and exports are reused', () => {
