@@ -43,7 +43,6 @@ export default function StorageRing({
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={dashOffset}
-          className="transition-all duration-700"
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">

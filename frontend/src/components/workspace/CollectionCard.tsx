@@ -8,7 +8,7 @@ interface CollectionCardProps {
 export function CollectionCard({ collection }: CollectionCardProps) {
   return (
     <div
-      className="fluid-card responsive-card flex min-h-32 cursor-pointer flex-col gap-2 border border-border bg-card p-4 shadow-sm transition-all hover:border-primary hover:shadow-md"
+      className="fluid-card responsive-card flex min-h-32 cursor-pointer flex-col gap-2 border border-border bg-card p-4 shadow-sm hover:border-primary hover:shadow-md"
       data-testid={`collection-card-${collection.id}`}
     >
       <div className="flex items-start justify-between">
@@ -31,7 +31,7 @@ export function NewCollectionCard({ onClick }: { onClick?: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="fluid-card responsive-card flex min-h-32 w-full cursor-pointer flex-col items-center justify-center gap-2 border border-dashed border-primary/35 bg-card p-4 transition-all hover:border-primary hover:bg-muted"
+      className="fluid-card responsive-card flex min-h-32 w-full cursor-pointer flex-col items-center justify-center gap-2 border border-dashed border-primary/35 bg-card p-4 hover:border-primary hover:bg-muted"
       data-testid="button-new-collection"
     >
       <div className="w-9 h-9 rounded-full bg-accent flex items-center justify-center">

@@ -31,7 +31,7 @@ export default function PersonalStorageCard() {
           {/* Progress bar */}
           <div className="mb-2 h-2 w-full max-w-md overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full rounded-full bg-[#4a7c3f] transition-all duration-700"
+              className="h-full rounded-full bg-[#4a7c3f]"
               style={{ width: `${s.percentUsed}%` }}
             />
           </div>

@@ -10,6 +10,7 @@ import TaskItem from '@tiptap/extension-task-item';
 import Placeholder from '@tiptap/extension-placeholder';
 import { Bold, Code, Italic, Link2, List, ListOrdered, Redo2, Strikethrough, UnderlineIcon, Undo2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useReducedMotionPreference } from '@/hooks/useReducedMotionPreference';
 
 type ChangePayload = { content_json: Record<string, unknown>; content_markdown: string; plain_text: string };
 
@@ -103,6 +104,7 @@ function Tool({ active, label, onClick, children }: { active?: boolean; label: s
 }
 
 export default function RichNoteEditor({ noteId, contentJson, markdown, citationBlockId, onChange }: { noteId: string; contentJson: Record<string, unknown> | null; markdown: string; citationBlockId?: string | null; onChange: (change: ChangePayload) => void }) {
+  const prefersReducedMotion = useReducedMotionPreference();
   const editor = useEditor({
     extensions: [StarterKit.configure({ link: false, underline: false }), Underline, Link.configure({ openOnClick: false, HTMLAttributes: { rel: 'noopener noreferrer' } }), TaskList, TaskItem.configure({ nested: true }), Placeholder.configure({ placeholder: 'Start writing…' }), StableBlockId],
     content: contentJson?.type === 'doc' ? contentJson as JSONContent : markdownToTiptap(markdown),
@@ -112,8 +114,8 @@ export default function RichNoteEditor({ noteId, contentJson, markdown, citation
 
   useEffect(() => {
     if (!editor || !citationBlockId) return;
-    requestAnimationFrame(() => { const element = document.querySelector(`[data-block-id="${CSS.escape(citationBlockId)}"]`); element?.scrollIntoView({ block: 'center', behavior: 'smooth' }); element?.classList.add('note-citation-highlight'); window.setTimeout(() => element?.classList.remove('note-citation-highlight'), 2400); });
-  }, [editor, citationBlockId]);
+    requestAnimationFrame(() => { const element = document.querySelector(`[data-block-id="${CSS.escape(citationBlockId)}"]`); element?.scrollIntoView({ block: 'center', behavior: prefersReducedMotion ? 'auto' : 'smooth' }); element?.classList.add('note-citation-highlight'); window.setTimeout(() => element?.classList.remove('note-citation-highlight'), 2400); });
+  }, [editor, citationBlockId, prefersReducedMotion]);
   if (!editor) return null;
   const setLink = () => { const current = editor.getAttributes('link').href as string | undefined; const href = window.prompt('Link URL', current ?? 'https://'); if (href === null) return; if (!href.trim()) editor.chain().focus().unsetLink().run(); else editor.chain().focus().extendMarkRange('link').setLink({ href: href.trim() }).run(); };
   return <div className="relative">

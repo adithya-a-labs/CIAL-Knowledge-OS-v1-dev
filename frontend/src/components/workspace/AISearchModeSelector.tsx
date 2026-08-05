@@ -51,7 +51,7 @@ export default function AISearchModeSelector({ value, onChange }: AISearchModeSe
               aria-checked={selected}
               onClick={() => onChange(mode.value)}
               className={cn(
-                'group flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+                'group flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition-[border-color,background-color,box-shadow] duration-[var(--motion-duration-short)] ease-[var(--motion-ease-move)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
                 selected
                   ? 'border-primary/55 bg-primary/10 shadow-sm'
                   : 'border-border bg-card hover:border-border-strong hover:bg-muted hover:shadow-sm'
@@ -59,7 +59,7 @@ export default function AISearchModeSelector({ value, onChange }: AISearchModeSe
               data-testid={`mode-${mode.value}`}
             >
               <div className={cn(
-                'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl transition-colors duration-200',
+                'flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl transition-colors duration-[var(--motion-duration-short)] ease-[var(--motion-ease-move)]',
                 selected ? 'bg-primary text-primary-foreground' : 'bg-primary/10 text-primary'
               )}>
                 <Icon size={14} />
@@ -72,7 +72,7 @@ export default function AISearchModeSelector({ value, onChange }: AISearchModeSe
                 <p className="safe-text mt-1 text-xs leading-5 text-muted-foreground">{mode.description}</p>
               </div>
               <div className={cn(
-                'flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-200',
+                'flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-[var(--motion-duration-short)] ease-[var(--motion-ease-move)]',
                 selected ? 'border-primary bg-primary' : 'border-border-strong bg-card group-hover:border-primary'
               )}>
                 {selected && (

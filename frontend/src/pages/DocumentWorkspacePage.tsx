@@ -38,6 +38,33 @@ import { cn } from '@/lib/utils';
 
 const CORPUS_TREE_PERSISTENT_QUERY = '(min-width: 1280px)';
 const DOCUMENT_ASSISTANT_PERSISTENT_QUERY = '(min-width: 1024px)';
+const COMPACT_PANEL_EXIT_MS = 220;
+
+function useCompactPanelPresence(open: boolean, persistent: boolean) {
+  const [mounted, setMounted] = useState(open && !persistent);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (persistent) {
+      setMounted(false);
+      setVisible(false);
+      return;
+    }
+
+    if (open) {
+      setMounted(true);
+      const frame = window.requestAnimationFrame(() => setVisible(true));
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    setVisible(false);
+    if (!mounted) return;
+    const timeout = window.setTimeout(() => setMounted(false), COMPACT_PANEL_EXIT_MS);
+    return () => window.clearTimeout(timeout);
+  }, [mounted, open, persistent]);
+
+  return { mounted, visible };
+}
 
 function formatBytes(value?: number | null) {
   if (!value) return 'Unknown size';
@@ -102,6 +129,8 @@ export default function DocumentWorkspacePage() {
   const rightPanelRef=useRef<HTMLElement>(null);
   const [leftWidth,setLeftWidth]=useState(()=>readPanelWidth('cial-kc-left-width',280));
   const [rightWidth,setRightWidth]=useState(()=>readPanelWidth('cial-kc-right-width',384));
+  const leftCompactPanel=useCompactPanelPresence(leftOpen,corpusTreePersistent);
+  const rightCompactPanel=useCompactPanelPresence(rightOpen,documentAssistantPersistent);
 
   const queryParams = new URLSearchParams(window.location.search);
   const pageParam = queryParams.get('page');
@@ -243,9 +272,9 @@ export default function DocumentWorkspacePage() {
   const closeCorpusTree=()=>{localStorage.setItem('cial-kc-left-open','false');setLeftOpen(false);};
   const closeDocumentAssistant=()=>{localStorage.setItem('cial-kc-right-open','false');setRightOpen(false);};
   useEffect(()=>{
-    const panel=leftOpen&&!corpusTreePersistent
+    const panel=leftOpen&&!corpusTreePersistent&&leftCompactPanel.visible
       ? leftPanelRef.current
-      : rightOpen&&!documentAssistantPersistent
+      : rightOpen&&!documentAssistantPersistent&&rightCompactPanel.visible
         ? rightPanelRef.current
         : null;
     if(!panel)return;
@@ -269,7 +298,7 @@ export default function DocumentWorkspacePage() {
     };
     window.document.addEventListener('keydown',handleKeyDown);
     return()=>{window.document.removeEventListener('keydown',handleKeyDown);previousFocus?.focus();};
-  },[corpusTreePersistent,documentAssistantPersistent,leftOpen,rightOpen]);
+  },[corpusTreePersistent,documentAssistantPersistent,leftCompactPanel.visible,leftOpen,rightCompactPanel.visible,rightOpen]);
   useEffect(()=>{localStorage.setItem('cial-kc-left-width',String(leftWidth));},[leftWidth]);
   useEffect(()=>{localStorage.setItem('cial-kc-right-width',String(rightWidth));},[rightWidth]);
   const beginResize=(side:'left'|'right')=>(event:React.PointerEvent)=>{
@@ -324,8 +353,8 @@ export default function DocumentWorkspacePage() {
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden" data-testid="document-workspace-page">
       <header className="mb-2 flex h-14 shrink-0 items-center gap-3 border-b border-popover-border bg-popover/88 pl-14 pr-3 shadow-xs backdrop-blur lg:px-3"><button onClick={toggleCorpusTree} className="ce-icon-button" aria-label="Toggle corpus tree" aria-expanded={leftOpen}><PanelLeftClose size={17}/></button><button onClick={()=>setSearchOpen(true)} className="flex h-10 min-w-0 max-w-xl flex-1 items-center gap-2 rounded-lg border border-border bg-secondary px-3 text-sm text-muted-foreground"><Search size={16}/><span className="truncate">Search Corpus…</span><span className="ml-auto hidden rounded border bg-card px-1.5 py-0.5 text-[10px] sm:inline">Ctrl + K</span></button><button onClick={()=>navigate('/knowledge-center')} className="ce-icon-button hidden sm:inline-flex" aria-label="Upload documents"><Upload size={17}/></button><button onClick={()=>void Promise.all([treeQuery.refetch(),documentQuery.refetch(),previewQuery.refetch()])} className="ce-icon-button hidden sm:inline-flex" aria-label="Refresh workspace"><RefreshCw size={17}/></button><button onClick={toggleDocumentAssistant} className="ce-icon-button" aria-label="Toggle document assistant" aria-expanded={rightOpen}><PanelRightClose size={17}/></button></header>
       <div className="flex min-h-0 flex-1 overflow-hidden">
-      {leftOpen&&!corpusTreePersistent?<div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px]" aria-hidden="true" onClick={closeCorpusTree} data-testid="corpus-tree-overlay"/>:null}
-      {leftOpen&&treeQuery.data?.root?<aside ref={leftPanelRef} className="fixed inset-y-0 left-0 z-50 h-full max-w-[85vw] shrink-0 border-r border-border bg-card shadow-xl xl:relative xl:inset-auto xl:z-auto xl:shadow-none" style={{width:leftWidth}} data-testid="corpus-tree-panel" role={corpusTreePersistent?undefined:'dialog'} aria-modal={corpusTreePersistent?undefined:true} aria-label={corpusTreePersistent?undefined:'Corpus Tree'}><button onClick={closeCorpusTree} className="absolute right-2 top-2 ce-icon-button xl:hidden" aria-label="Close corpus tree"><PanelLeftClose size={16}/></button><CorpusTreePanel root={treeQuery.data.root} selectedDocumentId={documentId}/><div role="separator" aria-label="Resize corpus tree" onPointerDown={beginResize('left')} className="absolute inset-y-0 right-0 hidden w-1 cursor-col-resize bg-transparent hover:bg-primary/25 xl:block"/></aside>:null}
+      {leftCompactPanel.mounted?<div className={cn('fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px] transition-opacity duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-move)] motion-reduce:duration-[var(--motion-duration-short)]',leftCompactPanel.visible?'pointer-events-auto opacity-100':'pointer-events-none opacity-0')} aria-hidden="true" onClick={closeCorpusTree} data-state={leftCompactPanel.visible?'open':'closed'} data-testid="corpus-tree-overlay"/>:null}
+      {((leftOpen&&corpusTreePersistent)||leftCompactPanel.mounted)&&treeQuery.data?.root?<aside ref={leftPanelRef} className={cn('h-full max-w-[85vw] shrink-0 border-r border-border bg-card',corpusTreePersistent?'relative inset-auto z-auto shadow-none':'fixed inset-y-0 left-0 z-50 shadow-xl transition-[transform,opacity] duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-drawer)] motion-reduce:translate-x-0 motion-reduce:duration-[var(--motion-duration-short)]',!corpusTreePersistent&&(leftCompactPanel.visible?'pointer-events-auto translate-x-0 opacity-100':'pointer-events-none -translate-x-full opacity-0'))} style={{width:leftWidth}} data-state={corpusTreePersistent?undefined:leftCompactPanel.visible?'open':'closed'} data-testid="corpus-tree-panel" role={!corpusTreePersistent&&leftCompactPanel.visible?'dialog':undefined} aria-modal={!corpusTreePersistent&&leftCompactPanel.visible?true:undefined} aria-hidden={!corpusTreePersistent&&!leftCompactPanel.visible?true:undefined} aria-label={!corpusTreePersistent&&leftCompactPanel.visible?'Corpus Tree':undefined}><button onClick={closeCorpusTree} className="absolute right-2 top-2 ce-icon-button xl:hidden" aria-label="Close corpus tree"><PanelLeftClose size={16}/></button><CorpusTreePanel root={treeQuery.data.root} selectedDocumentId={documentId}/><div role="separator" aria-label="Resize corpus tree" onPointerDown={beginResize('left')} className="absolute inset-y-0 right-0 hidden w-1 cursor-col-resize bg-transparent hover:bg-primary/25 xl:block"/></aside>:null}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <div className="mb-2 flex shrink-0 flex-col gap-2 border-b border-border bg-card/92 px-3 py-2 shadow-xs lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-start gap-3">
@@ -428,8 +457,8 @@ export default function DocumentWorkspacePage() {
         </div>
       )}
       </div>
-      {rightOpen&&!documentAssistantPersistent?<div className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px]" aria-hidden="true" onClick={closeDocumentAssistant} data-testid="document-assistant-overlay"/>:null}
-      {rightOpen&&document?<aside ref={rightPanelRef} className="fixed inset-y-0 right-0 z-50 h-full max-w-[94vw] shrink-0 border-l border-border bg-card shadow-xl lg:relative lg:inset-auto lg:z-auto lg:shadow-none" style={{width:rightWidth}} data-testid="document-assistant-panel" role={documentAssistantPersistent?undefined:'dialog'} aria-modal={documentAssistantPersistent?undefined:true} aria-label={documentAssistantPersistent?undefined:'Document AI Assistant'}><div role="separator" aria-label="Resize document assistant" onPointerDown={beginResize('right')} className="absolute inset-y-0 left-0 hidden w-1 cursor-col-resize bg-transparent hover:bg-primary/25 lg:block"/><button onClick={closeDocumentAssistant} className="absolute right-2 top-2 z-10 ce-icon-button lg:hidden" aria-label="Close document assistant"><PanelRightClose size={16}/></button><DocumentAssistantPanel document={document} preview={preview} onAsk={useInAssistant} onCitation={navigateCitation}/></aside>:null}
+      {rightCompactPanel.mounted?<div className={cn('fixed inset-0 z-40 bg-black/30 backdrop-blur-[1px] transition-opacity duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-move)] motion-reduce:duration-[var(--motion-duration-short)]',rightCompactPanel.visible?'pointer-events-auto opacity-100':'pointer-events-none opacity-0')} aria-hidden="true" onClick={closeDocumentAssistant} data-state={rightCompactPanel.visible?'open':'closed'} data-testid="document-assistant-overlay"/>:null}
+      {((rightOpen&&documentAssistantPersistent)||rightCompactPanel.mounted)&&document?<aside ref={rightPanelRef} className={cn('h-full max-w-[94vw] shrink-0 border-l border-border bg-card',documentAssistantPersistent?'relative inset-auto z-auto shadow-none':'fixed inset-y-0 right-0 z-50 shadow-xl transition-[transform,opacity] duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-drawer)] motion-reduce:translate-x-0 motion-reduce:duration-[var(--motion-duration-short)]',!documentAssistantPersistent&&(rightCompactPanel.visible?'pointer-events-auto translate-x-0 opacity-100':'pointer-events-none translate-x-full opacity-0'))} style={{width:rightWidth}} data-state={documentAssistantPersistent?undefined:rightCompactPanel.visible?'open':'closed'} data-testid="document-assistant-panel" role={!documentAssistantPersistent&&rightCompactPanel.visible?'dialog':undefined} aria-modal={!documentAssistantPersistent&&rightCompactPanel.visible?true:undefined} aria-hidden={!documentAssistantPersistent&&!rightCompactPanel.visible?true:undefined} aria-label={!documentAssistantPersistent&&rightCompactPanel.visible?'Document AI Assistant':undefined}><div role="separator" aria-label="Resize document assistant" onPointerDown={beginResize('right')} className="absolute inset-y-0 left-0 hidden w-1 cursor-col-resize bg-transparent hover:bg-primary/25 lg:block"/><button onClick={closeDocumentAssistant} className="absolute right-2 top-2 z-10 ce-icon-button lg:hidden" aria-label="Close document assistant"><PanelRightClose size={16}/></button><DocumentAssistantPanel document={document} preview={preview} onAsk={useInAssistant} onCitation={navigateCitation}/></aside>:null}
       </div>
     </div>
   );
