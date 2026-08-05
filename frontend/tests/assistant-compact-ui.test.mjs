@@ -83,7 +83,11 @@ test('real token deltas are buffered independently per request animation frame',
 
 test('source summary is collapsed by default and replaces permanent citation/source cards', () => {
   assert.match(sources, /useState\(false\)/);
-  assert.match(sources, /hidden=\{!expanded\}/);
+  assert.doesNotMatch(sources, /\shidden=\{!expanded\}/);
+  assert.match(sources, /grid-rows-\[1fr\]/);
+  assert.match(sources, /grid-rows-\[0fr\]/);
+  assert.match(sources, /inert=\{!expanded\}/);
+  assert.match(sources, /data-state=\{expanded \? 'open' : 'closed'\}/);
   assert.match(sources, /aria-expanded=\{expanded\}/);
   assert.match(sources, /aria-controls=\{contentId\}/);
   assert.doesNotMatch(message, /assistant-citations|CitationList/);

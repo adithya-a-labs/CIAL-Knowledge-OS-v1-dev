@@ -28,10 +28,12 @@ import { useSystemStatus } from '@/hooks/useSystemStatus';
 import { AIComposerFrame } from './AIComposer';
 import SaveToKnowledgeDialog from './SaveToKnowledgeDialog';
 import { isAssistantDraftId } from '@/lib/assistantNavigation';
+import { useReversiblePresence } from './useReversiblePresence';
 
 const supportedFileTypes = '.pdf,.docx,.pptx,.xlsx,.csv,.txt,image/*';
 const ASSISTANT_SOURCE_PANEL_SIZE_STORAGE_KEY = 'cial-assistant-source-panel-size';
 const DEFAULT_SOURCE_PANEL_SIZE = 40;
+const CHAT_BOTTOM_THRESHOLD_PX = 96;
 
 function createUploadedFileContext(file: File): UploadedFileContext {
   return {
@@ -97,7 +99,7 @@ export default function ChatPanel({ contextLocked = false }: { contextLocked?: b
     consumePendingComposer,
   } = useAssistantSessions();
   const [input, setInput] = useState('');
-  const [requestClock, setRequestClock] = useState(0);
+  const [, setRequestClock] = useState(0);
   const [actionByMessage, setActionByMessage] = useState<Record<string, string>>({});
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [saveKnowledgeMessage,setSaveKnowledgeMessage]=useState<ChatMessageData|null>(null);
@@ -111,11 +113,12 @@ export default function ChatPanel({ contextLocked = false }: { contextLocked?: b
   const [sourceViewerOpen, setSourceViewerOpen] = useState(false);
   const [isDesktopViewport, setIsDesktopViewport] = useState(() => window.innerWidth >= 1024);
   const [sourcePanelSize, setSourcePanelSize] = useState(readAssistantSourcePanelSize);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [sourcePanelResizing, setSourcePanelResizing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const requestRuntimesRef = useRef(new Map<string, LiveRequestRuntime>());
   const chatMessagesRef = useRef<HTMLDivElement>(null);
+  const autoFollowRef = useRef(true);
   const [chatMessagesWidth, setChatMessagesWidth] = useState<number>(0);
   const messages = activeSession.messages as ChatMessageData[];
   const isLoading = messages.some((message) => message.requestStatus === 'queued' || message.requestStatus === 'running');
@@ -163,6 +166,7 @@ export default function ChatPanel({ contextLocked = false }: { contextLocked?: b
     setInput('');
     setSelectedSource(null);
     setSourceViewerOpen(false);
+    autoFollowRef.current = true;
   }, [activeSession.id]);
 
   useEffect(() => {
@@ -179,8 +183,10 @@ export default function ChatPanel({ contextLocked = false }: { contextLocked?: b
   }, [messages, selectedSource]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isLoading, requestClock]);
+    const viewport = chatMessagesRef.current;
+    if (!viewport || !autoFollowRef.current) return;
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'auto' });
+  }, [messages]);
 
   useEffect(() => {
     if (!requestRuntimesRef.current.size) return;
@@ -366,6 +372,8 @@ export default function ChatPanel({ contextLocked = false }: { contextLocked?: b
       degraded: null,
     };
     requestRuntimesRef.current.set(requestId, runtime);
+    // A deliberate send is the user's request to resume following the active answer.
+    autoFollowRef.current = true;
     appendMessage(requestSessionId, userMsg);
     appendMessage(requestSessionId, placeholder);
     if (!questionOverride) setInput('');
@@ -643,6 +651,10 @@ export default function ChatPanel({ contextLocked = false }: { contextLocked?: b
       input.trim().length === 0 ? suggestedPrompts.slice(0, 5) : [];
   const hasSelectedSource = Boolean(selectedSource);
   const showDesktopSourcePane = hasSelectedSource && sourceViewerOpen && isDesktopViewport;
+  const desktopSourcePresence = useReversiblePresence(showDesktopSourcePane);
+  useEffect(() => {
+    if (!desktopSourcePresence.mounted) setSourcePanelResizing(false);
+  }, [desktopSourcePresence.mounted]);
   const sourceViewerSources = allVisibleSources.map((source) => ({
             ...source,
             documentId: toUuidDocumentId(source.documentId) ?? source.documentId,
@@ -651,6 +663,11 @@ export default function ChatPanel({ contextLocked = false }: { contextLocked?: b
       <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-testid="chat-panel">
         <div
             ref={chatMessagesRef}
+            onScroll={(event) => {
+              const viewport = event.currentTarget;
+              const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+              autoFollowRef.current = distanceFromBottom <= CHAT_BOTTOM_THRESHOLD_PX;
+            }}
             className="scrollbar-soft min-h-0 flex-1 overflow-y-auto bg-transparent px-3 pb-44 pt-4 sm:px-4 xl:px-5"
             data-testid="chat-messages"
         >
@@ -723,7 +740,6 @@ export default function ChatPanel({ contextLocked = false }: { contextLocked?: b
 
           </div>
         )}
-        <div ref={messagesEndRef} />
       </div>
 
       {backgroundIndexing > 0 && chatReady ? (
@@ -836,18 +852,27 @@ export default function ChatPanel({ contextLocked = false }: { contextLocked?: b
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-background" data-testid="assistant-workspace">
-      {showDesktopSourcePane ? (
-        <ResizablePanelGroup direction="horizontal" className="animate-in fade-in duration-200">
+      {desktopSourcePresence.mounted ? (
+        <ResizablePanelGroup
+          direction="horizontal"
+          className="hidden lg:flex"
+          data-resizing={sourcePanelResizing ? 'true' : 'false'}
+          data-testid="assistant-source-panel-group"
+        >
           <ResizablePanel
             defaultSize={100 - sourcePanelSize}
             minSize={30}
             order={1}
-            className="flex h-full min-h-0 min-w-0 flex-col transition-[flex-grow] duration-200 ease-out"
+            className="flex h-full min-h-0 min-w-0 flex-col"
             id="chat-panel-resizable"
           >
             {chatWorkspace}
           </ResizablePanel>
-          <ResizableHandle className="w-px bg-border after:hidden animate-in fade-in duration-200" />
+          <ResizableHandle
+            className={`w-px bg-border after:hidden transition-opacity duration-[var(--motion-duration-standard)] ease-[var(--motion-ease-enter)] ${desktopSourcePresence.visible ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
+            onDragging={setSourcePanelResizing}
+            data-testid="assistant-source-resize-handle"
+          />
           <ResizablePanel
             defaultSize={sourcePanelSize}
             minSize={25}
@@ -858,7 +883,7 @@ export default function ChatPanel({ contextLocked = false }: { contextLocked?: b
               setSourcePanelSize(size);
               writeAssistantSourcePanelSize(size);
             }}
-            className="flex h-full min-h-0 min-w-0 flex-col animate-in slide-in-from-right-3 fade-in duration-200"
+            className={`flex h-full min-h-0 min-w-0 flex-col transition-[opacity,transform] duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-drawer)] ${desktopSourcePresence.visible ? 'translate-x-0 opacity-100' : 'pointer-events-none translate-x-3 opacity-0'} ${desktopSourcePresence.reducedMotion ? '!translate-x-0' : ''}`}
             id="source-viewer-resizable"
           >
             <SourceViewerPanel
@@ -871,12 +896,12 @@ export default function ChatPanel({ contextLocked = false }: { contextLocked?: b
           </ResizablePanel>
         </ResizablePanelGroup>
       ) : (
-        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col animate-in fade-in duration-150">
+        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
           {chatWorkspace}
         </div>
       )}
 
-      {sourceViewerOpen && !isDesktopViewport && (
+      {!isDesktopViewport && (
         <SourceViewerPanel
           open={sourceViewerOpen}
           source={selectedSource}

@@ -3,7 +3,7 @@ import { Send } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function AIComposerFrame({ children, className, testId = 'compact-chat-composer' }: { children: ReactNode; className?: string; testId?: string }) {
-  return <div className={cn('assistant-composer mx-auto grid min-h-[108px] w-full max-w-6xl grid-cols-[minmax(0,1fr)_auto] grid-rows-[minmax(3rem,auto)_auto] rounded-[1.4rem] border border-border bg-card/95 shadow-sm transition-[transform,border-color,box-shadow,background-color] duration-[160ms]',className)} data-testid={testId}>{children}</div>;
+  return <div className={cn('assistant-composer mx-auto grid min-h-[108px] w-full max-w-6xl grid-cols-[minmax(0,1fr)_auto] grid-rows-[minmax(3rem,auto)_auto] rounded-[1.4rem] border border-border bg-card/95 shadow-sm transition-[transform,border-color,box-shadow,background-color] duration-[var(--motion-duration-short)] ease-[var(--motion-ease-enter)]',className)} data-testid={testId}>{children}</div>;
 }
 
 export default function AIComposer({ value, onChange, onSubmit, placeholder, disabled=false, toolbar, leadingAction, textareaRef, testId='shared-ai-composer' }: { value:string; onChange:(value:string)=>void; onSubmit:()=>void|Promise<void>; placeholder:string; disabled?:boolean; toolbar?:ReactNode; leadingAction?:ReactNode; textareaRef?:RefObject<HTMLTextAreaElement|null>; testId?:string }) {

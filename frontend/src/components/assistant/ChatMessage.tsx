@@ -186,7 +186,7 @@ function CitationInlineGroup({
               type="button"
               disabled={!source}
               onClick={() => source && onCitationClick(source)}
-              className="inline-citation inline-flex min-h-5 items-center justify-center rounded-full border border-primary/25 bg-primary/10 px-1.5 text-[10px] font-bold text-primary align-middle transition-colors duration-[160ms] hover:border-primary/40 hover:bg-primary/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-40"
+              className="inline-citation inline-flex min-h-5 items-center justify-center rounded-full border border-primary/25 bg-primary/10 px-1.5 text-[10px] font-bold text-primary align-middle transition-colors duration-[var(--motion-duration-short)] ease-[var(--motion-ease-enter)] hover:border-primary/40 hover:bg-primary/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-40"
               data-testid={`inline-citation-${reference.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`}
               aria-label={`Open citation ${reference.label}`}
             >
@@ -266,7 +266,7 @@ function createMarkdownComponents(
       <tbody>{children}</tbody>
     ),
     tr: ({ children }: ComponentPropsWithoutRef<'tr'>) => (
-      <tr className="border-b border-border/70 transition-colors duration-[160ms] last:border-b-0 hover:bg-muted/35">{children}</tr>
+      <tr className="border-b border-border/70 transition-colors duration-[var(--motion-duration-short)] ease-[var(--motion-ease-enter)] last:border-b-0 hover:bg-muted/35">{children}</tr>
     ),
     th: ({ children }: ComponentPropsWithoutRef<'th'>) => (
       <th className="safe-text border-b border-border px-3 py-2.5 text-left font-semibold text-foreground [&_p]:my-0 [&_p]:max-w-none">
@@ -366,7 +366,7 @@ export default function ChatMessage({
 
   return (
     <div className={`flex w-full ${isCentered ? 'justify-center' : 'justify-start'}`} data-testid={`chat-message-ai-${message.id}`}>
-      <div style={cardWidthStyle} className="space-y-3 pr-1 transition-all duration-200">
+      <div style={cardWidthStyle} className="space-y-3 pr-1">
         <div className="assistant-answer rounded-[1.5rem] border border-border bg-card px-5 py-4 shadow-sm lg:px-6">
           <div className="flex items-start gap-4">
             <span className="grounded-response-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white" aria-hidden="true"><Sparkles size={17} /></span>
