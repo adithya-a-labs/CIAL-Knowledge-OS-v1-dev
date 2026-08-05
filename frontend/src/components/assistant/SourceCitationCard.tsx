@@ -112,42 +112,56 @@ export default function SourceCitationCard({ sources, onOpenSource, includeExcer
         ) : null}
         <span className="ml-auto inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-primary">
           <span className="hidden sm:inline">View sources</span>
-          <ChevronDown size={16} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          <ChevronDown
+            size={16}
+            className={`transition-transform duration-[var(--motion-duration-standard)] ease-[var(--motion-ease-move)] motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}
+          />
         </span>
       </button>
 
-      <div id={contentId} hidden={!expanded} className="border-t border-border bg-background" data-testid="grouped-source-list">
-        {groups.map((group) => {
-          const badge = getSourceTypeStyles(group.sourceType);
-          return (
-            <article key={group.key} className="border-b border-border px-3.5 py-3 last:border-b-0 sm:px-4" data-testid="grouped-source-row">
-              <div className="flex min-w-0 items-start gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <h3 className="safe-text text-sm font-semibold text-foreground">{group.documentTitle}</h3>
-                    <span className={`ce-badge ${badge.className}`}>{badge.label}</span>
+      <div
+        id={contentId}
+        className={`grid transition-[grid-template-rows] duration-[var(--motion-duration-standard)] ease-[var(--motion-ease-move)] motion-reduce:transition-none ${expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}
+        aria-hidden={!expanded}
+        inert={!expanded}
+        data-state={expanded ? 'open' : 'closed'}
+        data-testid="grouped-source-list"
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className={`border-t border-border bg-background transition-opacity duration-[var(--motion-duration-short)] ease-[var(--motion-ease-enter)] motion-reduce:duration-[var(--motion-duration-press)] ${expanded ? 'opacity-100' : 'opacity-0'}`}>
+            {groups.map((group) => {
+              const badge = getSourceTypeStyles(group.sourceType);
+              return (
+                <article key={group.key} className="border-b border-border px-3.5 py-3 last:border-b-0 sm:px-4" data-testid="grouped-source-row">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <h3 className="safe-text text-sm font-semibold text-foreground">{group.documentTitle}</h3>
+                        <span className={`ce-badge ${badge.className}`}>{badge.label}</span>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                        {group.pages.length > 0 ? <span>Pages {group.pages.join(', ')}</span> : null}
+                        <span>Citations {group.citationIds.map((id) => `[${id}]`).join(', ')}</span>
+                        {group.department ? <span>{group.department}</span> : null}
+                      </div>
+                      {includeExcerpts && group.excerpt ? <p className="safe-text mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">{group.excerpt}</p> : null}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onOpenSource(group.sources[0])}
+                      className="ce-action min-h-8 shrink-0 px-2.5 text-primary"
+                      data-testid={`button-open-source-${group.sources[0].citationIndex}`}
+                      aria-label={`Open ${group.documentTitle} at citation ${group.sources[0].citationIndex}`}
+                    >
+                      <ExternalLink size={12} />
+                      <span className="hidden sm:inline">Open</span>
+                    </button>
                   </div>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                    {group.pages.length > 0 ? <span>Pages {group.pages.join(', ')}</span> : null}
-                    <span>Citations {group.citationIds.map((id) => `[${id}]`).join(', ')}</span>
-                    {group.department ? <span>{group.department}</span> : null}
-                  </div>
-                  {includeExcerpts && group.excerpt ? <p className="safe-text mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">{group.excerpt}</p> : null}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onOpenSource(group.sources[0])}
-                  className="ce-action min-h-8 shrink-0 px-2.5 text-primary"
-                  data-testid={`button-open-source-${group.sources[0].citationIndex}`}
-                  aria-label={`Open ${group.documentTitle} at citation ${group.sources[0].citationIndex}`}
-                >
-                  <ExternalLink size={12} />
-                  <span className="hidden sm:inline">Open</span>
-                </button>
-              </div>
-            </article>
-          );
-        })}
+                </article>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );

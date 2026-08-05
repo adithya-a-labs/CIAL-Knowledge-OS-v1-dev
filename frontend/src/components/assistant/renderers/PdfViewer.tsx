@@ -3,6 +3,7 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import { buildHighlightNeedles, clearTextMarks } from './highlight-utils';
+import { getReducedMotionPreference } from '@/hooks/useReducedMotionPreference';
 
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -93,7 +94,7 @@ export default function PdfViewer({
   useEffect(() => {
     const target = pagesRef.current.get(requestedPage);
     if (!target) return;
-    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    target.scrollIntoView({ behavior: getReducedMotionPreference() ? 'auto' : 'smooth', block: 'start' });
   }, [numPages, requestedPage]);
 
   useEffect(() => {
@@ -121,11 +122,11 @@ export default function PdfViewer({
       const onActivePage = activePageElement?.contains(node) ?? false;
       if (searchQuery.trim()) {
         node.dataset.pdfSearch = 'true';
-        node.classList.add('document-search-hit', 'transition-colors', 'duration-700');
+        node.classList.add('document-search-hit', 'transition-colors', 'duration-[var(--motion-duration-standard)]', 'ease-[var(--motion-ease-enter)]');
       }
       if (highlightText.trim() && onActivePage) {
         node.dataset.pdfHighlight = 'true';
-        node.classList.add('document-citation-hit', 'transition-colors', 'duration-700');
+        node.classList.add('document-citation-hit', 'transition-colors', 'duration-[var(--motion-duration-standard)]', 'ease-[var(--motion-ease-enter)]');
         matched = true;
         if (!firstHighlightNode) firstHighlightNode = node;
       }
@@ -133,7 +134,7 @@ export default function PdfViewer({
 
     const highlightTarget: HTMLElement | null = firstHighlightNode;
     if (highlightTarget) {
-      (highlightTarget as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      (highlightTarget as HTMLElement).scrollIntoView({ behavior: getReducedMotionPreference() ? 'auto' : 'smooth', block: 'center', inline: 'nearest' });
     }
     setHighlightResolved(highlightText.trim() ? matched : null);
   }, [activePage, highlightText, needles, numPages, searchQuery]);

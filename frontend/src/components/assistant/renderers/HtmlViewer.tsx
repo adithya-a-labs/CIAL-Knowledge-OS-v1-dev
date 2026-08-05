@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { zoomStyle } from './highlight-utils';
+import { getReducedMotionPreference } from '@/hooks/useReducedMotionPreference';
 
 interface HtmlViewerProps {
   html: string;
@@ -10,7 +11,7 @@ export default function HtmlViewer({ html, zoomLevel }: HtmlViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    containerRef.current?.scrollTo({ top: 0, behavior: getReducedMotionPreference() ? 'auto' : 'smooth' });
   }, [html]);
 
   return (

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { highlightHtml, zoomStyle } from './highlight-utils';
+import { getReducedMotionPreference } from '@/hooks/useReducedMotionPreference';
 
 interface TextViewerProps {
   text: string;
@@ -15,7 +16,7 @@ export default function TextViewer({ text, searchQuery, zoomLevel, code = false 
   useEffect(() => {
     const firstHit = containerRef.current?.querySelector('[data-search-hit="true"]');
     if (firstHit instanceof HTMLElement) {
-      firstHit.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      firstHit.scrollIntoView({ behavior: getReducedMotionPreference() ? 'auto' : 'smooth', block: 'center' });
     }
   }, [highlightedText]);
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
+import { getReducedMotionPreference } from '@/hooks/useReducedMotionPreference';
 
 interface HighlightExcerptProps {
   text?: string | null;
@@ -13,7 +14,10 @@ export default function HighlightExcerpt({ text, highlight, className }: Highlig
 
   useEffect(() => {
     if (!value) return;
-    containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    containerRef.current?.scrollIntoView({
+      behavior: getReducedMotionPreference() ? 'auto' : 'smooth',
+      block: 'nearest',
+    });
   }, [value]);
 
   if (!value) {
@@ -28,7 +32,7 @@ export default function HighlightExcerpt({ text, highlight, className }: Highlig
     <div
       ref={containerRef}
       className={cn(
-        'rounded-xl border border-primary/25 bg-primary/5 p-3 shadow-[0_0_0_0_rgba(74,124,63,0)] transition-shadow duration-700 data-[active=true]:shadow-[0_0_0_4px_rgba(74,124,63,0.16)]',
+        'rounded-xl border border-primary/25 bg-primary/5 p-3 shadow-[0_0_0_0_rgba(74,124,63,0)] transition-shadow duration-[var(--motion-duration-standard)] ease-[var(--motion-ease-enter)] motion-reduce:transition-none data-[active=true]:shadow-[0_0_0_4px_rgba(74,124,63,0.16)]',
         className,
       )}
       data-active="true"

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { highlightHtml, zoomStyle } from './highlight-utils';
+import { getReducedMotionPreference } from '@/hooks/useReducedMotionPreference';
 
 interface SpreadsheetViewerProps {
   rows: string[][];
@@ -25,7 +26,7 @@ export default function SpreadsheetViewer({
   useEffect(() => {
     const firstHit = containerRef.current?.querySelector('[data-search-hit="true"]');
     if (firstHit instanceof HTMLElement) {
-      firstHit.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+      firstHit.scrollIntoView({ behavior: getReducedMotionPreference() ? 'auto' : 'smooth', block: 'center', inline: 'center' });
     }
   }, [table]);
 

@@ -49,6 +49,12 @@ export function clearTextMarks(root: ParentNode) {
     if (!(node instanceof HTMLElement)) return;
     node.dataset.pdfHighlight = '';
     node.dataset.pdfSearch = '';
-    node.classList.remove('document-citation-hit', 'document-search-hit', 'transition-colors', 'duration-700');
+    node.classList.remove(
+      'document-citation-hit',
+      'document-search-hit',
+      'transition-colors',
+      'duration-[var(--motion-duration-standard)]',
+      'ease-[var(--motion-ease-enter)]',
+    );
   });
 }
