@@ -91,7 +91,7 @@ export default function Sidebar({ collapsed, onCollapsedChange }: SidebarProps) 
 
   return (
     <aside
-      className={`fixed left-0 top-0 z-30 hidden h-dvh flex-col overflow-hidden border-r border-sidebar-border bg-sidebar/95 text-sidebar-foreground backdrop-blur transition-[width] duration-[180ms] ease-out lg:flex ${
+      className={`fixed left-0 top-0 z-30 hidden h-dvh flex-col overflow-hidden border-r border-sidebar-border bg-sidebar/95 text-sidebar-foreground backdrop-blur transition-[width] duration-[var(--motion-duration-standard)] ease-[var(--motion-ease-move)] lg:flex ${
         collapsed ? 'w-16' : 'w-60'
       }`}
       data-testid="sidebar"
@@ -127,7 +127,7 @@ export default function Sidebar({ collapsed, onCollapsedChange }: SidebarProps) 
                     event.preventDefault();
                     startNewConversation(navigate);
                   }}
-                  className={`flex h-11 items-center rounded-xl text-sm font-medium transition-colors duration-[160ms] ${focusRing} ${itemLayout} ${
+                  className={`flex h-11 items-center rounded-xl text-sm font-medium transition-colors duration-[var(--motion-duration-short)] ease-[var(--motion-ease-move)] ${focusRing} ${itemLayout} ${
                     active
                       ? 'bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.12)]'
                       : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'

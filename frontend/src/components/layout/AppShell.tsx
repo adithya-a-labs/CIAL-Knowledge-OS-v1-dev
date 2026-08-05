@@ -17,6 +17,7 @@ export default function AppShell({ children }: AppShellProps) {
     () => window.matchMedia(MOBILE_NAVIGATION_QUERY).matches,
   );
   const [location] = useLocation();
+  const mobileNavigationTriggerRef = useRef<HTMLButtonElement>(null);
   const isAssistantWorkspace = location.startsWith('/assistant');
   const isDocumentWorkspace = location.startsWith('/knowledge/document/');
   const isNotebookWorkspace = location.startsWith('/notebooks/') && location !== '/notebooks';
@@ -65,8 +66,13 @@ export default function AppShell({ children }: AppShellProps) {
   return (
     <div className="app-shell h-screen overflow-hidden">
       <Sidebar collapsed={globalNavCollapsed} onCollapsedChange={handleGlobalNavCollapsedChange} />
-      <MobileSidebarDrawer open={mobileViewport && mobileOpen} onClose={() => setMobileOpen(false)} />
+      <MobileSidebarDrawer
+        open={mobileViewport && mobileOpen}
+        onClose={() => setMobileOpen(false)}
+        returnFocusRef={mobileNavigationTriggerRef}
+      />
       <button
+        ref={mobileNavigationTriggerRef}
         onClick={() => setMobileOpen(true)}
         className="fixed left-3 top-3 z-40 inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg border border-border bg-popover/92 text-muted-foreground shadow-sm backdrop-blur transition hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring lg:hidden"
         data-testid="button-hamburger"
@@ -75,7 +81,7 @@ export default function AppShell({ children }: AppShellProps) {
         <Menu size={18} />
       </button>
 
-      <div className={`flex h-screen min-w-0 flex-col overflow-hidden transition-[padding] duration-200 ease-out ${globalNavCollapsed ? 'lg:pl-16' : 'lg:pl-60'}`}>
+      <div className={`flex h-screen min-w-0 flex-col overflow-hidden transition-[padding] duration-[var(--motion-duration-standard)] ease-[var(--motion-ease-move)] ${globalNavCollapsed ? 'lg:pl-16' : 'lg:pl-60'}`}>
         <main
           className={`flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-y-auto ${
             isAssistantWorkspace || isDocumentWorkspace || isNotebookWorkspace

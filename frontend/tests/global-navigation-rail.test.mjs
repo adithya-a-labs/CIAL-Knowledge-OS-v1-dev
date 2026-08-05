@@ -17,7 +17,7 @@ test('document workspace retains one persistent global navigation rail', () => {
   assert.doesNotMatch(shell, /!isDocumentWorkspace\?<Sidebar/);
   assert.match(shell, /globalNavCollapsed \? 'lg:pl-16' : 'lg:pl-60'/);
   assert.match(sidebar, /collapsed \? 'w-16' : 'w-60'/);
-  assert.match(sidebar, /duration-\[180ms\] ease-out/);
+  assert.match(sidebar, /duration-\[var\(--motion-duration-standard\)\] ease-\[var\(--motion-ease-move\)\]/);
 });
 
 test('collapsed navigation is labelled, tooltip-enabled, and route-aware', () => {
@@ -33,10 +33,10 @@ test('collapsed navigation is labelled, tooltip-enabled, and route-aware', () =>
 test('corpus tree and assistant remain separate responsive workspace panels', () => {
   assert.match(workspace, /data-testid="corpus-tree-panel"/);
   assert.match(workspace, /CORPUS_TREE_PERSISTENT_QUERY = '\(min-width: 1280px\)'/);
-  assert.match(workspace, /xl:relative/);
+  assert.match(workspace, /corpusTreePersistent\?'relative inset-auto z-auto shadow-none'/);
   assert.match(workspace, /data-testid="document-assistant-panel"/);
   assert.match(workspace, /DOCUMENT_ASSISTANT_PERSISTENT_QUERY = '\(min-width: 1024px\)'/);
-  assert.match(workspace, /lg:relative/);
+  assert.match(workspace, /documentAssistantPersistent\?'relative inset-auto z-auto shadow-none'/);
   assert.match(workspace, /setRightOpen\(false\)/);
   assert.match(workspace, /setLeftOpen\(false\)/);
   assert.doesNotMatch(workspace, /CIAL Knowledge OS/);

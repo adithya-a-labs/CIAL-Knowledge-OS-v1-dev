@@ -17,9 +17,10 @@ import {
 interface MobileSidebarDrawerProps {
   open: boolean;
   onClose: () => void;
+  returnFocusRef: React.RefObject<HTMLButtonElement | null>;
 }
 
-export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDrawerProps) {
+export default function MobileSidebarDrawer({ open, onClose, returnFocusRef }: MobileSidebarDrawerProps) {
   const [location, navigate] = useLocation();
   const { setOpen } = useCommandPalette();
   const { logout, userView } = useAuth();
@@ -45,10 +46,13 @@ export default function MobileSidebarDrawer({ open, onClose }: MobileSidebarDraw
         side="left"
         showCloseButton={false}
         onCloseAutoFocus={(event) => {
-          if (!searchHandoffPending.current) return;
           event.preventDefault();
-          searchHandoffPending.current = false;
-          window.requestAnimationFrame(() => setOpen(true));
+          if (searchHandoffPending.current) {
+            searchHandoffPending.current = false;
+            window.requestAnimationFrame(() => setOpen(true));
+            return;
+          }
+          window.requestAnimationFrame(() => returnFocusRef.current?.focus());
         }}
         className="flex h-full w-[min(19rem,86vw)] flex-col gap-0 border-r border-sidebar-border bg-sidebar p-0 text-sidebar-foreground shadow-2xl sm:max-w-[19rem]"
         data-testid="mobile-sidebar"
