@@ -124,7 +124,7 @@ function OptionCard<T extends string>({
       aria-checked={selected}
       onClick={onSelect}
       className={cn(
-        'group flex w-full items-center gap-4 rounded-xl border px-4 py-4 text-left transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+        'group flex w-full items-center gap-4 rounded-xl border px-4 py-4 text-left transition-[border-color,background-color,box-shadow,color] duration-[var(--motion-duration-standard)] ease-[var(--motion-ease-enter)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
         selected
           ? 'border-primary/55 bg-primary/10 shadow-sm'
           : 'border-border bg-card hover:border-border-strong hover:bg-muted hover:shadow-sm'
@@ -132,7 +132,7 @@ function OptionCard<T extends string>({
     >
       <span
         className={cn(
-          'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-colors duration-200',
+          'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-colors duration-[var(--motion-duration-standard)] ease-[var(--motion-ease-enter)]',
           selected ? 'bg-primary text-white' : option.iconTone ?? 'bg-muted text-muted-foreground'
         )}
       >
@@ -154,7 +154,7 @@ function OptionCard<T extends string>({
       <span
         aria-hidden="true"
         className={cn(
-          'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-200',
+          'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-[var(--motion-duration-standard)] ease-[var(--motion-ease-enter)]',
           selected ? 'border-primary bg-primary' : 'border-border-strong bg-card group-hover:border-primary'
         )}
       >

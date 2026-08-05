@@ -43,6 +43,35 @@ const instrument = (page) => {
   });
 };
 
+const readAppearanceMotion = (locator) => locator.evaluate((element) => {
+  const readTransition = (target) => {
+    const style = getComputedStyle(target);
+    return {
+      duration: style.transitionDuration,
+      timing: style.transitionTimingFunction,
+      property: style.transitionProperty,
+    };
+  };
+  const thumb = element.querySelector('.appearance-toggle-thumb');
+  const option = element.querySelector('.appearance-option');
+  const icon = option.querySelector('svg');
+  return {
+    root: readTransition(element),
+    thumb: readTransition(thumb),
+    option: readTransition(option),
+    icon: readTransition(icon),
+  };
+});
+
+const usesSynchronizedAppearanceMotion = (motion) => {
+  const transitions = [motion.root, motion.thumb, motion.option, motion.icon];
+  return transitions.every(({ duration }) => duration.split(', ').every((value) => value === '0.18s'))
+    && transitions.every(({ timing }) => timing
+      .replaceAll('cubic-bezier(0.77, 0, 0.175, 1)', '')
+      .replaceAll(',', '')
+      .trim() === '');
+};
+
 await mkdir(artifactDir, { recursive: true });
 const browser = await chromium.launch({ headless: true });
 
@@ -108,6 +137,10 @@ try {
   check('System remains the selected preference while resolved light', expandedState.selectedName === 'System', {
     state: expandedState,
   });
+  const expandedMotion = await readAppearanceMotion(expanded);
+  check('expanded Appearance motion is synchronized at 180ms', usesSynchronizedAppearanceMotion(
+    expandedMotion,
+  ), { motion: expandedMotion });
 
   await page.setViewportSize({ width: 1440, height: 950 });
   check('expanded 1440x950 has no horizontal overflow', await page.evaluate(
@@ -133,6 +166,10 @@ try {
       (element) => element.parentElement?.getAttribute('aria-orientation'),
     ),
   });
+  const collapsedMotion = await readAppearanceMotion(collapsed);
+  check('collapsed Appearance motion is synchronized at 180ms', usesSynchronizedAppearanceMotion(
+    collapsedMotion,
+  ), { motion: collapsedMotion });
   await collapsed.getByRole('radio', { name: 'Dark' }).focus();
   await page.keyboard.press('ArrowUp');
   check('vertical ArrowUp selects and focuses System', await collapsed.getByRole('radio', { name: 'System' }).evaluate(
@@ -157,6 +194,10 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByTestId('button-hamburger').click();
   const mobile = page.getByTestId('appearance-toggle-mobile');
+  const mobileMotion = await readAppearanceMotion(mobile);
+  check('mobile Appearance motion is synchronized at 180ms', usesSynchronizedAppearanceMotion(
+    mobileMotion,
+  ), { motion: mobileMotion });
   const labelsAt390 = await mobile.locator('.appearance-option-label').evaluateAll(
     (elements) => elements.map((element) => getComputedStyle(element).display),
   );
@@ -186,6 +227,7 @@ try {
   ).evaluate((element) => element.getAttribute('aria-checked') === 'true' && document.activeElement === element));
   check('keyboard selection does not close mobile drawer', await page.getByTestId('mobile-sidebar').isVisible());
   await page.getByTestId('button-close-sidebar').click();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('data-testid') === 'button-hamburger');
   check('mobile drawer close restores focus', await page.getByTestId('button-hamburger').evaluate(
     (element) => document.activeElement === element,
   ));
@@ -218,15 +260,18 @@ try {
   await reducedPage.goto(baseUrl);
   await reducedPage.evaluate(() => localStorage.setItem('cial-theme', 'system'));
   await reducedPage.reload();
-  const reducedMotion = await reducedPage.getByTestId('appearance-toggle-expanded').locator(
-    '.appearance-toggle-thumb',
-  ).evaluate((element) => ({
-    matches: matchMedia('(prefers-reduced-motion: reduce)').matches,
-    duration: getComputedStyle(element).transitionDuration,
-  }));
-  check('reduced motion normalizes thumb movement', reducedMotion.matches && reducedMotion.duration.split(
-    ',',
-  ).every((duration) => Number.parseFloat(duration) <= 0.001), { reducedMotion });
+  const reducedToggle = reducedPage.getByTestId('appearance-toggle-expanded');
+  const reducedMotion = await readAppearanceMotion(reducedToggle);
+  const reducedMotionMatches = await reducedPage.evaluate(
+    () => matchMedia('(prefers-reduced-motion: reduce)').matches,
+  );
+  check('reduced motion removes spatial Appearance travel but preserves color feedback',
+    reducedMotionMatches
+      && reducedMotion.root.duration.split(', ').every((duration) => duration === '0s')
+      && reducedMotion.thumb.duration.split(', ').every((duration) => duration === '0s')
+      && reducedMotion.option.duration.split(', ').every((duration) => duration === '0.18s')
+      && reducedMotion.icon.duration.split(', ').every((duration) => duration === '0.18s'),
+    { reducedMotion });
   await reducedContext.close();
 } catch (error) {
   exceptions.push(error instanceof Error ? error.stack ?? error.message : String(error));
