@@ -111,11 +111,12 @@ export default function KnowledgeGraphPage() {
                     data-testid={`graph-node-${node.id}`}
                   >
                     <circle
-                      r={isSelected || isHovered ? r + 4 : r}
+                      r={r}
                       fill={node.color}
                       stroke={isSelected ? '#fff' : 'transparent'}
                       strokeWidth={isSelected ? 3 : 0}
-                      className="transition-all duration-150"
+                      className="motion-spatial origin-center transition-transform duration-[var(--motion-duration-short)] ease-[var(--motion-ease-move)] [transform-box:fill-box]"
+                      style={{ transform: isSelected || isHovered ? `scale(${(r + 4) / r})` : 'scale(1)' }}
                       filter={isSelected ? 'drop-shadow(0 0 8px rgba(74,124,63,0.6))' : undefined}
                     />
                     <text

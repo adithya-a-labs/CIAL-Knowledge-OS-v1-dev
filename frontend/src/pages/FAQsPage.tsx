@@ -117,7 +117,7 @@ function PopularQuestionCard({
   const Icon = item.icon;
 
   return (
-    <article className="flex min-h-64 min-w-[17rem] flex-1 flex-col rounded-xl border border-border bg-card p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-border hover:shadow-md lg:min-w-0">
+    <article className="flex min-h-64 min-w-[17rem] flex-1 flex-col rounded-xl border border-border bg-card p-4 shadow-sm lg:min-w-0">
       <div className="mb-4 flex items-start gap-3">
         <span className={cn('inline-flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl', item.iconClassName)}>
           <Icon size={24} />
@@ -150,7 +150,7 @@ function CategoryCard({ category }: { category: (typeof quickAnswerCategories)[n
   return (
     <button
       type="button"
-      className="flex min-h-20 items-center gap-3 rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-border hover:bg-muted hover:shadow-md"
+      className="flex min-h-20 items-center gap-3 rounded-xl border border-border bg-card p-4 text-left shadow-sm transition-[border-color,background-color,box-shadow] duration-[var(--motion-duration-short)] ease-[var(--motion-ease-move)] hover:border-border hover:bg-muted hover:shadow-md"
     >
       <span className={cn('inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl', category.iconClassName)}>
         <Icon size={22} />

@@ -7,7 +7,7 @@ function ScoreBar({ score }: { score: number }) {
   return (
     <div className="flex items-center gap-2">
       <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-        <div className="h-full rounded-full transition-all" style={{ width: `${score}%`, backgroundColor: color }} />
+        <div className="h-full rounded-full" style={{ width: `${score}%`, backgroundColor: color }} />
       </div>
       <span className="text-xs font-bold" style={{ color }}>{score}</span>
     </div>
@@ -79,7 +79,7 @@ export default function ExpertDirectoryPage() {
           {filtered.map(expert => (
             <div
               key={expert.id}
-              className="fluid-card responsive-card flex min-w-0 flex-col gap-4 border border-border bg-card p-5 shadow-sm transition-all hover:border-primary hover:shadow-md"
+              className="fluid-card responsive-card flex min-w-0 flex-col gap-4 border border-border bg-card p-5 shadow-sm hover:border-primary hover:shadow-md"
               data-testid={`expert-card-${expert.id}`}
             >
               {/* Top row */}

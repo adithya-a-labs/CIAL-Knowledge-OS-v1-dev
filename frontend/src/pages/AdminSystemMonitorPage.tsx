@@ -288,11 +288,11 @@ function AuthorizedMonitor() {
           <div className="mt-5 space-y-4">
             <div>
               <div className="flex justify-between text-xs"><span className="text-muted-foreground">Utilisation</span><span className="font-semibold">{formatNumber(data.gpu.utilization_percent, '%')}</span></div>
-              <div className="mt-2 h-2 rounded-full bg-muted"><div className="h-2 rounded-full bg-[#4a8a3d] transition-all" style={{ width: `${Math.min(data.gpu.utilization_percent ?? 0, 100)}%` }} /></div>
+              <div className="mt-2 h-2 rounded-full bg-muted"><div className="h-2 rounded-full bg-[#4a8a3d]" style={{ width: `${Math.min(data.gpu.utilization_percent ?? 0, 100)}%` }} /></div>
             </div>
             <div>
               <div className="flex justify-between text-xs"><span className="text-muted-foreground">VRAM</span><span className="font-semibold">{data.gpu.memory_used_mb === null ? 'Unavailable' : `${data.gpu.memory_used_mb} / ${data.gpu.memory_total_mb} MB`}</span></div>
-              <div className="mt-2 h-2 rounded-full bg-muted"><div className="h-2 rounded-full bg-info/100 transition-all" style={{ width: `${data.gpu.memory_total_mb ? Math.min((data.gpu.memory_used_mb ?? 0) / data.gpu.memory_total_mb * 100, 100) : 0}%` }} /></div>
+              <div className="mt-2 h-2 rounded-full bg-muted"><div className="h-2 rounded-full bg-info/100" style={{ width: `${data.gpu.memory_total_mb ? Math.min((data.gpu.memory_used_mb ?? 0) / data.gpu.memory_total_mb * 100, 100) : 0}%` }} /></div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <Metric label="GPU" value={data.gpu.device_name ?? 'Unavailable'} detail={data.gpu.driver_version ? `Driver ${data.gpu.driver_version}` : undefined} />

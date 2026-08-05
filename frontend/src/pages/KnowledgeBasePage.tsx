@@ -64,7 +64,7 @@ export default function KnowledgeBasePage() {
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategory(selectedCategory === cat.name ? '' : cat.name)}
-                className={`fluid-card min-h-28 rounded-xl border bg-gradient-to-br p-4 text-left transition-all hover:shadow-md ${CATEGORY_COLORS[idx % CATEGORY_COLORS.length]} ${selectedCategory === cat.name ? 'ring-2 ring-[#4a7c3f] ring-offset-1' : ''}`}
+                className={`fluid-card min-h-28 rounded-xl border bg-gradient-to-br p-4 text-left hover:shadow-md ${CATEGORY_COLORS[idx % CATEGORY_COLORS.length]} ${selectedCategory === cat.name ? 'ring-2 ring-[#4a7c3f] ring-offset-1' : ''}`}
                 data-testid={`category-card-${cat.id}`}
               >
                 <IconComp size={20} className={`${ICON_COLORS[idx % ICON_COLORS.length]} mb-2`} />
