@@ -163,10 +163,12 @@ inactive text `#7D877A`, and selected icon `#82B36F`.
 - Theme controls expose their current preference through their accessible name
   and checked menu item.
 - Theme changes do not use a long whole-page fade. Startup resolution suppresses
-  transition artifacts, and existing `prefers-reduced-motion` behavior remains
-  authoritative.
-- Dark interactions use `140–180ms` transitions. Pressed movement is limited to
-  one pixel, and reduced-motion removes non-essential transitions and movement.
+  transition artifacts, and `prefers-reduced-motion` remains authoritative.
+- The appearance thumb and its selected visual state move as one synchronized
+  `180ms` transition using the shared movement easing. Pressed movement is
+  limited to one pixel.
+- Reduced motion removes thumb travel while preserving immediate selected-state,
+  color, border, and focus feedback.
 
 ## Playwright coverage
 

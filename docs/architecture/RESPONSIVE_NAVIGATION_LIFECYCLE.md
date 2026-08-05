@@ -33,9 +33,18 @@ unmount removes its overlay and focus listener. Below `1024px`, the document
 toolbar retains a leading inset for the fixed global-navigation trigger so the
 Corpus Tree control remains a separate touch target.
 
+Compact workspace overlays use a reversible `220ms` lifecycle. Closing first
+makes the backdrop and panel non-interactive and hidden from assistive
+technology, then unmounts them after the exit transition. Reopening during that
+window cancels unmount and retargets from the current visual state. Escape,
+outside-click, close-button, breakpoint, route, refresh, and unmount paths all
+use the same cleanup boundary. Reduced motion removes spatial travel without
+changing focus restoration, modal ownership, or final unmount behavior.
+
 ## Required lifecycle checks
 
-The normal closed state has no inline body/html overflow or pointer-events, no
+The settled closed state, after the bounded exit lifecycle, has no inline
+body/html overflow or pointer-events, no
 `data-scroll-locked`, no unexpected inert nodes, no hidden dialog, and no
 invisible full-screen overlay. An open Radix sheet may temporarily own those
 library-managed protections, but all must be restored after close, navigation,

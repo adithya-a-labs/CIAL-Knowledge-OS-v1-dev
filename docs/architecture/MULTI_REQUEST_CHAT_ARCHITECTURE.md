@@ -303,6 +303,14 @@ accessible Stop/Retry/status surface per request, replaces placeholders
 in-place, aliases a single draft session UUID to the persisted session, and
 aborts/removes provisional state on auth invalidation or chat-panel unmount.
 
+The chat viewport follows streamed updates only while the reader is within the
+near-bottom threshold. Intentional upward scrolling suspends follow; returning
+near the bottom or submitting a new prompt resumes it. The one-second request
+clock and loading-state updates never initiate scrolling. Programmatic follow
+does not enqueue repeated smooth-scroll animations, and reduced-motion mode is
+always instant. Desktop pane resizing is direct manipulation: flex, width,
+margin, and answer-card geometry do not transition while the pointer is down.
+
 Verification includes the 541-test backend suite, final targeted
 concurrency/isolation tests, 85 frontend contract tests, TypeScript typecheck,
 an isolated production build, offline Alembic SQL rendering, deterministic
