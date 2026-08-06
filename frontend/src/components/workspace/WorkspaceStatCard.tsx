@@ -24,7 +24,7 @@ export default function WorkspaceStatCard({ stat }: WorkspaceStatCardProps) {
 
   return (
     <div
-      className="fluid-card responsive-card flex min-w-0 flex-col gap-3 border border-border bg-card p-4 shadow-sm hover:border-border-strong hover:shadow-md"
+      className="fluid-card responsive-card flex min-w-0 flex-col gap-3 border border-border bg-card p-4 shadow-sm"
       data-testid={`workspace-stat-${stat.key}`}
     >
       <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${colorCls}`}>

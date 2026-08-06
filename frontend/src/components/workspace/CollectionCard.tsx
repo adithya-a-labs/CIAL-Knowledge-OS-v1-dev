@@ -8,14 +8,14 @@ interface CollectionCardProps {
 export function CollectionCard({ collection }: CollectionCardProps) {
   return (
     <div
-      className="fluid-card responsive-card flex min-h-32 cursor-pointer flex-col gap-2 border border-border bg-card p-4 shadow-sm hover:border-primary hover:shadow-md"
+      className="fluid-card responsive-card flex min-h-32 flex-col gap-2 border border-border bg-card p-4 shadow-sm"
       data-testid={`collection-card-${collection.id}`}
     >
       <div className="flex items-start justify-between">
         <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center">
           <FolderOpen size={18} className="text-primary" />
         </div>
-        <button className="p-1 rounded hover:bg-accent text-muted-foreground">
+        <button className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring" aria-label={`More actions for ${collection.name}`}>
           <MoreVertical size={14} />
         </button>
       </div>

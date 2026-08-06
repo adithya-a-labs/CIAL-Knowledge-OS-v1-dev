@@ -20,7 +20,7 @@ export default function StatCard({ label, value, delta, trend, icon, iconBg, vie
 
   return (
     <div
-      className="fluid-card responsive-card min-w-0 border border-border bg-card p-4 shadow-sm hover:border-border-strong hover:shadow-md"
+      className="fluid-card responsive-card min-w-0 border border-border bg-card p-4 shadow-sm"
       data-testid={`stat-card-${label.toLowerCase().replace(/\s+/g, '-')}`}
     >
       <div className="flex items-start justify-between gap-3">
