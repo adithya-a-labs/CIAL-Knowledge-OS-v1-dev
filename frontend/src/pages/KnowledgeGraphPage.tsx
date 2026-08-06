@@ -15,7 +15,6 @@ const NODE_RADIUS: Record<string, number> = {
 export default function KnowledgeGraphPage() {
   const [selectedNode, setSelectedNode] = useState<KGNode | null>(null);
   const [search, setSearch] = useState('');
-  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
 
   const searchLower = search.toLowerCase();
   const highlighted = search
@@ -98,14 +97,11 @@ export default function KnowledgeGraphPage() {
                 const r = NODE_RADIUS[node.type] ?? 16;
                 const opacity = getNodeOpacity(node.id);
                 const isSelected = selectedNode?.id === node.id;
-                const isHovered = hoveredNode === node.id;
                 return (
                   <g
                     key={node.id}
                     transform={`translate(${node.x},${node.y})`}
                     onClick={() => setSelectedNode(isSelected ? null : node)}
-                    onMouseEnter={() => setHoveredNode(node.id)}
-                    onMouseLeave={() => setHoveredNode(null)}
                     className="cursor-pointer"
                     opacity={opacity}
                     data-testid={`graph-node-${node.id}`}
@@ -115,8 +111,8 @@ export default function KnowledgeGraphPage() {
                       fill={node.color}
                       stroke={isSelected ? '#fff' : 'transparent'}
                       strokeWidth={isSelected ? 3 : 0}
-                      className="motion-spatial origin-center transition-transform duration-[var(--motion-duration-short)] ease-[var(--motion-ease-move)] [transform-box:fill-box]"
-                      style={{ transform: isSelected || isHovered ? `scale(${(r + 4) / r})` : 'scale(1)' }}
+                      className="knowledge-graph-node motion-spatial origin-center transition-transform duration-[var(--motion-duration-short)] ease-[var(--motion-ease-move)] [transform-box:fill-box]"
+                      data-selected={isSelected ? 'true' : 'false'}
                       filter={isSelected ? 'drop-shadow(0 0 8px rgba(74,124,63,0.6))' : undefined}
                     />
                     <text

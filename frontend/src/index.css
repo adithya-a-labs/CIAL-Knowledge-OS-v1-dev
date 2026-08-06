@@ -830,14 +830,16 @@
 
   .fluid-card {
     transition:
-      transform var(--motion-duration-standard) var(--motion-ease-move),
       border-color var(--motion-duration-standard) var(--motion-ease-move),
       box-shadow var(--motion-duration-standard) var(--motion-ease-move),
       background-color var(--motion-duration-standard) var(--motion-ease-move);
   }
 
-  .fluid-card:hover {
-    transform: translateY(-1px);
+  @media (hover: hover) and (pointer: fine) {
+    [data-testid^="graph-node-"]:hover .knowledge-graph-node,
+    .knowledge-graph-node[data-selected="true"] {
+      transform: scale(1.12);
+    }
   }
 
   .fluid-filter-row {
@@ -904,8 +906,6 @@
     }
 
     .assistant-composer:hover,
-    .fluid-card:hover,
-    .cial-card:hover,
     [class*="hover:-translate"]:hover {
       transform: none !important;
     }
@@ -994,14 +994,8 @@
     border: 1px solid hsl(var(--border));
     box-shadow: var(--shadow-sm);
     transition:
-      transform var(--motion-duration-standard) var(--motion-ease-move),
       box-shadow var(--motion-duration-standard) var(--motion-ease-move),
       border-color var(--motion-duration-standard) var(--motion-ease-move);
-  }
-
-  .cial-card:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-md);
   }
 
   .cial-hero-gradient {
