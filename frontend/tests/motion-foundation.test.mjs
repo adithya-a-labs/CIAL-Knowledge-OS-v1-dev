@@ -57,6 +57,8 @@ test('audited application scope never reintroduces broad transition-all utilitie
     ...collectSourceFiles('src/components/knowledge-center/'),
     ...collectSourceFiles('src/components/documents/'),
     ...collectSourceFiles('src/components/workspace/'),
+    ...collectSourceFiles('src/components/dashboard/'),
+    ...collectSourceFiles('src/components/ui/'),
     ...collectSourceFiles('src/pages/'),
   ];
   const offenders = files.filter((file) => /\btransition-all\b|transition\s*:\s*all\b/.test(read(file)));
@@ -64,15 +66,53 @@ test('audited application scope never reintroduces broad transition-all utilitie
   assert.deepEqual(offenders, [], `Broad transitions found in: ${offenders.join(', ')}`);
 });
 
+test('shared primitives use the motion vocabulary without delaying repeated work', () => {
+  const sheet = read('src/components/ui/sheet.tsx');
+  const tooltip = read('src/components/ui/tooltip.tsx');
+  const progress = read('src/components/ui/progress.tsx');
+  const tabs = read('src/components/ui/tabs.tsx');
+
+  assert.match(sheet, /duration-\[var\(--motion-duration-panel\)\]/);
+  assert.match(sheet, /ease-\[var\(--motion-ease-drawer\)\]/);
+  assert.doesNotMatch(sheet, /duration-(?:300|500)|ease-in-out/);
+  assert.match(tooltip, /data-\[state=delayed-open\]:animate-in/);
+  assert.doesNotMatch(tooltip, /(?<!delayed-open\]:)animate-in/);
+  assert.match(progress, /value=\{value\}/);
+  assert.match(progress, /transition-transform/);
+  assert.match(tabs, /transition-\[background-color,color,box-shadow\]/);
+});
+
 test('graph hover and FAQ cards retain targeted, purposeful feedback', () => {
+  const css = read('src/index.css');
   const graph = read('src/pages/KnowledgeGraphPage.tsx');
   const faq = read('src/pages/FAQsPage.tsx');
 
-  assert.match(graph, /className="motion-spatial origin-center transition-transform/);
+  assert.match(graph, /className="knowledge-graph-node motion-spatial origin-center transition-transform/);
   assert.match(graph, /\[transform-box:fill-box\]/);
   assert.doesNotMatch(graph, /r=\{isSelected \|\| isHovered/);
+  assert.doesNotMatch(graph, /onMouseEnter|onMouseLeave|hoveredNode/);
+  assert.match(css, /@media \(hover: hover\) and \(pointer: fine\)[\s\S]*graph-node-[\s\S]*knowledge-graph-node/);
   assert.doesNotMatch(faq, /<article[^>]*hover:-translate/);
   assert.doesNotMatch(faq, /hover:-translate-y/);
+});
+
+test('non-interactive cards remain static and expose only real controls as interactive', () => {
+  const css = read('src/index.css');
+  const collections = read('src/components/workspace/CollectionCard.tsx');
+  const staticCards = [
+    read('src/components/common/StatCard.tsx'),
+    read('src/components/workspace/WorkspaceStatCard.tsx'),
+    read('src/pages/AnalyticsPage.tsx'),
+    read('src/pages/ExpertDirectoryPage.tsx'),
+    read('src/pages/LearningHubPage.tsx'),
+    read('src/pages/KnowledgeGapsPage.tsx'),
+    read('src/pages/AdminSettingsPage.tsx'),
+  ].join('\n');
+
+  assert.doesNotMatch(css, /\.fluid-card:hover/);
+  assert.doesNotMatch(collections, /className="[^"]*cursor-pointer[^"]*"\s+data-testid=\{`collection-card/);
+  assert.match(collections, /aria-label=\{`More actions for \$\{collection\.name\}`\}/);
+  assert.doesNotMatch(staticCards, /fluid-card[^"\n]*hover:(?:border|shadow)/);
 });
 
 test('JavaScript note navigation makes reduced-motion scrolling immediate', () => {

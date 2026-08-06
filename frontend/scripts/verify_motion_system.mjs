@@ -288,6 +288,13 @@ try {
   await opener.click();
   await mobilePage.goto(`${baseURL}/faqs`);
   check('mobile route change removes drawer, backdrop, and lock', await mobilePage.getByTestId('history-drawer').count() === 0 && await mobilePage.evaluate(() => document.body.style.overflow === ''));
+  await mobilePage.goto(`${baseURL}/knowledge-graph`);
+  const touchGraphNode = mobilePage.locator('[data-testid^="graph-node-"]').first();
+  const touchGraphCircle = touchGraphNode.locator('circle');
+  const touchTransformBefore = await touchGraphCircle.evaluate((element) => getComputedStyle(element).transform);
+  await touchGraphNode.tap();
+  const touchTransformAfter = await touchGraphCircle.evaluate((element) => getComputedStyle(element).transform);
+  check('Knowledge Graph touch selection retains static geometry', touchTransformBefore === 'none' && touchTransformAfter === 'none', { touchTransformBefore, touchTransformAfter });
   await mobile.close();
 
   const reduced = await prepareContext(browser, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, reducedMotion: 'reduce' });

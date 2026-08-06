@@ -119,6 +119,21 @@ try {
   await waitForClean('portrait refresh');
   await page.getByTestId('button-hamburger').click();
   await page.getByTestId('mobile-sidebar').waitFor({ state: 'visible' });
+  const navigationMotion = await page.getByTestId('mobile-sidebar').evaluate((element) => {
+    const style = getComputedStyle(element);
+    return {
+      duration: style.animationDuration,
+      timing: style.animationTimingFunction,
+      name: style.animationName,
+    };
+  });
+  assert.equal(navigationMotion.duration, '0.22s', 'global navigation uses the shared panel duration');
+  assert.equal(
+    navigationMotion.timing,
+    'cubic-bezier(0.32, 0.72, 0, 1)',
+    'global navigation uses the shared drawer easing',
+  );
+  assert.notEqual(navigationMotion.name, 'none', 'global navigation preserves spatial continuity');
   assert.equal((await state()).visibleModalCount, 1, 'global navigation owns the only modal');
   const openNavigationState = await state();
   assert.ok(
@@ -181,6 +196,7 @@ try {
     touch: true,
     scenarios: [
       'iPad portrait initial/login/refresh',
+      'shared 220ms drawer timing and easing',
       'global navigation close/search handoff/route change',
       'portrait-landscape-portrait',
       'Corpus Tree and Document Assistant close',
