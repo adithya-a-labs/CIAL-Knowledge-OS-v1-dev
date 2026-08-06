@@ -32,7 +32,7 @@ export default function HeroSearch() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">How can I help you today?</p>
 
-          <div className="mt-5 flex min-w-0 items-center gap-2 rounded-xl border border-border bg-muted px-3 py-3 transition-all focus-within:border-[#4a7c3f] focus-within:ring-2 focus-within:ring-[#4a7c3f]/30 sm:px-4">
+          <div className="mt-5 flex min-w-0 items-center gap-2 rounded-xl border border-border bg-muted px-3 py-3 transition-[border-color,box-shadow] duration-[var(--motion-duration-short)] ease-[var(--motion-ease-move)] focus-within:border-[#4a7c3f] focus-within:ring-2 focus-within:ring-[#4a7c3f]/30 sm:px-4">
             <Search size={16} className="text-[#9ab88e] flex-shrink-0" />
             <input
               type="text"

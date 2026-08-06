@@ -33,7 +33,7 @@ export default function WelcomeTransition() {
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-background/88 px-4 backdrop-blur-sm">
       <div
         className={`w-full max-w-xl rounded-[1.9rem] border border-border bg-card px-6 py-7 text-center shadow-xl sm:px-8 sm:py-8 ${
-          prefersReducedMotion ? '' : 'animate-in fade-in zoom-in-95 duration-500'
+          prefersReducedMotion ? '' : 'animate-in fade-in zoom-in-95 duration-[var(--motion-duration-panel)] ease-[var(--motion-ease-enter)]'
         }`}
       >
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-border bg-muted">
