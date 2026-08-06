@@ -121,7 +121,7 @@ export default function AdminSettingsPage() {
       {activeTab === 'theme' && (
         <div className="fluid-grid" data-testid="tab-content-theme">
           {THEME_CONFIG_ITEMS.map(item => (
-            <div key={item.label} className="fluid-card responsive-card min-w-0 border border-border bg-card p-4 shadow-sm hover:shadow-md">
+            <div key={item.label} className="fluid-card responsive-card min-w-0 border border-border bg-card p-4 shadow-sm">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{item.label}</p>
                 {item.type === 'swatch' && <div className="w-8 h-8 rounded-lg border" style={{ background: item.value }} />}
@@ -216,12 +216,12 @@ export default function AdminSettingsPage() {
 
           <div className="fluid-grid">
             {INGESTION_SETTINGS.map(item => (
-              <div key={item.label} className="fluid-card responsive-card min-w-0 border border-border bg-card p-4 shadow-sm hover:shadow-md">
+              <div key={item.label} className="fluid-card responsive-card min-w-0 border border-border bg-card p-4 shadow-sm">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">{item.label}</p>
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium text-foreground">{item.value}</p>
                   {item.type === 'toggle' && (
-                    <div className="w-10 h-5 bg-[#4a7c3f] rounded-full relative cursor-pointer">
+                    <div className="relative h-5 w-10 rounded-full bg-[#4a7c3f]" aria-hidden="true">
                       <div className="absolute right-0.5 top-0.5 w-4 h-4 bg-card rounded-full shadow-sm" />
                     </div>
                   )}
@@ -306,7 +306,7 @@ export default function AdminSettingsPage() {
       {activeTab === 'integrations' && (
         <div className="fluid-grid" data-testid="tab-content-integrations">
           {INTEGRATIONS.map((intg) => (
-            <div key={intg.name} className="fluid-card responsive-card min-w-0 border border-border bg-card p-4 shadow-sm hover:shadow-md">
+            <div key={intg.name} className="fluid-card responsive-card min-w-0 border border-border bg-card p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-foreground">{intg.name}</p>

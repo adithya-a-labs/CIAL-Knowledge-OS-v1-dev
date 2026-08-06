@@ -56,7 +56,7 @@ export default function KnowledgeGapsPage() {
         {GAP_OVERVIEW_STATS.map(stat => {
           const TrendIcon = stat.trend === 'up' ? TrendingUp : stat.trend === 'down' ? TrendingDown : Minus;
           return (
-            <div key={stat.label} className="fluid-card responsive-card min-w-0 border border-border bg-card p-4 shadow-sm hover:shadow-md" data-testid={`gap-stat-${stat.label.toLowerCase().replace(/\s+/g, '-')}`}>
+            <div key={stat.label} className="fluid-card responsive-card min-w-0 border border-border bg-card p-4 shadow-sm" data-testid={`gap-stat-${stat.label.toLowerCase().replace(/\s+/g, '-')}`}>
               <div className="flex items-center justify-between mb-1">
                 <p className="text-xs text-muted-foreground font-medium">{stat.label}</p>
                 <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: stat.color + '18' }}>
@@ -114,7 +114,7 @@ export default function KnowledgeGapsPage() {
             {filteredGaps.map(gap => {
               const TrendIcon = TREND_ICON[gap.trend];
               return (
-                <div key={gap.id} className="fluid-card responsive-card border border-border bg-card p-4 shadow-sm transition-colors hover:border-primary" data-testid={`gap-${gap.id}`}>
+                <div key={gap.id} className="fluid-card responsive-card border border-border bg-card p-4 shadow-sm" data-testid={`gap-${gap.id}`}>
                   <div className="flex items-start gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start gap-2 flex-wrap mb-1">

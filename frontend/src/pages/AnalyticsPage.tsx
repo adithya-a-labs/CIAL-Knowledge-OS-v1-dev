@@ -56,7 +56,7 @@ export default function AnalyticsPage() {
         {ANALYTICS_KPIS.map((kpi) => {
           const IconComp = ICON_MAP[kpi.icon] || Search;
           return (
-            <div key={kpi.label} className="fluid-card responsive-card min-w-0 border border-border bg-card p-4 shadow-sm hover:shadow-md" data-testid={`analytics-kpi-${kpi.label.toLowerCase().replace(/\s+/g, '-')}`}>
+            <div key={kpi.label} className="fluid-card responsive-card min-w-0 border border-border bg-card p-4 shadow-sm" data-testid={`analytics-kpi-${kpi.label.toLowerCase().replace(/\s+/g, '-')}`}>
               <div className="flex items-center justify-between mb-2">
                 <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center">
                   <IconComp size={15} className="text-primary" />

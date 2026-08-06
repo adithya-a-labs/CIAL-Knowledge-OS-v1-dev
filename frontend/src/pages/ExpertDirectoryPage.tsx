@@ -79,7 +79,7 @@ export default function ExpertDirectoryPage() {
           {filtered.map(expert => (
             <div
               key={expert.id}
-              className="fluid-card responsive-card flex min-w-0 flex-col gap-4 border border-border bg-card p-5 shadow-sm hover:border-primary hover:shadow-md"
+              className="fluid-card responsive-card flex min-w-0 flex-col gap-4 border border-border bg-card p-5 shadow-sm"
               data-testid={`expert-card-${expert.id}`}
             >
               {/* Top row */}

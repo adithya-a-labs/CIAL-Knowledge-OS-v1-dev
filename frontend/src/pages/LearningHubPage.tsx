@@ -58,7 +58,7 @@ export default function LearningHubPage() {
         ].map(stat => {
           const Icon = stat.icon;
           return (
-            <div key={stat.label} className="fluid-card responsive-card border border-border bg-card p-4 shadow-sm hover:shadow-md" data-testid={`learning-stat-${stat.label.toLowerCase().replace(/\s+/g, '-')}`}>
+            <div key={stat.label} className="fluid-card responsive-card border border-border bg-card p-4 shadow-sm" data-testid={`learning-stat-${stat.label.toLowerCase().replace(/\s+/g, '-')}`}>
               <div className="w-8 h-8 rounded-lg flex items-center justify-center mb-2" style={{ backgroundColor: stat.color + '20' }}>
                 <Icon size={16} style={{ color: stat.color }} />
               </div>
@@ -109,7 +109,7 @@ export default function LearningHubPage() {
             {filtered.map(course => {
               const { label: statusLabel, cls: statusCls, icon: StatusIcon } = STATUS_META[course.status];
               return (
-                <div key={course.id} className="fluid-card responsive-card flex min-w-0 flex-col gap-3 border border-border bg-card p-5 shadow-sm hover:border-primary hover:shadow-md" data-testid={`course-${course.id}`}>
+                <div key={course.id} className="fluid-card responsive-card flex min-w-0 flex-col gap-3 border border-border bg-card p-5 shadow-sm" data-testid={`course-${course.id}`}>
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="text-sm font-semibold text-foreground leading-snug flex-1">{course.title}</h3>
                     {course.isMandatory && (
@@ -163,7 +163,7 @@ export default function LearningHubPage() {
       {activeTab === 'paths' && (
         <div className="fluid-grid-lg">
           {LEARNING_PATHS.map(path => (
-            <div key={path.id} className="fluid-card responsive-card flex min-w-0 flex-col gap-3 border border-border bg-card p-5 shadow-sm hover:border-primary hover:shadow-md" data-testid={`path-${path.id}`}>
+            <div key={path.id} className="fluid-card responsive-card flex min-w-0 flex-col gap-3 border border-border bg-card p-5 shadow-sm" data-testid={`path-${path.id}`}>
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#4a7c3f] to-[#7ab648] flex items-center justify-center">
                 <GraduationCap size={20} className="text-white" />
               </div>
