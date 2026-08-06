@@ -99,3 +99,14 @@ This document defines the reusable UI expectations for common components in CIAL
 - Interaction states: responsive, search-focused, action states
 - Accessibility: logical order and keyboard support
 - Where to use: all major pages
+
+## Shared interaction architecture
+
+- Radix primitives remain the accessibility and lifecycle owner for dialogs, sheets, popovers, tooltips, menus, selects, tabs, and disclosure controls. Do not add a second focus trap, Escape listener, or scroll-lock owner around them.
+- `react-resizable-panels` remains the Assistant panel-resize owner. Pointer resizing is direct, carries no layout transition, and does not justify a drag-and-drop or motion dependency.
+- `cmdk`, Sonner, Vaul, Recharts, `next-themes`, `clsx`, and CVA remain available for the behaviors they already own. Extend an installed owner before creating a parallel implementation.
+- CSS and Radix state are sufficient for current application motion. Do not add Motion/Framer Motion, React Spring, GSAP, or another motion runtime for predetermined fades, panels, progress, tabs, tooltips, or press feedback.
+- Shared primitives must use the duration/easing tokens from `src/index.css`, exact transition property lists, reduced-motion equivalents, and practical touch targets. `transition-all`, built-in `ease-in`, and `scale(0)` are prohibited.
+- Tabs preserve immediate content switching; progress exposes `aria-valuenow`; Sheet close controls are at least `36px` square; initial tooltips may animate, while Radix `instant-open` tooltips do not replay entrance motion.
+
+No dependency was added in the 2026-08-06 design-engineering pass. The current React 19-compatible stack already covered every verified requirement, avoiding bundle growth, migration risk, and new offline/on-prem runtime obligations.

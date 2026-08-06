@@ -16,6 +16,12 @@ responsive CSS. Radix owns overflow, pointer-event, aria-hidden, focus guard,
 Escape, outside-click, and focus-restoration cleanup while the controlled sheet
 is open.
 
+The shared Sheet uses the existing motion tokens: panel entry/exit is `220ms`
+with `cubic-bezier(0.32, 0.72, 0, 1)`, and the backdrop uses the shorter
+`180ms` entrance curve. It enters and exits through its attachment edge.
+Reduced motion removes the spatial keyframes without changing Radix ownership,
+focus restoration, scroll-lock cleanup, or final unmount behavior.
+
 Every global navigation item closes the sheet before navigation. Logout closes
 it before invalidating authentication. The Search action closes the sheet and
 opens the command dialog from Radix's `onCloseAutoFocus` cleanup boundary;
@@ -58,7 +64,8 @@ $env:CIAL_MOBILE_TEST_URL='http://127.0.0.1:4174'
 pnpm.cmd run verify:mobile-lifecycle
 ```
 
-The browser regression covers iPad portrait and landscape initial loads, both
+The browser regression covers the shared Sheet's computed duration/easing,
+iPad portrait and landscape initial loads, both
 orientation transitions, login, refresh, global navigation, serialized search
 handoff, route changes, Corpus Tree, Document Assistant, logout, restored
 background scrolling, and body/modal cleanup.

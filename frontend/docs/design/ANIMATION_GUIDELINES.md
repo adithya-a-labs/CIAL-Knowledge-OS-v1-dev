@@ -49,9 +49,15 @@ Assistant history, source/document panes, and mobile drawers use reversible life
 ## Component conventions
 
 - Variable-height accordions use a content-sized grid-row transition rather than a fixed `max-height`. The disclosure remains mounted for rapid reversal, exposes `aria-expanded` and `aria-controls`, and makes collapsed descendants inert.
-- Knowledge Graph node hover changes only a compositor-friendly, fill-box-centered transform. SVG radius, stroke paint, and filter effects do not transition during repeated pointer movement; selected-state paint remains discrete and legible.
+- Knowledge Graph node hover changes only a compositor-friendly, fill-box-centered transform inside `@media (hover: hover) and (pointer: fine)`. Touch selection keeps static geometry while selected-state stroke and shadow remain discrete and legible. SVG radius, stroke paint, and filter effects never transition during repeated pointer movement.
 - Non-interactive FAQ cards remain spatially static. Hover and focus feedback belongs to the actual button or link.
+- Generic information and metric cards remain spatially and visually static. Hover feedback belongs to their actual button or link; generic card classes do not lift or emphasize non-interactive surfaces.
 - Appearance-control geometry, thumb travel, icon color, and label color share the standard `180ms` movement timing. Reduced motion removes thumb travel.
+- Shared Tabs change only background, text color, and shadow over `160ms`; tab content remains immediate so repeated workspace switching never waits on choreography.
+- Shared progress indicators carry their accessible numeric value and transition only their indicator transform over `180ms`. Reduced motion updates the value immediately.
+- Shared Sheets use the Radix modal lifecycle, `220ms` panel timing, `cubic-bezier(0.32, 0.72, 0, 1)`, matched edge entry/exit, and a coordinated `180ms` backdrop. Their built-in close target is at least `36px` square.
+- Tooltips animate only the initial delayed open for `160ms` from the Radix transform origin. Tooltip movement within an already active group uses Radix's `instant-open` state and skips repeated entrance animation.
+- Shared primitive source is part of the no-`transition-all` regression, not an exempt generated layer.
 
 ## Reduced motion
 
@@ -78,3 +84,14 @@ pnpm.cmd run verify:mobile-lifecycle
 ```
 
 The motion verifier writes its machine-readable result to `outputs/playwright/motion-system/`. Browser fixtures use authenticated same-origin API interception and a paced NDJSON stream so scroll-follow behavior is measured during real incremental rendering rather than inferred from static source.
+
+## Verified primitive follow-up
+
+Verified on 2026-08-06:
+
+- `pnpm.cmd test`: 114 passed, 0 failed, including the shared primitive and static-card source contracts;
+- `pnpm.cmd run typecheck`: passed;
+- production Vite build: passed using `.validation-dist` because the running development server held the normal `dist` CSS asset open on Windows;
+- `pnpm.cmd run verify:motion`: 20 passed, including desktop repeated hover and touch-static graph selection, with no console errors or unexpected failed requests;
+- `pnpm.cmd run verify:appearance`: 23 passed across Light, Dark, System, expanded/collapsed/mobile navigation, keyboard use, persistence, and reduced motion;
+- `pnpm.cmd run verify:mobile-lifecycle`: passed on touch-emulated iPad portrait/landscape, including computed `220ms` Sheet timing, the shared drawer curve, modal ownership, focus/scroll cleanup, and document-overlay cleanup.
