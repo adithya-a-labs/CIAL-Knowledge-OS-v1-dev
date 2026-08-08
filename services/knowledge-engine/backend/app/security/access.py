@@ -347,12 +347,13 @@ def apply_document_access_filter(
         )
 
     if access_context.scope in {"enterprise", "hybrid"}:
-        scope_clauses.append(
-            and_(
-                Document.storage_scope == literal("enterprise"),
-                Document.visibility == literal("enterprise"),
+        if has_enterprise_read_access(access_context):
+            scope_clauses.append(
+                and_(
+                    Document.storage_scope == literal("enterprise"),
+                    Document.visibility == literal("enterprise"),
+                )
             )
-        )
         if has_department_read_access(access_context) and principal.department_ids:
             scope_clauses.append(
                 and_(
