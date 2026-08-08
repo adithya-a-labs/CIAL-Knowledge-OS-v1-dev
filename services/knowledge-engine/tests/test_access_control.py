@@ -3,10 +3,14 @@ from __future__ import annotations
 from types import SimpleNamespace
 import uuid
 
+from sqlalchemy import select
+from sqlalchemy.dialects import postgresql
+
 from backend.app.models.knowledge import Document
 from backend.app.security.access import (
     AccessPrincipal,
     RequestAccessContext,
+    apply_document_access_filter,
     can_upload_enterprise_documents,
     document_is_accessible,
 )
@@ -118,6 +122,27 @@ def test_department_document_requires_department_permission() -> None:
 
     assert document_is_accessible(document, denied) is False
     assert document_is_accessible(document, allowed) is True
+
+
+def test_enterprise_sql_filter_requires_read_permission() -> None:
+    denied = _access_context(user_id=uuid.uuid4(), scope="hybrid")
+    allowed = _access_context(
+        user_id=uuid.uuid4(),
+        permission_names={"view_enterprise_documents"},
+        scope="hybrid",
+    )
+
+    def compiled_filter(context: RequestAccessContext) -> str:
+        return str(
+            apply_document_access_filter(select(Document), context).compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+
+    enterprise_visibility_clause = "documents.visibility = 'enterprise'"
+    assert enterprise_visibility_clause not in compiled_filter(denied)
+    assert enterprise_visibility_clause in compiled_filter(allowed)
 
 
 def test_upload_permission_preserves_legacy_anonymous_behavior_but_checks_authenticated_users() -> None:
