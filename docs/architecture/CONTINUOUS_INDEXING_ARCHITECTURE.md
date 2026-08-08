@@ -208,17 +208,25 @@ a complete BM25 source snapshot to a temporary file, `fsync`s it, and atomically
 publishes it with `os.replace`. Only after publication does it advance the
 PostgreSQL generation. A chat turn always captures the already-loaded published
 generation and starts generation discovery on a daemon refresh path. It never
-waits for PostgreSQL generation reads, queue state, worker heartbeats,
-reconciliation, extraction, embedding, or a building generation. The refresh
-builds the replacement BM25 index away from the query lock and performs only a
-short opportunistic activation; an active chat wins the race and refresh retries
-later. A failed, partial, missing, unpublished, zero-valued, or
+waits for queue state, worker heartbeats, reconciliation, extraction,
+embedding, or a building generation. Before leasing the runtime, a bounded
+PostgreSQL query refreshes only the currently indexed document-version and
+note-revision identities used by Qdrant filters. This makes a newly committed
+dense version visible to the first chat without touching lexical data.
+
+For snapshots at or below `CIAL_BM25_HOT_RELOAD_MAX_BYTES` (256 MiB by
+default), the daemon refresh builds the replacement BM25 index away from the
+query lock and performs only a short opportunistic activation; an active chat
+wins the race and refresh retries later. Larger snapshots retain the prior
+immutable BM25 generation and report `deferred_until_restart` while Qdrant and
+the cache epoch advance. The next controlled API start loads the new lexical
+generation before readiness. A failed, partial, missing, unpublished, zero-valued, or
 collection-mismatched generation never replaces the last valid generation.
 Snapshot JSON loading, chunk materialization, token-cache loading, BM25 model
 construction, relative-path maps, and lexical posting maps all happen during
-startup or this asynchronous refresh. They never happen inside retrieval.
-Dense search is additionally constrained to document-version and note-revision
-identities recorded in that published BM25 snapshot. Qdrant's in-place writer
+startup or a size-bounded asynchronous refresh. They never happen inside
+retrieval. Dense search is additionally constrained to document-version and
+note-revision identities committed as indexed in PostgreSQL. Qdrant's in-place writer
 may therefore prepare or verify new points without making a partial version
 queryable. If an old dense version has already been retired during the short
 publication window, the old BM25 snapshot continues serving that asset until
@@ -350,6 +358,7 @@ explicit confirmation.
 | `CIAL_CORPUS_FILE_STABILITY_CHECKS` | `3` |
 | `CIAL_CORPUS_RECONCILE_INTERVAL_SECONDS` | `300` |
 | `CIAL_BM25_REFRESH_DEBOUNCE_SECONDS` | `2` |
+| `CIAL_BM25_HOT_RELOAD_MAX_BYTES` | `268435456` |
 | `QDRANT_TIMEOUT_SECONDS` | `30` |
 | `QDRANT_RETRY_ATTEMPTS` | `3` |
 | `QDRANT_RETRY_BACKOFF_SECONDS` | `2` |
