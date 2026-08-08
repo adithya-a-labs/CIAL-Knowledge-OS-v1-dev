@@ -3,7 +3,6 @@ param(
     [int]$FrontendPort = 5173,
     [string]$QdrantUrl = "http://localhost:6335",
     [switch]$NoBrowser,
-    [Alias("lan")]
     [switch]$Lan,
     [switch]$RebuildLanFrontend,
     [switch]$LanDryRun
