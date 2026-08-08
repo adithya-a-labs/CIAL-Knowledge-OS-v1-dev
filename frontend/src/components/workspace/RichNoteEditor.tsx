@@ -11,6 +11,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import { Bold, Code, Italic, Link2, List, ListOrdered, Redo2, Strikethrough, UnderlineIcon, Undo2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useReducedMotionPreference } from '@/hooks/useReducedMotionPreference';
+import { createUuid } from '@/lib/browserCompatibility';
 
 type ChangePayload = { content_json: Record<string, unknown>; content_markdown: string; plain_text: string };
 
@@ -38,7 +39,7 @@ function assignMissingBlockIds(editor: ReturnType<typeof useEditor>) {
   let changed = false;
   editor.state.doc.forEach((node, offset) => {
     if (!node.attrs.blockId) {
-      transaction.setNodeMarkup(offset, undefined, { ...node.attrs, blockId: crypto.randomUUID() });
+      transaction.setNodeMarkup(offset, undefined, { ...node.attrs, blockId: createUuid() });
       changed = true;
     }
   });
@@ -56,22 +57,22 @@ export function markdownToTiptap(markdown: string): JSONContent {
     if (line.startsWith('```')) {
       const language = line.slice(3).trim() || null; const body: string[] = []; index += 1;
       while (index < lines.length && !lines[index].startsWith('```')) body.push(lines[index++]);
-      content.push({ type: 'codeBlock', attrs: { language, blockId: crypto.randomUUID() }, content: textNode(body.join('\n')) }); index += 1; continue;
+      content.push({ type: 'codeBlock', attrs: { language, blockId: createUuid() }, content: textNode(body.join('\n')) }); index += 1; continue;
     }
     const heading = /^(#{1,6})\s+(.*)$/.exec(line);
-    if (heading) { content.push({ type: 'heading', attrs: { level: heading[1].length, blockId: crypto.randomUUID() }, content: textNode(heading[2]) }); index += 1; continue; }
+    if (heading) { content.push({ type: 'heading', attrs: { level: heading[1].length, blockId: createUuid() }, content: textNode(heading[2]) }); index += 1; continue; }
     const task = /^\s*[-*]\s+\[([ xX])\]\s+(.*)$/.exec(line);
-    if (task) { const items: JSONContent[] = []; while (index < lines.length) { const match = /^\s*[-*]\s+\[([ xX])\]\s+(.*)$/.exec(lines[index]); if (!match) break; items.push({ type: 'taskItem', attrs: { checked: match[1].toLowerCase() === 'x' }, content: [{ type: 'paragraph', content: textNode(match[2]) }] }); index += 1; } content.push({ type: 'taskList', attrs: { blockId: crypto.randomUUID() }, content: items }); continue; }
+    if (task) { const items: JSONContent[] = []; while (index < lines.length) { const match = /^\s*[-*]\s+\[([ xX])\]\s+(.*)$/.exec(lines[index]); if (!match) break; items.push({ type: 'taskItem', attrs: { checked: match[1].toLowerCase() === 'x' }, content: [{ type: 'paragraph', content: textNode(match[2]) }] }); index += 1; } content.push({ type: 'taskList', attrs: { blockId: createUuid() }, content: items }); continue; }
     const bullet = /^\s*[-*]\s+(.*)$/.exec(line);
-    if (bullet) { const items: JSONContent[] = []; while (index < lines.length) { const match = /^\s*[-*]\s+(.*)$/.exec(lines[index]); if (!match) break; items.push({ type: 'listItem', content: [{ type: 'paragraph', content: textNode(match[1]) }] }); index += 1; } content.push({ type: 'bulletList', attrs: { blockId: crypto.randomUUID() }, content: items }); continue; }
+    if (bullet) { const items: JSONContent[] = []; while (index < lines.length) { const match = /^\s*[-*]\s+(.*)$/.exec(lines[index]); if (!match) break; items.push({ type: 'listItem', content: [{ type: 'paragraph', content: textNode(match[1]) }] }); index += 1; } content.push({ type: 'bulletList', attrs: { blockId: createUuid() }, content: items }); continue; }
     const ordered = /^\s*\d+\.\s+(.*)$/.exec(line);
-    if (ordered) { const items: JSONContent[] = []; while (index < lines.length) { const match = /^\s*\d+\.\s+(.*)$/.exec(lines[index]); if (!match) break; items.push({ type: 'listItem', content: [{ type: 'paragraph', content: textNode(match[1]) }] }); index += 1; } content.push({ type: 'orderedList', attrs: { start: 1, blockId: crypto.randomUUID() }, content: items }); continue; }
-    if (line.startsWith('> ')) { content.push({ type: 'blockquote', attrs: { blockId: crypto.randomUUID() }, content: [{ type: 'paragraph', content: textNode(line.slice(2)) }] }); index += 1; continue; }
+    if (ordered) { const items: JSONContent[] = []; while (index < lines.length) { const match = /^\s*\d+\.\s+(.*)$/.exec(lines[index]); if (!match) break; items.push({ type: 'listItem', content: [{ type: 'paragraph', content: textNode(match[1]) }] }); index += 1; } content.push({ type: 'orderedList', attrs: { start: 1, blockId: createUuid() }, content: items }); continue; }
+    if (line.startsWith('> ')) { content.push({ type: 'blockquote', attrs: { blockId: createUuid() }, content: [{ type: 'paragraph', content: textNode(line.slice(2)) }] }); index += 1; continue; }
     if (!line.trim()) { index += 1; continue; }
     const paragraph = [line]; index += 1; while (index < lines.length && lines[index].trim() && !/^(#{1,6})\s|^```|^\s*[-*]\s|^\s*\d+\.\s|^> /.test(lines[index])) paragraph.push(lines[index++]);
-    content.push({ type: 'paragraph', attrs: { blockId: crypto.randomUUID() }, content: textNode(paragraph.join('\n')) });
+    content.push({ type: 'paragraph', attrs: { blockId: createUuid() }, content: textNode(paragraph.join('\n')) });
   }
-  return { type: 'doc', content: content.length ? content : [{ type: 'paragraph', attrs: { blockId: crypto.randomUUID() } }] };
+  return { type: 'doc', content: content.length ? content : [{ type: 'paragraph', attrs: { blockId: createUuid() } }] };
 }
 
 function inlineMarkdown(node: JSONContent): string {
