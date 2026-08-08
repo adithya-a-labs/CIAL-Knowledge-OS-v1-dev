@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import RichNoteEditor from './RichNoteEditor';
 import { useSerializedNoteAutosave } from '@/hooks/useSerializedNoteAutosave';
 import { createConversationHandoff } from '@/lib/conversationHandoff';
+import { copyTextToClipboard } from '@/lib/browserCompatibility';
 
 export default function NotesWorkspace({ createSignal = 0, initialNoteId = null }: { createSignal?: number; initialNoteId?: string | null }) {
   const client = useQueryClient(); const [, setLocation] = useLocation(); const [query, setQuery] = useState(''); const [filter, setFilter] = useState('all'); const [tagFilter,setTagFilter]=useState<string|null>(null); const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -43,7 +44,7 @@ export default function NotesWorkspace({ createSignal = 0, initialNoteId = null 
   const unlinkDocument=async(documentId:string)=>{if(!draft)return;try{await unlinkNoteDocument(draft.id,documentId);setDraft({...draft,linked_documents:draft.linked_documents.filter((item)=>item.id!==documentId)});await client.invalidateQueries({queryKey:['notes']});}catch{toast.error('Document could not be unlinked');}};
   const linkDocument=async()=>{if(!draft)return;const documents=[...(personalDocuments.data?.documents??[]),...(enterpriseDocuments.data?flattenCorpusTree(enterpriseDocuments.data.root).documents:[])];const name=window.prompt(`Link a document by exact name:\n${documents.slice(0,20).map((item)=>item.name).join('\n')}`);if(!name?.trim())return;const document=documents.find((item)=>item.name.localeCompare(name.trim(),undefined,{sensitivity:'accent'})===0);if(!document){toast.error('No authorized document matched that name');return;}try{const saved=await linkNoteDocument(draft.id,document.id);setDraft(saved);await client.invalidateQueries({queryKey:['notes']});}catch{toast.error('Document could not be linked');}};
   const reviewServerVersion=()=>{const current=autosave.reviewServer();if(current){setDraft(current);client.setQueriesData<WorkspaceNoteList>({queryKey:['notes']},(old)=>old?{...old,items:old.items.map((item)=>item.id===current.id?current:item)}:old);}};
-  const copyLocalDraft=()=>{if(autosave.conflict)void navigator.clipboard.writeText(`${autosave.conflict.local.title}\n\n${autosave.conflict.local.content_markdown}`).then(()=>toast.success('Local draft copied'));};
+  const copyLocalDraft=()=>{if(autosave.conflict)void copyTextToClipboard(`${autosave.conflict.local.title}\n\n${autosave.conflict.local.content_markdown}`).then(()=>toast.success('Local draft copied')).catch(()=>toast.error('Clipboard is unavailable'));};
   const saveLabel={idle:'Idle',unsaved:'Unsaved',saving:'Saving…',saved:'Saved',conflict:'Conflict',error:'Error'}[autosave.state];
   const citation = new URLSearchParams(window.location.search).get('citation');
 
