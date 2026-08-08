@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Lock
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 import time
 import uuid
 
 import numpy as np
+import pytest
 
 from backend.app.api.routes.indexing import router as indexing_router
 from backend.app.core.runtime_state import RuntimeState
@@ -342,6 +344,101 @@ def test_bm25_debounce_flushes_before_idle(monkeypatch) -> None:
     assert indexer._flush_bm25_if_due(force=True) is True
     indexer.publish_bm25_generation.assert_called_once_with()
     assert indexer._bm25_dirty_since is None
+
+
+def test_bm25_publication_renews_active_job_on_bounded_cadence(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    import backend.app.services.continuous_indexer as indexer_module
+
+    job_id = uuid.uuid4()
+    rows = [SimpleNamespace(text="chunk", metadata_={}) for _ in range(5_000)]
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def scalars(self, statement):
+            return rows
+
+        def execute(self, statement):
+            return SimpleNamespace(all=lambda: [])
+
+        def get(self, model, key):
+            return SimpleNamespace(bm25_generation=4)
+
+    clock = iter([0.0, 0.0, 6.0, 12.0, 13.0])
+    queue = SimpleNamespace(
+        renew=MagicMock(return_value=True),
+        heartbeat=MagicMock(),
+        publish_generation=MagicMock(return_value=5),
+    )
+    indexer = ContinuousIndexer.__new__(ContinuousIndexer)
+    indexer._active_lock = Lock()
+    indexer._active_jobs = {job_id}
+    indexer.queue = queue
+    indexer.worker_id = "worker-a"
+    indexer._metrics = {}
+    indexer.actual_device = "cpu"
+    indexer.actual_precision = "float32"
+    indexer.engine = SimpleNamespace(_pipeline=None)
+
+    def write_snapshot(path, *, generation, chunks, progress_callback):
+        assert generation == 5
+        assert len(chunks) == 5_000
+        progress_callback()
+
+    monkeypatch.setattr(indexer_module, "SessionLocal", Session)
+    monkeypatch.setattr(indexer_module.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(indexer_module, "write_bm25_snapshot", write_snapshot)
+    monkeypatch.setattr(
+        indexer_module,
+        "settings",
+        SimpleNamespace(bm25_path=tmp_path),
+    )
+
+    indexer.publish_bm25_generation()
+
+    assert queue.renew.call_count == 3
+    assert [item.args for item in queue.renew.call_args_list] == [
+        (job_id, "worker-a"),
+        (job_id, "worker-a"),
+        (job_id, "worker-a"),
+    ]
+    assert queue.heartbeat.call_count == 3
+    queue.publish_generation.assert_called_once()
+
+
+def test_bm25_publication_stops_before_reading_after_lease_loss(monkeypatch) -> None:
+    import backend.app.services.continuous_indexer as indexer_module
+
+    job_id = uuid.uuid4()
+    queue = SimpleNamespace(
+        renew=MagicMock(return_value=False),
+        heartbeat=MagicMock(),
+    )
+    indexer = ContinuousIndexer.__new__(ContinuousIndexer)
+    indexer._active_lock = Lock()
+    indexer._active_jobs = {job_id}
+    indexer.queue = queue
+    indexer.worker_id = "worker-a"
+    indexer._metrics = {}
+    indexer.actual_device = "cpu"
+    indexer.actual_precision = "float32"
+    monkeypatch.setattr(
+        indexer_module,
+        "SessionLocal",
+        MagicMock(side_effect=AssertionError("database must not be read")),
+    )
+
+    with pytest.raises(RuntimeError, match="lease was lost"):
+        indexer.publish_bm25_generation()
+
+    queue.heartbeat.assert_not_called()
 
 
 def test_note_replacement_uses_filtered_delete_without_scroll() -> None:
