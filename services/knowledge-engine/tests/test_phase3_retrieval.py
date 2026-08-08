@@ -119,6 +119,66 @@ class Phase3ConfigurationTests(unittest.TestCase):
 
 
 class BM25AndFusionTests(unittest.TestCase):
+    def test_bm25_publication_identity_boundary_excludes_stale_versions(self) -> None:
+        retriever = BM25Retriever(tokenizer=lambda value: value.casefold().split())
+        retriever.index(
+            [
+                {
+                    **_result(87, "shared lexical beacon old"),
+                    "metadata": {
+                        **_result(87, "old") ["metadata"],
+                        "relative_path": "public/manual.pdf",
+                        "document_version_id": "version-old",
+                    },
+                },
+                {
+                    **_result(88, "shared lexical beacon current"),
+                    "metadata": {
+                        **_result(88, "current")["metadata"],
+                        "relative_path": "public/manual.pdf",
+                        "document_version_id": "version-current",
+                    },
+                },
+                {
+                    **_result(89, "shared lexical beacon note"),
+                    "metadata": {
+                        **_result(89, "note")["metadata"],
+                        "relative_path": "notes/note-a.md",
+                        "note_id": "note-a",
+                        "note_revision": 2,
+                    },
+                },
+            ]
+        )
+        retriever.set_allowed_publication_identities(
+            frozenset({"version-current"}),
+            frozenset({("note-a", 2)}),
+        )
+
+        results = retriever.retrieve("shared lexical beacon", top_k=10)
+
+        self.assertEqual(
+            {item["chunk_id"] for item in results},
+            {"chunk-88", "chunk-89"},
+        )
+
+    def test_empty_publication_identity_boundary_fails_closed(self) -> None:
+        retriever = BM25Retriever(tokenizer=lambda value: value.casefold().split())
+        retriever.index(
+            [
+                {
+                    **_result(86, "private stale beacon"),
+                    "metadata": {
+                        **_result(86, "stale")["metadata"],
+                        "document_version_id": "stale-version",
+                    },
+                }
+            ]
+        )
+        retriever.set_allowed_publication_identities(frozenset(), frozenset())
+
+        self.assertEqual(retriever.retrieve("private stale beacon", top_k=5), [])
+
     def test_authorized_bm25_query_reuses_published_tokenized_corpus(
         self,
     ) -> None:

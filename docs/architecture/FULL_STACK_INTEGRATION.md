@@ -46,6 +46,11 @@ next controlled API start loads the latest BM25 snapshot before readiness.
 Smaller snapshots retain asynchronous hot activation. This ceiling prevents a
 full-corpus JSON/index duplication from starving unrelated auth, preview, and
 health routes while preserving immediate dense retrieval for new content.
+While activation is deferred, both dense and retained lexical candidates are
+filtered against the current PostgreSQL document-version and note-revision
+identity set. This permits new dense content immediately but prevents stale
+lexical versions from crossing the publication boundary; an empty identity
+set fails closed.
 
 ## Durable Change Flow
 

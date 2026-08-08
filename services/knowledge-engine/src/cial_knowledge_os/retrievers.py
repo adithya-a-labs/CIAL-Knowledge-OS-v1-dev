@@ -99,10 +99,14 @@ class BM25Retriever:
         self._index: Any | None = None
         self._fingerprint: str | None = None
         self.allowed_relative_paths: frozenset[str] | None = None
+        self.allowed_document_version_ids: frozenset[str] | None = None
+        self.allowed_note_revisions: frozenset[tuple[str, int]] | None = None
+        self._allowed_publication_indexes: np.ndarray | None = None
         self._authorized_indexes: OrderedDict[str, np.ndarray] = OrderedDict()
         self._authorized_cache_limit = 16
         self._authorized_lock = threading.RLock()
         self._relative_path_indexes: dict[str, np.ndarray] = {}
+        self._publication_identity_indexes: dict[tuple[str, str, int], np.ndarray] = {}
         self._term_postings: dict[str, tuple[array, array]] = {}
         self._document_lengths = np.empty(0, dtype=np.float64)
         self.document_count = 0
@@ -149,6 +153,60 @@ class BM25Retriever:
                 self._normalize_relative_path(value)
                 for value in allowed_relative_paths
                 if self._normalize_relative_path(value)
+            )
+
+    def set_allowed_publication_identities(
+        self,
+        document_version_ids: frozenset[str] | None,
+        note_revisions: frozenset[tuple[str, int]] | None,
+    ) -> None:
+        """Restrict lexical candidates to the currently published identities."""
+
+        normalized_versions = (
+            None
+            if document_version_ids is None
+            else frozenset(
+                str(value).strip()
+                for value in document_version_ids
+                if str(value).strip()
+            )
+        )
+        normalized_notes = (
+            None
+            if note_revisions is None
+            else frozenset(
+                (str(note_id).strip(), int(revision))
+                for note_id, revision in note_revisions
+                if str(note_id).strip() and int(revision) > 0
+            )
+        )
+        with self._authorized_lock:
+            if (
+                normalized_versions == self.allowed_document_version_ids
+                and normalized_notes == self.allowed_note_revisions
+            ):
+                return
+            self.allowed_document_version_ids = normalized_versions
+            self.allowed_note_revisions = normalized_notes
+            if normalized_versions is None and normalized_notes is None:
+                self._allowed_publication_indexes = None
+                return
+            keys = (
+                [("document", value, 0) for value in normalized_versions or ()]
+                + [
+                    ("note", note_id, revision)
+                    for note_id, revision in normalized_notes or ()
+                ]
+            )
+            arrays = [
+                self._publication_identity_indexes[key]
+                for key in keys
+                if key in self._publication_identity_indexes
+            ]
+            self._allowed_publication_indexes = (
+                np.unique(np.concatenate(arrays))
+                if arrays
+                else np.empty(0, dtype=np.int64)
             )
 
     def _is_allowed(
@@ -244,6 +302,8 @@ class BM25Retriever:
             self._index = []
             self._fingerprint = self._corpus_fingerprint([])
             self._relative_path_indexes = {}
+            self._publication_identity_indexes = {}
+            self._allowed_publication_indexes = None
             self._term_postings = {}
             self._document_lengths = np.empty(0, dtype=np.float64)
             self.document_count = 0
@@ -282,6 +342,7 @@ class BM25Retriever:
         self._index = BM25Okapi(tokenized, k1=self.k1, b=self.b)
         self._fingerprint = fingerprint
         path_indexes: dict[str, list[int]] = {}
+        publication_indexes: dict[tuple[str, str, int], list[int]] = {}
         document_ids: set[str] = set()
         for index, chunk in enumerate(normalized):
             metadata = chunk.get("metadata")
@@ -291,6 +352,25 @@ class BM25Retriever:
             )
             if relative_path:
                 path_indexes.setdefault(relative_path, []).append(index)
+            document_version_id = str(
+                chunk.get("document_version_id")
+                or metadata.get("document_version_id")
+                or ""
+            ).strip()
+            if document_version_id:
+                publication_indexes.setdefault(
+                    ("document", document_version_id, 0), []
+                ).append(index)
+            note_id = str(
+                chunk.get("note_id") or metadata.get("note_id") or ""
+            ).strip()
+            note_revision = int(
+                chunk.get("note_revision") or metadata.get("note_revision") or 0
+            )
+            if note_id and note_revision > 0:
+                publication_indexes.setdefault(
+                    ("note", note_id, note_revision), []
+                ).append(index)
             document_id = str(
                 chunk.get("document_id") or metadata.get("document_id") or ""
             ).strip()
@@ -300,6 +380,16 @@ class BM25Retriever:
             path: np.asarray(indexes, dtype=np.int64)
             for path, indexes in path_indexes.items()
         }
+        self._publication_identity_indexes = {
+            identity: np.asarray(indexes, dtype=np.int64)
+            for identity, indexes in publication_indexes.items()
+        }
+        # Recompute a previously configured publication boundary for the new corpus.
+        configured_versions = self.allowed_document_version_ids
+        configured_notes = self.allowed_note_revisions
+        self.allowed_document_version_ids = None
+        self.allowed_note_revisions = None
+        self.set_allowed_publication_identities(configured_versions, configured_notes)
         term_postings: dict[str, tuple[array, array]] = {}
         for index, frequencies in enumerate(self._index.doc_freqs):
             for token, frequency in frequencies.items():
@@ -359,6 +449,7 @@ class BM25Retriever:
             return []
         with self._authorized_lock:
             allowed_relative_paths = self.allowed_relative_paths
+            publication_indexes = self._allowed_publication_indexes
         allowed_indexes: np.ndarray | None = None
         if allowed_relative_paths is not None:
             cache_key = hashlib.sha256(
@@ -388,6 +479,26 @@ class BM25Retriever:
                 allowed_indexes = cached
                 with self._authorized_lock:
                     self._authorized_indexes.move_to_end(cache_key)
+            if allowed_indexes.size == 0:
+                self.last_search_metrics = {
+                    "bm25_search_duration_ms": round(
+                        (time.perf_counter() - started) * 1000, 3
+                    ),
+                    "bm25_candidate_count": 0,
+                    "document_count": self.document_count,
+                    "chunk_count": len(self._chunks),
+                }
+                return []
+        if publication_indexes is not None:
+            allowed_indexes = (
+                publication_indexes
+                if allowed_indexes is None
+                else np.intersect1d(
+                    allowed_indexes,
+                    publication_indexes,
+                    assume_unique=True,
+                )
+            )
             if allowed_indexes.size == 0:
                 self.last_search_metrics = {
                     "bm25_search_duration_ms": round(

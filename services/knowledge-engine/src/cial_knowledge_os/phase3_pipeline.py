@@ -320,6 +320,10 @@ class Phase3RAGPipeline(Phase2RAGPipeline):
             lexical = self._retrievers["bm25"]
             if isinstance(lexical, BM25Retriever):
                 lexical.set_allowed_relative_paths(self._active_relative_path_filter)
+                lexical.set_allowed_publication_identities(
+                    self.published_document_version_ids,
+                    self.published_note_revisions,
+                )
             if not bool(getattr(lexical, "is_indexed", True)):
                 if self.config.require_authorization_metadata:
                     self._emit_single_retrieval_stage(

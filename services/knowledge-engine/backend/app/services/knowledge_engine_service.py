@@ -850,7 +850,7 @@ class KnowledgeEngineService:
                 for item in chunks
                 if str(item.metadata.get("document_version_id") or "").strip()
             )
-            pipeline.published_document_version_ids = published_versions or None
+            pipeline.published_document_version_ids = published_versions
             published_notes = frozenset(
                 (
                     str(item.metadata.get("note_id") or "").strip(),
@@ -860,7 +860,7 @@ class KnowledgeEngineService:
                 if str(item.metadata.get("note_id") or "").strip()
                 and int(item.metadata.get("note_revision") or 0) > 0
             )
-            pipeline.published_note_revisions = published_notes or None
+            pipeline.published_note_revisions = published_notes
             bm25_activation_started = time.perf_counter()
             if pipeline.bm25_retriever is not None:
                 pipeline.bm25_retriever.index(chunks)
@@ -961,8 +961,8 @@ class KnowledgeEngineService:
             pipeline = self._pipeline
             if pipeline is None:
                 return False
-            pipeline.published_document_version_ids = published_versions or None
-            pipeline.published_note_revisions = published_notes or None
+            pipeline.published_document_version_ids = published_versions
+            pipeline.published_note_revisions = published_notes
         return True
 
     def refresh_query_runtime_if_needed(self) -> bool:
@@ -1119,9 +1119,7 @@ class KnowledgeEngineService:
                     for item in chunks
                     if str(item.metadata.get("document_version_id") or "").strip()
                 )
-                pipeline.published_document_version_ids = (
-                    published_versions or None
-                )
+                pipeline.published_document_version_ids = published_versions
                 published_notes = frozenset(
                     (
                         str(item.metadata.get("note_id") or "").strip(),
@@ -1131,7 +1129,7 @@ class KnowledgeEngineService:
                     if str(item.metadata.get("note_id") or "").strip()
                     and int(item.metadata.get("note_revision") or 0) > 0
                 )
-                pipeline.published_note_revisions = published_notes or None
+                pipeline.published_note_revisions = published_notes
                 pipeline.bm25_retriever = lexical
                 pipeline._retrievers = {}
                 pipeline._injected_retrievers = {

@@ -226,11 +226,12 @@ Snapshot JSON loading, chunk materialization, token-cache loading, BM25 model
 construction, relative-path maps, and lexical posting maps all happen during
 startup or a size-bounded asynchronous refresh. They never happen inside
 retrieval. Dense search is additionally constrained to document-version and
-note-revision identities committed as indexed in PostgreSQL. Qdrant's in-place writer
-may therefore prepare or verify new points without making a partial version
-queryable. If an old dense version has already been retired during the short
-publication window, the old BM25 snapshot continues serving that asset until
-the atomic pointer advances.
+note-revision identities committed as indexed in PostgreSQL. The retained
+lexical generation uses the same current identity boundary, so a deferred BM25
+reload cannot return a stale document version or note revision. An empty
+published identity set denies all candidates rather than disabling the filter.
+Qdrant's in-place writer may therefore prepare or verify new points without
+making a partial or stale version queryable.
 
 The FastAPI request path is strictly query-only:
 
