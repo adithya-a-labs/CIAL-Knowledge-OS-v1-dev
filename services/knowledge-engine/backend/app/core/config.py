@@ -345,6 +345,9 @@ class Settings:
     lan_qr_enabled: bool = _env_bool("CIAL_LAN_QR_ENABLED", True)
     lan_keep_awake: bool = _env_bool("CIAL_LAN_KEEP_AWAKE", True)
     lan_adapter_recheck_seconds: int = _env_int("CIAL_LAN_ADAPTER_RECHECK_SECONDS", 5)
+    lan_adapter_probe_failure_limit: int = _env_int(
+        "CIAL_LAN_ADAPTER_PROBE_FAILURE_LIMIT", 3
+    )
     lan_startup_timeout_seconds: int = _env_int("CIAL_LAN_STARTUP_TIMEOUT_SECONDS", 30)
     lan_shutdown_timeout_seconds: int = _env_int("CIAL_LAN_SHUTDOWN_TIMEOUT_SECONDS", 10)
 
@@ -412,6 +415,7 @@ class Settings:
             "CIAL_CHAT_TOKEN_FLUSH_CHARS": self.chat_token_flush_chars,
             "CIAL_RETRIEVAL_CACHE_MAX_ENTRIES": self.retrieval_cache_max_entries,
             "CIAL_LAN_ADAPTER_RECHECK_SECONDS": self.lan_adapter_recheck_seconds,
+            "CIAL_LAN_ADAPTER_PROBE_FAILURE_LIMIT": self.lan_adapter_probe_failure_limit,
             "CIAL_LAN_STARTUP_TIMEOUT_SECONDS": self.lan_startup_timeout_seconds,
             "CIAL_LAN_SHUTDOWN_TIMEOUT_SECONDS": self.lan_shutdown_timeout_seconds,
         }

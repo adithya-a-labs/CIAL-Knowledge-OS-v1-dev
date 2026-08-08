@@ -476,6 +476,25 @@ class LanManager:
         self.caddy_pid_path.unlink(missing_ok=True)
         _event("gateway_stopped", state="stopped")
 
+    def _gateway_is_healthy(self, adapter: HotspotAdapter) -> bool:
+        """Confirm both the owned process and its bound HTTP listener are alive."""
+
+        process = self.caddy_process
+        if process is None or process.poll() is not None:
+            return False
+        port = settings.lan_https_port if settings.lan_https_enabled else settings.lan_http_port
+        url = f"{'https' if settings.lan_https_enabled else 'http'}://{adapter.address}:{port}/"
+        try:
+            response = httpx.get(
+                url,
+                headers={"Host": settings.lan_domain},
+                timeout=2,
+                verify=False,
+            )
+        except httpx.HTTPError:
+            return False
+        return response.status_code < 500
+
     def run(self) -> int:
         self.root.mkdir(parents=True, exist_ok=True)
         firewall_state = "unmanaged"
@@ -592,31 +611,56 @@ class LanManager:
             )
             if self.dry_run:
                 return 0
+            consecutive_probe_failures = 0
+            probe_failure_limit = max(
+                1,
+                int(getattr(settings, "lan_adapter_probe_failure_limit", 3)),
+            )
             while True:
                 time.sleep(settings.lan_adapter_recheck_seconds)
                 if self.stop_path.exists():
                     return 0
+                probe_error: tuple[str, str] | None = None
                 try:
                     detected = self.adapter if self.test_bind else _detect(self.repo_root)
                 except subprocess.TimeoutExpired:
                     # Adapter inspection is an external PowerShell probe. A
                     # transient WMI/network-stack stall must not tear down an
                     # otherwise healthy gateway and reset active client streams.
-                    _event(
-                        "adapter_probe_timeout",
-                        state="gateway_retained",
-                        error_code="TimeoutExpired",
-                    )
-                    continue
+                    probe_error = ("adapter_probe_timeout", "TimeoutExpired")
                 except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as exc:
-                    _event(
-                        "adapter_probe_failed",
-                        state="gateway_retained",
-                        error_code=type(exc).__name__,
-                    )
-                    continue
+                    probe_error = ("adapter_probe_failed", type(exc).__name__)
                 except HotspotSelectionError:
                     detected = None
+                else:
+                    consecutive_probe_failures = 0
+                if probe_error is not None:
+                    event_name, error_code = probe_error
+                    consecutive_probe_failures += 1
+                    gateway_healthy = self._gateway_is_healthy(self.adapter)
+                    retained = (
+                        gateway_healthy
+                        and consecutive_probe_failures < probe_failure_limit
+                    )
+                    _event(
+                        event_name,
+                        state="gateway_retained" if retained else "reconfigure",
+                        error_code=error_code,
+                    )
+                    if retained:
+                        continue
+                    self.status(
+                        detail=(
+                            "LAN gateway health could not be confirmed; LAN access is reconfiguring."
+                            if not gateway_healthy
+                            else "LAN adapter probing failed repeatedly; LAN access is reconfiguring."
+                        ),
+                        state="reconfiguring",
+                        gateway_ready=False,
+                        discovery_ready=False,
+                        firewall_state=firewall_state,
+                    )
+                    return 75
                 if needs_reconfigure(self.adapter, detected):
                     _event("hotspot_lost" if detected is None else "hotspot_address_changed", state="reconfigure")
                     self.status(

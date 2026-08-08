@@ -112,10 +112,13 @@ the health projection and QR URL.
 
 The periodic Windows adapter probe is external to the gateway process. A
 PowerShell/WMI timeout or malformed transient response is logged as
-`adapter_probe_timeout`/`adapter_probe_failed` with `gateway_retained`; it does
-not stop a healthy Caddy listener or reset active client streams. A completed
-probe that proves the selected address was lost or changed still follows the
-fail-closed reconfiguration path above.
+`adapter_probe_timeout`/`adapter_probe_failed` with `gateway_retained` when the
+owned Caddy process and bound HTTP listener remain healthy. It does not reset
+active client streams. Three consecutive failed probes (configurable with
+`CIAL_LAN_ADAPTER_PROBE_FAILURE_LIMIT`) or one failed gateway health check
+causes fail-closed reconfiguration. A successful probe resets the failure
+counter, and a completed probe that proves the selected address was lost or
+changed follows the same reconfiguration path.
 
 ## Discovery and IP fallback
 
