@@ -85,8 +85,13 @@ def test_notebook_router_adds_no_stream_or_preview_fork():
 
 def test_frontend_composes_existing_assistant_viewer_notes_and_real_apis():
     page = (ROOT.parents[1] / "frontend/src/pages/NotebookWorkspacePage.tsx").read_text(encoding="utf-8")
+    source_viewer = (ROOT.parents[1] / "frontend/src/components/assistant/SourceViewerPanel.tsx").read_text(encoding="utf-8")
+    source_picker = (ROOT.parents[1] / "frontend/src/components/notebooks/NotebookSourcePicker.tsx").read_text(encoding="utf-8")
+    corpus_explorer = (ROOT.parents[1] / "frontend/src/components/corpus/CorpusExplorer.tsx").read_text(encoding="utf-8")
     assert "AssistantSessionsProvider" in page and "<ChatPanel contextLocked" in page
-    assert "SourceViewerPanel" in page and "DocumentViewerPanel" in page
+    assert "SourceViewerPanel" in page
+    assert "DocumentViewerPanel" in source_viewer and "DocumentViewerPanel" in source_picker
     assert "<NotesWorkspace" in page
-    assert "uploadMyWorkspaceFiles" in page and "getCorpusTree" in page
-    assert "demo" not in page.casefold()
+    assert "uploadMyWorkspaceFiles" in source_picker and "CorpusExplorer" in source_picker
+    assert "getCorpusTree" in corpus_explorer
+    assert "demo" not in (page + source_picker).casefold()
