@@ -1170,9 +1170,44 @@ class ContinuousIndexer:
     def publish_bm25_generation(self) -> None:
         started = time.monotonic()
         chunks: list[dict[str, Any]] = []
+        last_lease_renewal = 0.0
+
+        def renew_publication_leases(*, force: bool = False) -> None:
+            nonlocal last_lease_renewal
+            now = time.monotonic()
+            if not force and now - last_lease_renewal < 5:
+                return
+            with self._active_lock:
+                active = tuple(self._active_jobs)
+            for job_id in active:
+                if not self.queue.renew(job_id, self.worker_id):
+                    raise RuntimeError(
+                        f"Indexer lease was lost during BM25 publication for job {job_id}."
+                    )
+            self.queue.heartbeat(
+                self.worker_id,
+                service_state="active" if active else "watching",
+                current_job_id=active[0] if active else None,
+                metrics=self._metrics,
+                embedding_device=self.actual_device,
+                embedding_precision=self.actual_precision,
+            )
+            last_lease_renewal = now
+
+        renew_publication_leases(force=True)
         with SessionLocal() as session:
-            for row in session.scalars(select(DocumentChunk).order_by(DocumentChunk.document_id, DocumentChunk.chunk_index)):
+            for index, row in enumerate(
+                session.scalars(
+                    select(DocumentChunk).order_by(
+                        DocumentChunk.document_id,
+                        DocumentChunk.chunk_index,
+                    )
+                ),
+                start=1,
+            ):
                 chunks.append({"text": row.text or "", "metadata": row.metadata_ or {}})
+                if index % 5_000 == 0:
+                    renew_publication_leases()
             notes = session.execute(
                 select(Note, NoteIndexState)
                 .join(NoteIndexState, NoteIndexState.note_id == Note.id)
@@ -1210,7 +1245,12 @@ class ContinuousIndexer:
             generation = session.get(IndexGeneration, "active")
             next_generation = int(generation.bm25_generation or 0) + 1 if generation else 1
         snapshot_path = settings.bm25_path / "continuous" / "current.json"
-        write_bm25_snapshot(snapshot_path, generation=next_generation, chunks=chunks)
+        write_bm25_snapshot(
+            snapshot_path,
+            generation=next_generation,
+            chunks=chunks,
+            progress_callback=renew_publication_leases,
+        )
         pipeline = self.engine._pipeline
         point_count = 0
         if pipeline is not None:
