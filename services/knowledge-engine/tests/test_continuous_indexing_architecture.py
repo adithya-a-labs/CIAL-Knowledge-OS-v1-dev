@@ -122,16 +122,19 @@ def test_indexer_status_service_alias_preserves_existing_endpoint() -> None:
 
 def test_atomic_bm25_snapshot_round_trip(tmp_path: Path) -> None:
     path = tmp_path / "bm25" / "current.json"
+    progress = MagicMock()
     write_bm25_snapshot(
         path,
         generation=7,
         chunks=[{"text": "private text", "metadata": {"owner_user_id": "u1"}}],
+        progress_callback=progress,
     )
     snapshot = load_bm25_snapshot(path)
     assert snapshot is not None
     assert snapshot.generation == 7
     assert snapshot.chunks[0]["metadata"]["owner_user_id"] == "u1"
     assert not list(path.parent.glob("*.tmp"))
+    assert progress.call_count >= 2
 
 
 def test_queue_model_has_target_lease_and_retry_contract() -> None:
