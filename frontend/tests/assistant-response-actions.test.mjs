@@ -14,7 +14,7 @@ const statusHook = readFileSync(new URL('../src/hooks/useDocumentIndexingStatuse
 const documentWorkspace = readFileSync(new URL('../src/pages/DocumentWorkspacePage.tsx', import.meta.url), 'utf8');
 
 test('copy uses the complete persisted Markdown answer and reports Copied', () => {
-  assert.match(panel, /navigator\.clipboard\.writeText\(message\.content\)/);
+  assert.match(panel, /copyTextToClipboard\(message\.content\)/);
   assert.match(message, /Copied/);
 });
 

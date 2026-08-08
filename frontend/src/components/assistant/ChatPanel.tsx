@@ -29,6 +29,7 @@ import { AIComposerFrame } from './AIComposer';
 import SaveToKnowledgeDialog from './SaveToKnowledgeDialog';
 import { isAssistantDraftId } from '@/lib/assistantNavigation';
 import { useReversiblePresence } from './useReversiblePresence';
+import { copyTextToClipboard, createUuid } from '@/lib/browserCompatibility';
 
 const supportedFileTypes = '.pdf,.docx,.pptx,.xlsx,.csv,.txt,image/*';
 const ASSISTANT_SOURCE_PANEL_SIZE_STORAGE_KEY = 'cial-assistant-source-panel-size';
@@ -37,7 +38,7 @@ const CHAT_BOTTOM_THRESHOLD_PX = 96;
 
 function createUploadedFileContext(file: File): UploadedFileContext {
   return {
-    id: `upload-${Date.now()}-${Math.random().toString(36).slice(2)}-${file.name.replace(/[^a-z0-9]/gi, '-').toLowerCase()}`,
+    id: `upload-${createUuid()}-${file.name.replace(/[^a-z0-9]/gi, '-').toLowerCase()}`,
     name: file.name,
     size: file.size,
     type: file.type || file.name.split('.').pop()?.toUpperCase() || 'Unknown',
@@ -337,13 +338,13 @@ export default function ChatPanel({ contextLocked = false }: { contextLocked?: b
     };
 
     const userMsg: ChatMessageData = {
-      id: `user-${crypto.randomUUID()}`,
+      id: `user-${createUuid()}`,
       role: 'user',
       content: requestPayload.query,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
     const controller = new AbortController();
-    const requestId = crypto.randomUUID();
+    const requestId = createUuid();
     const placeholder: ChatMessageData = {
       id: `assistant-${requestId}`,
       role: 'assistant',
@@ -586,7 +587,7 @@ export default function ChatPanel({ contextLocked = false }: { contextLocked?: b
 
   const copyResponse = async (message: ChatMessageData) => {
     try {
-      await navigator.clipboard.writeText(message.content);
+      await copyTextToClipboard(message.content);
       setActionByMessage((current) => ({ ...current, [message.id]: 'copied' }));
       window.setTimeout(() => setActionByMessage((current) => { const next = { ...current }; delete next[message.id]; return next; }), 1400);
     } catch { toast({ title: 'Copy failed', description: 'Clipboard permission is unavailable.' }); }
@@ -621,7 +622,7 @@ export default function ChatPanel({ contextLocked = false }: { contextLocked?: b
         const response = await regenerateMessage(message.id);
         if (actionGenerationRef.current[message.id] !== generation) return;
         const adapted = toAssistantMessage(response, { query: '', searchScope: message.metadata?.searchScope ?? searchScope, activeProfile: message.metadata?.activeProfile ?? activeProfile, selectedDocumentIds: [], selectedFolderIds: [], selectedNoteIds: [], uploadedFileIds: [] });
-        const regenerated: ChatMessageData = { id: response.assistant_message_id ?? crypto.randomUUID(), role: 'assistant', content: adapted.content, citations: adapted.citations, sources: adapted.sources, metadata: adapted.metadata, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+        const regenerated: ChatMessageData = { id: response.assistant_message_id ?? createUuid(), role: 'assistant', content: adapted.content, citations: adapted.citations, sources: adapted.sources, metadata: adapted.metadata, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
         appendMessage(actionSessionId, regenerated);
       } else {
         const record = await transformMessage(message.id, action);
