@@ -97,6 +97,13 @@ make interrupted work recoverable. Transient failures use exponential backoff
 with jitter and bounded attempts. Permanent payload, target, or format errors
 fail without an endless retry loop.
 
+Recovery treats both an elapsed lease and a missing lease on any in-progress
+legacy/interrupted row as expired. After Qdrant verification, terminal job
+completion atomically restores the authoritative document/version or note
+state to `indexed` (or preserves `deleted`/`removed`). A transient
+`verifying` stage therefore cannot leave a completed target reporting
+`indexing`.
+
 Deletes have priority 120, committed notes and API uploads 100, manual retries
 90, path/ACL metadata refreshes 80, filesystem reconciliation work 60, and
 bulk administrative rebuild expansion 10. A newer committed version can queue
