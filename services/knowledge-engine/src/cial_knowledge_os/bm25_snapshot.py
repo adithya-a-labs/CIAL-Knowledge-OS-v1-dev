@@ -7,7 +7,8 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from typing import Any, Iterable
+import time
+from typing import Any, Callable, Iterable
 
 
 SNAPSHOT_VERSION = 1
@@ -24,16 +25,12 @@ def write_bm25_snapshot(
     *,
     generation: int,
     chunks: Iterable[dict[str, Any]],
+    progress_callback: Callable[[], None] | None = None,
 ) -> Path:
     """Write a complete generation and atomically publish it with ``os.replace``."""
 
     target = path.expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "version": SNAPSHOT_VERSION,
-        "generation": int(generation),
-        "chunks": list(chunks),
-    }
     handle = tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
@@ -45,7 +42,31 @@ def write_bm25_snapshot(
     temporary = Path(handle.name)
     try:
         with handle:
-            json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
+            if progress_callback is not None:
+                progress_callback()
+            handle.write(
+                '{"version":'
+                + str(SNAPSHOT_VERSION)
+                + ',"generation":'
+                + str(int(generation))
+                + ',"chunks":['
+            )
+            first = True
+            last_progress = time.monotonic()
+            for chunk in chunks:
+                if not first:
+                    handle.write(",")
+                json.dump(chunk, handle, ensure_ascii=False, separators=(",", ":"))
+                first = False
+                if (
+                    progress_callback is not None
+                    and time.monotonic() - last_progress >= 5
+                ):
+                    progress_callback()
+                    last_progress = time.monotonic()
+            handle.write("]}")
+            if progress_callback is not None:
+                progress_callback()
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, target)
