@@ -35,6 +35,7 @@ class IndexingJob(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "indexing_jobs"
     __table_args__ = (
         Index("ix_indexing_jobs_status", "status"),
+        Index("ix_indexing_jobs_status_available", "status", "available_at"),
         Index(
             "ix_indexing_jobs_claim_order",
             "status",
