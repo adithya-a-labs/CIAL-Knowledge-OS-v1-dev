@@ -96,6 +96,38 @@ def test_pdf_file_response_is_inline_application_pdf_for_paths_with_spaces(tmp_p
     assert str(pdf_path) not in response.headers["content-disposition"]
 
 
+def test_pptx_preview_iterates_slides_without_unsupported_collection_slice(
+    tmp_path: Path,
+) -> None:
+    pptx = pytest.importorskip("pptx")
+    path = tmp_path / "Release deck with spaces.pptx"
+    presentation = pptx.Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+    slide.shapes.title.text = "Release readiness"
+    slide.placeholders[1].text = "Production Caddy validation"
+    presentation.save(path)
+    document = ResolvedDocument(
+        metadata={
+            "id": str(uuid.uuid4()),
+            "name": path.name,
+            "relative_path": f"Presentations/{path.name}",
+            "extension": ".pptx",
+            "mime_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "content_hash": "pptx-hash",
+            "indexing_status": "indexed",
+        },
+        path=path,
+        extension=".pptx",
+        content_hash="pptx-hash",
+    )
+
+    payload = preview_payload(document, slide_number=1)
+
+    assert payload["render_kind"] == "slides"
+    assert payload["slides"][0]["title"] == "Release readiness"
+    assert "Production Caddy validation" in payload["slides"][0]["body"]
+
+
 def test_missing_pdf_file_resolution_fails_without_exposing_filesystem_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         document_preview_service,
