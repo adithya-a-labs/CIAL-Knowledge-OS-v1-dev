@@ -8,7 +8,7 @@ import random
 import uuid
 from typing import Any
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from backend.app.core.config import settings
@@ -40,6 +40,15 @@ STAGE_TRANSITIONS: dict[str, frozenset[str]] = {
     "writing": frozenset({"verifying", "retry_wait", "failed", "cancelled"}),
     "verifying": frozenset({"completed", "retry_wait", "failed", "cancelled"}),
 }
+
+
+def _expired_lease_predicate(now: datetime):
+    """Recover interrupted legacy rows as well as explicitly expired leases."""
+
+    return or_(
+        IndexingJob.lease_expires_at.is_(None),
+        IndexingJob.lease_expires_at < now,
+    )
 
 
 def utc_now() -> datetime:
@@ -277,6 +286,52 @@ class DurableIndexQueue:
             job.claimed_by = None
             job.error_code = None
             job.error_detail = None
+            if status == "completed":
+                self._set_target_completed(session, job, now)
+
+    @staticmethod
+    def _set_target_completed(session: Session, job: IndexingJob, now: datetime) -> None:
+        """Finalize target state after the verified write and terminal job commit."""
+
+        if job.document_id is not None:
+            from backend.app.models.knowledge import Document, DocumentVersion
+
+            document = session.get(Document, job.document_id)
+            if document is not None and document.lifecycle_status != "deleted":
+                document.indexed = True
+                document.indexing_status = "indexed"
+                document.lifecycle_status = "indexed"
+                document.indexed_at = now
+                document.metadata_ = {
+                    **(document.metadata_ or {}),
+                    "indexing_stage": "completed",
+                    "indexing_error_code": None,
+                    "indexing_safe_message": None,
+                    "indexing_retry_allowed": False,
+                }
+            if job.document_version_id is not None:
+                version = session.get(DocumentVersion, job.document_version_id)
+                if version is not None:
+                    version.status = "indexed"
+
+        if job.note_id is not None:
+            from backend.app.models.workspace_content import NoteIndexState, NoteVersion
+
+            state = session.get(NoteIndexState, job.note_id)
+            version = (
+                session.get(NoteVersion, job.note_version_id)
+                if job.note_version_id is not None
+                else None
+            )
+            if state is not None:
+                state.status = "removed" if job.operation == "delete_asset" else "indexed"
+                if version is not None:
+                    state.indexed_revision = version.revision
+                if job.operation == "delete_asset":
+                    state.point_count = 0
+                    state.content_hash = None
+                state.last_error = None
+                state.updated_at = now
 
     def recover_expired(self) -> dict[str, int]:
         if self.session_factory is None:
@@ -289,7 +344,7 @@ class DurableIndexQueue:
                     select(IndexingJob)
                     .where(
                         IndexingJob.status.in_(IN_PROGRESS_STATUSES),
-                        IndexingJob.lease_expires_at < now,
+                        _expired_lease_predicate(now),
                     )
                     .with_for_update(skip_locked=True)
                 )
