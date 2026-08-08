@@ -251,6 +251,8 @@ def test_caddyfile_is_interface_bound_same_origin_and_streaming_safe(tmp_path):
     assert "bind 192.168.45.1" in rendered
     assert "bind 0.0.0.0" not in rendered
     assert "reverse_proxy 127.0.0.1:8000" in rendered
+    assert "request_body" in rendered
+    assert "max_size 512MB" in rendered
     assert "flush_interval -1" in rendered
     assert "try_files {path} /index.html" in rendered
     assert "Unexpected Host" in rendered
@@ -894,10 +896,13 @@ def test_runtime_hotspot_change_runs_owned_cleanup(monkeypatch, tmp_path, replac
 
 def test_launch_scripts_are_repo_venv_only_and_idempotent():
     start = (settings.repo_path / "scripts" / "start_lan_gateway.ps1").read_text(encoding="utf-8")
+    production_launcher = (settings.repo_path / "Launch-CIAL-Knowledge-OS.ps1").read_text(encoding="utf-8")
     assert 'Join-Path $RepoRoot ".venv\\Scripts\\python.exe"' in start
     assert "Get-Command python" not in start
     assert "Test-CialManagerProcess" in start
     assert "already running" in start
+    assert "[switch]$Lan" in production_launcher
+    assert '[Alias("lan")]' not in production_launcher
 
 
 def test_stop_script_targets_only_recorded_owned_processes_and_is_idempotent():
