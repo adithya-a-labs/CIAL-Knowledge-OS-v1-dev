@@ -11,6 +11,7 @@
     "verify:appearance": "node scripts/verify_appearance_toggle.mjs",
     "verify:motion": "node scripts/verify_motion_system.mjs",
     "verify:mobile-lifecycle": "node scripts/verify_mobile_modal_lifecycle.mjs",
+    "verify:http-lan": "node scripts/verify_http_lan_compatibility.mjs",
     "serve": "vite preview --config vite.config.ts --host 127.0.0.1",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
