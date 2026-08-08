@@ -82,6 +82,13 @@ class Folder(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         Index("ix_folders_workspace_id", "workspace_id"),
         Index("ix_folders_repository_id", "repository_id"),
+        Index(
+            "ix_folders_workspace_system_key",
+            "workspace_id",
+            "system_key",
+            unique=True,
+            postgresql_where=text("system_key IS NOT NULL"),
+        ),
         UniqueConstraint("repository_id", "relative_path", name="uq_folders_repository_relative_path"),
     )
 
