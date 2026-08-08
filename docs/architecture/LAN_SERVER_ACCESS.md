@@ -110,6 +110,13 @@ An address change stops admission, unregisters discovery, rebinds the owned
 gateway, updates owned firewall rules, republishes discovery, and refreshes
 the health projection and QR URL.
 
+The periodic Windows adapter probe is external to the gateway process. A
+PowerShell/WMI timeout or malformed transient response is logged as
+`adapter_probe_timeout`/`adapter_probe_failed` with `gateway_retained`; it does
+not stop a healthy Caddy listener or reset active client streams. A completed
+probe that proves the selected address was lost or changed still follows the
+fail-closed reconfiguration path above.
+
 ## Discovery and IP fallback
 
 The isolated publisher uses the Python `zeroconf` package. It advertises:
@@ -324,6 +331,42 @@ requested local address `192.168.137.1`, remote subnet `192.168.137.0/24`, port
 rules were present. Therefore administrator firewall Apply/Remove and physical
 second-device login/session/chat/document/citation checks remain pending and
 browser automation was intentionally not opened.
+
+### Current-server release validation (2026-08-08)
+
+The production server used the explicitly validated `Wi-Fi` binding at
+`192.168.1.111/24` (remote subnet `192.168.1.0/24`). Operator-installed Caddy
+served the canonical `frontend/dist/public` build and was the only LAN TCP
+listener at `192.168.1.111:80`; FastAPI 8000, PostgreSQL 5432, Qdrant 6335,
+Ollama 11434, and the optional Vite preview 5173 remained loopback-only. Both
+`http://192.168.1.111/login` and `http://cial-knowledge-os.local/login`
+returned 200, and mDNS status was ready.
+
+Real Playwright navigation through the IP fallback completed signup and
+reached the authenticated dashboard. Real streamed chat through Caddy returned
+grounded PDF citations before and after controlled Qdrant, Ollama, API, and
+gateway restarts. During the restart exercise, an adapter probe exceeded its
+15-second timeout and exposed that the manager previously treated a transient
+probe stall as fatal; the manager now retains the healthy gateway, with a
+regression test covering timeout followed by a later real address change.
+
+Firewall Inspect was non-mutating and reported `state=mismatched` for existing
+CIAL-owned HTTP and mDNS rules because they do not match the current Wi-Fi
+address/subnet/interface. Apply was intentionally not attempted without an
+Administrator token. From an elevated PowerShell at the repository root, the
+exact reconciliation and verification commands are:
+
+```powershell
+.\scripts\lan_firewall.ps1 -Mode Apply -LocalAddress 192.168.1.111 -RemoteSubnet 192.168.1.0/24 -HttpPort 80 -InterfaceAlias 'Wi-Fi' -DiscoveryProgram .\.venv\Scripts\python.exe
+.\scripts\lan_firewall.ps1 -Mode Inspect -LocalAddress 192.168.1.111 -RemoteSubnet 192.168.1.0/24 -HttpPort 80 -InterfaceAlias 'Wi-Fi' -DiscoveryProgram .\.venv\Scripts\python.exe
+```
+
+Require `state=ready`, `verified=true`, `http_valid=true`, and
+`mdns_valid=true` before physical-device UAT. PostgreSQL service restart also
+requires an Administrator token on this host; use
+`Restart-Service -Name postgresql-x64-18 -Force`, then require port 5432 and
+`database_ready=true`. These two elevation-only checks and physical second-
+device/browser interoperability remain outside host automation.
 
 ## Operations and troubleshooting
 
