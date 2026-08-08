@@ -128,6 +128,33 @@ def test_pptx_preview_iterates_slides_without_unsupported_collection_slice(
     assert "Production Caddy validation" in payload["slides"][0]["body"]
 
 
+@pytest.mark.parametrize(("slide_count", "expected_count"), [(0, 0), (11, 11), (12, 12), (13, 12)])
+def test_pptx_preview_bounds_slide_materialization(
+    tmp_path: Path,
+    slide_count: int,
+    expected_count: int,
+) -> None:
+    pptx = pytest.importorskip("pptx")
+    path = tmp_path / f"bounded-{slide_count}.pptx"
+    presentation = pptx.Presentation()
+    for index in range(slide_count):
+        slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+        slide.shapes.title.text = f"Slide {index + 1}"
+    presentation.save(path)
+
+    slides, preview = document_preview_service._pptx_preview(path)
+
+    assert len(slides) == expected_count
+    assert "Slide 13" not in preview
+
+
+def test_malformed_pptx_preview_fails_safely(tmp_path: Path) -> None:
+    path = tmp_path / "malformed.pptx"
+    path.write_bytes(b"not an office package")
+
+    assert document_preview_service._pptx_preview(path) == ([], "")
+
+
 def test_missing_pdf_file_resolution_fails_without_exposing_filesystem_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         document_preview_service,
