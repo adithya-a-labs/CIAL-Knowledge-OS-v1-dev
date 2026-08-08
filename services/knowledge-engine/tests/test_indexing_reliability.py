@@ -5,8 +5,10 @@ from __future__ import annotations
 import io
 import tempfile
 import unittest
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from cial_knowledge_os.corpus.models import (
@@ -15,6 +17,57 @@ from cial_knowledge_os.corpus.models import (
     CorpusSyncSummary,
     CorpusTree,
 )
+
+
+def test_missing_or_expired_in_progress_lease_is_recoverable() -> None:
+    from backend.app.services.indexing_queue import _expired_lease_predicate
+
+    predicate = str(
+        _expired_lease_predicate(datetime.now(timezone.utc)).compile(
+            compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert "lease_expires_at IS NULL" in predicate
+    assert "lease_expires_at <" in predicate
+    assert " OR " in predicate
+
+
+def test_completed_job_restores_verified_document_and_version_state() -> None:
+    from backend.app.models.knowledge import Document, DocumentVersion
+    from backend.app.services.indexing_queue import DurableIndexQueue
+
+    document = SimpleNamespace(
+        lifecycle_status="indexing",
+        indexing_status="indexing",
+        indexed=False,
+        indexed_at=None,
+        metadata_={"indexing_stage": "verifying"},
+    )
+    version = SimpleNamespace(status="indexing")
+    document_id, version_id = uuid.uuid4(), uuid.uuid4()
+    session = MagicMock()
+    session.get.side_effect = lambda model, identity: (
+        document if model is Document and identity == document_id
+        else version if model is DocumentVersion and identity == version_id
+        else None
+    )
+    completed_at = datetime.now(timezone.utc)
+    DurableIndexQueue._set_target_completed(
+        session,
+        SimpleNamespace(
+            document_id=document_id,
+            document_version_id=version_id,
+            note_id=None,
+            note_version_id=None,
+            operation="upsert_version",
+        ),
+        completed_at,
+    )
+    assert document.indexed is True
+    assert document.indexing_status == document.lifecycle_status == "indexed"
+    assert document.indexed_at == completed_at
+    assert document.metadata_["indexing_stage"] == "completed"
+    assert version.status == "indexed"
 
 
 class TestCorpusSyncSummarySkipLogic(unittest.TestCase):
