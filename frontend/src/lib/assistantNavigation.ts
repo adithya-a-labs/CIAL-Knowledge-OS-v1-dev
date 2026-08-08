@@ -1,5 +1,6 @@
 import type { SelectedContextItem } from '@/api/types';
 import type { ResponseLength } from '@/types/assistant';
+import { createUuid } from '@/lib/browserCompatibility';
 
 export const ASSISTANT_FRESH_PATH = '/assistant/new';
 export const ASSISTANT_DRAFT_ID_PREFIX = 'draft:';
@@ -48,7 +49,7 @@ export function startContextualConversation(
   handoff: AssistantContextualHandoff,
 ) {
   clearConversationNavigationState();
-  const token = crypto.randomUUID();
+  const token = createUuid();
   window.sessionStorage.setItem(`${HANDOFF_STORAGE_PREFIX}${token}`, JSON.stringify(handoff));
   navigate(`${ASSISTANT_FRESH_PATH}?handoff=${encodeURIComponent(token)}`);
 }

@@ -66,7 +66,7 @@ test('only explicit history selection opens a persisted conversation route', () 
 
 test('fresh-chat requests share one materialization UUID then promote and replace the URL', () => {
   assert.match(sessions, /requestSessionId/);
-  assert.match(sessions, /crypto\.randomUUID\(\)/);
+  assert.match(sessions, /createUuid\(\)/);
   assert.match(panel, /const backendSessionId = activeSession\.requestSessionId/);
   assert.match(panel, /backendSessionId,\s*requestId/);
   assert.match(panel, /response\.session_id/);
