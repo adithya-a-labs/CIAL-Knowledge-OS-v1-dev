@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import time
+import uuid
 from datetime import datetime, timezone
-from threading import Event
+from threading import Event, Lock, RLock
 from types import SimpleNamespace
 
 import numpy as np
@@ -52,11 +53,100 @@ def test_query_path_does_not_read_indexing_queue_or_wait_for_generation():
     )[0]
 
     assert "request_generation_refresh()" in answer_body
+    assert answer_body.index("refresh_published_query_identities()") < answer_body.index(
+        "snapshot_context = self.acquire_snapshot()"
+    )
+    assert answer_body.index("snapshot_context = self.acquire_snapshot()") < answer_body.index(
+        "self.request_generation_refresh()"
+    )
     assert "refresh_query_runtime_if_needed()" not in answer_body
     assert "DurableIndexQueue" not in answer_body
     assert ".sleep(" not in answer_body
     assert "pipeline.run(" not in answer_body
     assert "_answer_loaded_pipeline(" in answer_body
+
+
+def test_publication_refresh_defers_heavy_work_while_query_reader_is_active():
+    service = KnowledgeEngineService.__new__(KnowledgeEngineService)
+    service._lock = RLock()
+    service._active_query_readers = 1
+    service._pending_publication_activation = False
+
+    assert service.refresh_query_runtime_if_needed() is False
+    assert service._pending_publication_activation is True
+
+
+def test_corpus_scale_bm25_hot_reload_is_deferred_until_controlled_restart(
+    monkeypatch,
+    tmp_path,
+):
+    import backend.app.services.knowledge_engine_service as engine_module
+    import cial_knowledge_os.bm25_snapshot as snapshot_module
+
+    snapshot_path = tmp_path / "large-current.json"
+    snapshot_path.write_bytes(b"oversized")
+    generation = SimpleNamespace(
+        generation=12,
+        bm25_generation=9,
+        bm25_snapshot_path=str(snapshot_path),
+    )
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, *args):
+            return generation
+
+        def scalars(self, *args):
+            return [uuid.UUID("81f02834-f2ac-4a6f-968a-d5df19e19c44")]
+
+        def execute(self, *args):
+            return [(uuid.UUID("80a074aa-3af4-47ae-a468-e39ac88a41a1"), 3)]
+
+    activated = []
+    service = KnowledgeEngineService.__new__(KnowledgeEngineService)
+    service._lock = RLock()
+    service._generation_refresh_lock = Lock()
+    service._active_query_readers = 0
+    service._pending_publication_activation = False
+    service._pipeline = SimpleNamespace(
+        published_document_version_ids=frozenset({"old-version"}),
+        published_note_revisions=frozenset({("old-note", 1)}),
+    )
+    service._loaded_generation = 11
+    service._loaded_bm25_generation = 8
+    service._retrieval_cache = SimpleNamespace(
+        activate_generation=lambda value: activated.append(value)
+    )
+    service._bm25_snapshot_metrics = {"bm25_runtime_state": "ready"}
+    service._published_generation_valid = lambda *args: True
+
+    monkeypatch.setattr(engine_module, "SessionLocal", Session)
+    monkeypatch.setattr(engine_module.settings, "bm25_hot_reload_max_bytes", 1)
+    monkeypatch.setattr(
+        snapshot_module,
+        "load_bm25_snapshot",
+        lambda *args: pytest.fail("oversized snapshot must not load in-process"),
+    )
+
+    assert service.refresh_query_runtime_if_needed() is True
+    assert service._loaded_generation == 12
+    assert service._loaded_bm25_generation == 8
+    assert activated == [12]
+    assert service._pipeline.published_document_version_ids == frozenset(
+        {"81f02834-f2ac-4a6f-968a-d5df19e19c44"}
+    )
+    assert service._pipeline.published_note_revisions == frozenset(
+        {("80a074aa-3af4-47ae-a468-e39ac88a41a1", 3)}
+    )
+    assert service._bm25_snapshot_metrics["bm25_runtime_state"] == (
+        "deferred_until_restart"
+    )
+    assert service._bm25_snapshot_metrics["bm25_pending_generation"] == 9
 
 
 def test_published_query_runtime_never_enters_batch_bootstrap():
