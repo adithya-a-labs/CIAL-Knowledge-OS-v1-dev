@@ -55,7 +55,7 @@ test('retry captures the original profile and selected context', () => {
 
 test('draft materialization is single identity while chat execution is multi-flight', () => {
   assert.match(types, /requestSessionId: string/);
-  assert.match(sessions, /id\.startsWith\(ASSISTANT_DRAFT_ID_PREFIX\) \? crypto\.randomUUID\(\) : id/);
+  assert.match(sessions, /id\.startsWith\(ASSISTANT_DRAFT_ID_PREFIX\) \? createUuid\(\) : id/);
   assert.match(panel, /const backendSessionId = activeSession\.requestSessionId/);
   assert.match(adapters, /client_request_id: clientRequestId/);
   assert.match(sessions, /sessionAliasesRef/);

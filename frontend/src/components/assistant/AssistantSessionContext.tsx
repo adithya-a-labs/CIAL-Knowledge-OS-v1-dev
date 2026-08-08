@@ -22,6 +22,7 @@ import {
   consumeContextualConversation,
   startNewConversation,
 } from '@/lib/assistantNavigation';
+import { createUuid } from '@/lib/browserCompatibility';
 
 interface SessionUpdate {
   title?: string;
@@ -61,11 +62,11 @@ const AssistantSessionsContext = createContext<AssistantSessionsValue | null>(nu
 
 function buildSession(value: Partial<AssistantSession> = {}): AssistantSession {
   const now = new Date().toISOString();
-  const id = value.id ?? `${ASSISTANT_DRAFT_ID_PREFIX}${crypto.randomUUID()}`;
+  const id = value.id ?? `${ASSISTANT_DRAFT_ID_PREFIX}${createUuid()}`;
   return {
     id,
     requestSessionId: value.requestSessionId ?? (
-      id.startsWith(ASSISTANT_DRAFT_ID_PREFIX) ? crypto.randomUUID() : id
+      id.startsWith(ASSISTANT_DRAFT_ID_PREFIX) ? createUuid() : id
     ),
     title: value.title ?? 'New conversation',
     messages: value.messages ?? [],
