@@ -72,6 +72,17 @@ FastAPI accepts only configured loopback and LAN hosts. Forwarded headers are
 interpreted only because Uvicorn is launched with the loopback Caddy address
 as its proxy allowlist; a LAN client cannot connect directly to FastAPI.
 
+HTTP LAN origins are a supported production browser contract, not a degraded
+localhost-only development path. Frontend code must therefore feature-detect
+secure-context-only APIs. UUID and correlation identifiers use the shared
+browser compatibility helper, which retains cryptographic entropy through
+`crypto.getRandomValues()` when `crypto.randomUUID()` is unavailable. Copy
+actions use a user-gesture selection fallback when the asynchronous Clipboard
+API is unavailable or denied. Features that intrinsically require a secure
+context (for example WebAuthn or service workers) must remain disabled with a
+clear user-facing explanation in HTTP mode unless an explicit compatible
+fallback is implemented; they must never make application initialization fail.
+
 ## Hotspot detection
 
 The Windows detector consumes safe projections of `Get-NetAdapter`,
