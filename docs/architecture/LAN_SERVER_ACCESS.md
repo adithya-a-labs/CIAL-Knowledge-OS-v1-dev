@@ -62,7 +62,8 @@ Caddyfile:
 - serves the SPA with `index.html` fallback and no directory listing;
 - proxies `/api/*` to the loopback backend with forwarded headers;
 - disables proxy response buffering and flushes streaming responses;
-- bounds request bodies without loading them into the gateway process;
+- bounds `/api/*` request bodies at 512 MB without loading them into the
+  gateway process; oversized requests receive an edge-level rejection;
 - applies compatible security headers and no HSTS in HTTP mode;
 - uses bounded rotating access/error logs with query strings, request/response
   headers, cookies, and bodies excluded.
