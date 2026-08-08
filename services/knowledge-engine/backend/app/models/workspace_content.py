@@ -19,6 +19,15 @@ class Note(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_notes_owner_workspace_updated", "owner_user_id", "workspace_id", "updated_at"),
         Index("ix_notes_owner_pinned", "owner_user_id", postgresql_where=text("is_pinned = true and deleted_at is null")),
         Index("ix_notes_owner_archived", "owner_user_id", postgresql_where=text("is_archived = true and deleted_at is null")),
+        Index(
+            "ix_notes_search",
+            text(
+                "to_tsvector('simple'::regconfig, "
+                "(COALESCE(title, ''::text) || ' '::text) || "
+                "COALESCE(plain_text, ''::text))"
+            ),
+            postgresql_using="gin",
+        ),
         CheckConstraint("revision >= 1", name="ck_notes_revision"),
         CheckConstraint("length(trim(content_format)) > 0", name="ck_notes_content_format"),
     )
@@ -91,6 +100,13 @@ class SavedKnowledgeItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("owner_user_id", "summary_id", name="uq_saved_knowledge_owner_summary"),
         Index("ix_saved_knowledge_owner_created", "owner_user_id", "created_at"),
+        Index("ix_saved_knowledge_owner_updated", "owner_user_id", "updated_at"),
+        Index(
+            "ix_saved_knowledge_title_search",
+            "owner_user_id",
+            text("lower(title)"),
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
         CheckConstraint("item_type in ('summary','answer')", name="ck_saved_knowledge_item_type"),
         CheckConstraint("visibility in ('private','restricted')", name="ck_saved_knowledge_visibility"),
         CheckConstraint("state in ('active','archived')", name="ck_saved_knowledge_state"),
@@ -99,7 +115,7 @@ class SavedKnowledgeItem(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     owner_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     item_type: Mapped[str] = mapped_column(Text, nullable=False, server_default="summary")
-    summary_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("summary_artifacts.id", ondelete="SET NULL"))
+    summary_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("summary_artifacts.id", ondelete="CASCADE"))
     source_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("chat_messages.id", ondelete="SET NULL"))
     conversation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="SET NULL"))
     title: Mapped[str] = mapped_column(Text, nullable=False)
@@ -220,7 +236,14 @@ class SummarySource(UUIDPrimaryKeyMixin, Base):
 
 class SummaryCitation(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "summary_citations"
-    __table_args__ = (UniqueConstraint("summary_id", "citation_id", name="uq_summary_citations_id"),)
+    __table_args__ = (
+        UniqueConstraint("summary_id", "citation_id", name="uq_summary_citations_id"),
+        Index(
+            "ix_summary_citations_document_version",
+            "document_version_id",
+            "ordering",
+        ),
+    )
     summary_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("summary_artifacts.id", ondelete="CASCADE"), nullable=False)
     citation_id: Mapped[str] = mapped_column(Text, nullable=False)
     source_record_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("summary_sources.id", ondelete="CASCADE"), nullable=False)
