@@ -32,7 +32,20 @@ the queue is active. Chat uses the loaded published generation immediately and
 requests publication discovery asynchronously. Pending, processing, retrying,
 and failed jobs cannot enter the query dependency graph or invalidate the prior
 generation. Dense filters are pinned to the document versions and note
-revisions listed by the same published snapshot.
+revisions currently committed as indexed in PostgreSQL. This small identity
+allowlist is refreshed before a query leases the immutable runtime, so a newly
+published Qdrant version is available to the first chat without parsing a BM25
+snapshot in the request path.
+
+Corpus-scale lexical snapshots are not rebuilt inside a live API process when
+they exceed `CIAL_BM25_HOT_RELOAD_MAX_BYTES` (256 MiB by default). Qdrant and
+the retrieval-cache generation advance immediately, the prior immutable BM25
+publication remains authorized and queryable, and telemetry reports
+`bm25_runtime_state=deferred_until_restart` plus the pending generation. The
+next controlled API start loads the latest BM25 snapshot before readiness.
+Smaller snapshots retain asynchronous hot activation. This ceiling prevents a
+full-corpus JSON/index duplication from starving unrelated auth, preview, and
+health routes while preserving immediate dense retrieval for new content.
 
 ## Durable Change Flow
 
