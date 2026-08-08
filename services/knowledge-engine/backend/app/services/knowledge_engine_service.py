@@ -918,9 +918,63 @@ class KnowledgeEngineService:
                 close()
             raise
 
+    def refresh_published_query_identities(self) -> bool:
+        """Refresh the small Qdrant version allowlist without loading BM25."""
+
+        if SessionLocal is None:
+            return False
+        try:
+            with SessionLocal() as publication_session:
+                published_versions = frozenset(
+                    str(value)
+                    for value in publication_session.scalars(
+                        select(Document.current_version_id).where(
+                            Document.current_version_id.is_not(None),
+                            Document.deleted_at.is_(None),
+                            Document.indexed.is_(True),
+                            Document.indexing_status == "indexed",
+                            Document.lifecycle_status == "indexed",
+                        )
+                    )
+                    if value is not None
+                )
+                published_notes = frozenset(
+                    (str(note_id), int(revision))
+                    for note_id, revision in publication_session.execute(
+                        select(Note.id, NoteIndexState.indexed_revision)
+                        .join(
+                            NoteIndexState,
+                            NoteIndexState.note_id == Note.id,
+                        )
+                        .where(
+                            Note.deleted_at.is_(None),
+                            NoteIndexState.status == "indexed",
+                            NoteIndexState.indexed_revision == Note.revision,
+                        )
+                    )
+                    if revision is not None
+                )
+        except Exception:
+            logger.warning("published_identity_refresh_failed", exc_info=True)
+            return False
+        with self._lock:
+            pipeline = self._pipeline
+            if pipeline is None:
+                return False
+            pipeline.published_document_version_ids = published_versions or None
+            pipeline.published_note_revisions = published_notes or None
+        return True
+
     def refresh_query_runtime_if_needed(self) -> bool:
         """Atomically replace only the BM25 snapshot when a generation advances."""
 
+        # A publication refresh can load and index a very large BM25 snapshot.
+        # Never begin that CPU- and memory-heavy work while an immutable query
+        # snapshot is leased. The final reader schedules a retry after release.
+        with self._lock:
+            if self._active_query_readers:
+                self._pending_publication_activation = True
+                return False
         if SessionLocal is None:
             return False
         if not self._generation_refresh_lock.acquire(blocking=False):
@@ -968,6 +1022,49 @@ class KnowledgeEngineService:
             if not generation.bm25_snapshot_path:
                 return False
             snapshot_path = Path(generation.bm25_snapshot_path)
+            try:
+                snapshot_size = snapshot_path.stat().st_size
+            except OSError:
+                snapshot_size = 0
+            hot_reload_limit = max(0, int(settings.bm25_hot_reload_max_bytes))
+            if pipeline_present and (
+                hot_reload_limit == 0 or snapshot_size > hot_reload_limit
+            ):
+                # Parsing and rebuilding a corpus-scale lexical snapshot inside
+                # the API process can transiently duplicate tens of gigabytes
+                # and make unrelated HTTP routes unresponsive. Qdrant is
+                # already atomically current, so advance its cache generation
+                # while retaining the prior immutable lexical snapshot. The
+                # next controlled API start loads the new BM25 generation once,
+                # before accepting traffic.
+                pending_bm25_generation = int(generation.bm25_generation or 0)
+                if not self.refresh_published_query_identities():
+                    return False
+                with self._lock:
+                    pipeline = self._pipeline
+                    if pipeline is None:
+                        return False
+                    self._loaded_generation = int(generation.generation or 0)
+                    self._retrieval_cache.activate_generation(
+                        self._loaded_generation
+                    )
+                    self._bm25_snapshot_metrics = {
+                        **self._bm25_snapshot_metrics,
+                        "bm25_runtime_state": "deferred_until_restart",
+                        "bm25_snapshot_size": snapshot_size,
+                        "bm25_pending_generation": pending_bm25_generation,
+                        "bm25_hot_reload_max_bytes": hot_reload_limit,
+                    }
+                logger.warning(
+                    "bm25_hot_reload_deferred",
+                    extra={
+                        "event": "bm25_hot_reload_deferred",
+                        "generation": pending_bm25_generation,
+                        "snapshot_size": snapshot_size,
+                        "hot_reload_max_bytes": hot_reload_limit,
+                    },
+                )
+                return True
             snapshot_load_started = time.perf_counter()
             snapshot = load_bm25_snapshot(snapshot_path)
             snapshot_load_duration_ms = round(
@@ -1976,12 +2073,18 @@ class KnowledgeEngineService:
             if not self.engine_available:
                 raise KnowledgeEngineUnavailable(self._engine_error_message())
 
+            # This bounded metadata refresh makes newly committed Qdrant points
+            # visible immediately. It never parses or rebuilds the BM25 corpus.
+            self.refresh_published_query_identities()
             # Publication discovery is deliberately detached from this request.
             # The request uses the already-loaded stable snapshot while a daemon
             # refresh checks whether a newer complete generation is available.
-            self.request_generation_refresh()
             snapshot_context = self.acquire_snapshot()
             published_snapshot = snapshot_context.__enter__()
+            # Lease the current immutable generation before scheduling
+            # discovery. This closes the race where the refresh thread could
+            # start rebuilding a corpus-scale BM25 index ahead of this query.
+            self.request_generation_refresh()
             access_context = access_context or anonymous_access_context()
             profile = self._resolve_profile(request.response_length, request.profile)
             selected_scope = self._resolve_selected_context(
