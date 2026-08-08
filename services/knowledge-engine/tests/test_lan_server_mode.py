@@ -894,6 +894,57 @@ def test_runtime_hotspot_change_runs_owned_cleanup(monkeypatch, tmp_path, replac
     assert read_status(manager.status_path)["state"] == "reconfiguring"
 
 
+def test_runtime_adapter_probe_timeout_retains_healthy_gateway(monkeypatch, tmp_path):
+    original = HotspotAdapter(
+        "Wi-Fi", 7, "192.168.1.111", 24, "192.168.1.0/24",
+        "explicit_hotspot_binding", "explicit", "operator binding",
+    )
+    changed = replace(original, address="192.168.1.112")
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    fake_settings = SimpleNamespace(
+        repo_path=tmp_path,
+        lan_domain="cial-knowledge-os.local",
+        lan_https_enabled=False,
+        lan_http_port=80,
+        lan_https_port=443,
+        lan_allow_ip_fallback=True,
+        lan_mode="hotspot",
+        lan_qr_enabled=False,
+        lan_keep_awake=False,
+        lan_firewall_managed=False,
+        lan_mdns_enabled=False,
+        lan_adapter_recheck_seconds=0,
+    )
+    detections = iter(
+        [
+            original,
+            subprocess.TimeoutExpired("get_lan_adapter.ps1", 15),
+            changed,
+        ]
+    )
+
+    def detect(_root):
+        result = next(detections)
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+    monkeypatch.setattr(lan_manager, "settings", fake_settings)
+    monkeypatch.setattr(lan_manager, "_detect", detect)
+    monkeypatch.setattr(lan_manager.time, "sleep", lambda seconds: None)
+    manager = LanManager(backend_port=8000, frontend_root=frontend)
+    events = []
+    monkeypatch.setattr(manager, "_start_gateway", lambda adapter: events.append("start"))
+    monkeypatch.setattr(manager, "_stop_gateway", lambda: events.append("stop"))
+    monkeypatch.setattr(manager.mdns, "unregister", lambda: events.append("mdns_unregistered"))
+    monkeypatch.setattr(manager.keep_awake, "release", lambda: events.append("awake_released"))
+
+    assert manager.run() == 75
+    assert events == ["start", "stop", "mdns_unregistered", "awake_released"]
+    assert read_status(manager.status_path)["state"] == "reconfiguring"
+
+
 def test_launch_scripts_are_repo_venv_only_and_idempotent():
     start = (settings.repo_path / "scripts" / "start_lan_gateway.ps1").read_text(encoding="utf-8")
     production_launcher = (settings.repo_path / "Launch-CIAL-Knowledge-OS.ps1").read_text(encoding="utf-8")
