@@ -1,0 +1,6 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - img "CIAL" [ref=e5]
+    - paragraph [ref=e6]: Loading secure workspace...
+  - region "Notifications (F8)":
+    - list
