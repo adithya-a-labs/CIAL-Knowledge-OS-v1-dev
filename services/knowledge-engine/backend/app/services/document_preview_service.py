@@ -335,7 +335,11 @@ def _pptx_preview(path: Path) -> tuple[list[dict[str, str]], str]:
 
     slides: list[dict[str, str]] = []
     preview_lines: list[str] = []
-    for index, slide in enumerate(presentation.slides[:12], start=1):
+    # python-pptx's Slides collection supports integer indexing but not
+    # slicing; a slice is treated as one key and fails with an AttributeError.
+    for index, slide in enumerate(presentation.slides, start=1):
+        if index > 12:
+            break
         title = ""
         body_parts: list[str] = []
         for shape in slide.shapes:
