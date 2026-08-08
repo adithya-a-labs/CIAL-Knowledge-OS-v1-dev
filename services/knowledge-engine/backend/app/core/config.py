@@ -285,6 +285,10 @@ class Settings:
         "CIAL_GPU_PRIORITY_POLL_SECONDS", 0.1
     )
     bm25_refresh_debounce_seconds: float = _env_float("CIAL_BM25_REFRESH_DEBOUNCE_SECONDS", 2.0)
+    bm25_hot_reload_max_bytes: int = _env_int(
+        "CIAL_BM25_HOT_RELOAD_MAX_BYTES",
+        256 * 1024 * 1024,
+    )
     auth_secret_key: str = _env_str(
         "CIAL_AUTH_SECRET_KEY",
         "AUTH_SECRET_KEY",
@@ -379,6 +383,7 @@ class Settings:
             "CIAL_CORPUS_FILE_STABILITY_INTERVAL_MS": self.corpus_file_stability_interval_ms,
             "CIAL_CORPUS_FILE_STABILITY_CHECKS": self.corpus_file_stability_checks,
             "CIAL_BM25_REFRESH_DEBOUNCE_SECONDS": self.bm25_refresh_debounce_seconds,
+            "CIAL_BM25_HOT_RELOAD_MAX_BYTES": self.bm25_hot_reload_max_bytes,
             "QDRANT_TIMEOUT_SECONDS": self.qdrant_timeout_seconds,
             "QDRANT_RETRY_ATTEMPTS": self.qdrant_retry_attempts,
             "QDRANT_RETRY_BACKOFF_SECONDS": self.qdrant_retry_backoff_seconds,
