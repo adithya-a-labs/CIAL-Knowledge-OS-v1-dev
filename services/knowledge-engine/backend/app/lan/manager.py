@@ -598,6 +598,23 @@ class LanManager:
                     return 0
                 try:
                     detected = self.adapter if self.test_bind else _detect(self.repo_root)
+                except subprocess.TimeoutExpired:
+                    # Adapter inspection is an external PowerShell probe. A
+                    # transient WMI/network-stack stall must not tear down an
+                    # otherwise healthy gateway and reset active client streams.
+                    _event(
+                        "adapter_probe_timeout",
+                        state="gateway_retained",
+                        error_code="TimeoutExpired",
+                    )
+                    continue
+                except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as exc:
+                    _event(
+                        "adapter_probe_failed",
+                        state="gateway_retained",
+                        error_code=type(exc).__name__,
+                    )
+                    continue
                 except HotspotSelectionError:
                     detected = None
                 if needs_reconfigure(self.adapter, detected):
