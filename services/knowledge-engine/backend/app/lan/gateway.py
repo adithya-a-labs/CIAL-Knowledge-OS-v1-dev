@@ -8,6 +8,9 @@ import ipaddress
 import re
 
 
+MAX_API_REQUEST_BODY_SIZE = "512MB"
+
+
 @dataclass(frozen=True)
 class GatewayConfig:
     bind_ip: str
@@ -59,6 +62,9 @@ def render_caddyfile(config: GatewayConfig) -> str:
 
         @api path /api/*
         handle @api {{
+            request_body {{
+                max_size {MAX_API_REQUEST_BODY_SIZE}
+            }}
             reverse_proxy 127.0.0.1:{config.backend_port} {{
                 flush_interval -1
                 header_up X-Forwarded-For {{remote_host}}
