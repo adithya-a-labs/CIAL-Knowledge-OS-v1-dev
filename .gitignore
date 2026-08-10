@@ -2,6 +2,7 @@
 .agents/
 .local/
 .playwright-mcp/
+.playwright-cli/
 
 # Environment files
 .env
