@@ -8,6 +8,8 @@ from pathlib import Path
 import re
 import secrets
 
+from cial_knowledge_os.runtime_env import load_server_environment
+
 from .application_config import (
     application_config_path,
     configured_corpus_root,
@@ -25,44 +27,7 @@ from .paths import (
 )
 
 
-def _parse_env_file(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    if not path.is_file():
-        return values
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return values
-    for raw_line in lines:
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        if key.startswith("export "):
-            key = key.removeprefix("export ").strip()
-        if not key:
-            continue
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-            value = value[1:-1]
-        values[key] = value
-    return values
-
-
-def _load_env_files() -> None:
-    """Load repo/service/backend .env files without overriding the shell."""
-
-    original_environment = set(os.environ)
-    loaded: dict[str, str] = {}
-    for path in (REPO_ROOT / ".env", SERVICE_ROOT / ".env", BACKEND_ROOT / ".env"):
-        loaded.update(_parse_env_file(path))
-    for key, value in loaded.items():
-        if key not in original_environment:
-            os.environ[key] = value
-
-
-_load_env_files()
+load_server_environment(REPO_ROOT)
 
 
 def _env_bool(name: str, default: bool) -> bool:
