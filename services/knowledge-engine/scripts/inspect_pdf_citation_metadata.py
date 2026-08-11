@@ -7,6 +7,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -15,7 +16,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from cial_knowledge_os.config import KnowledgeOSConfig  # noqa: E402
+from cial_knowledge_os.runtime_env import load_server_environment  # noqa: E402
 from cial_knowledge_os.vectorstore import create_qdrant_client  # noqa: E402
+
+
+ENV_REPORT = load_server_environment(PROJECT_ROOT.parent.parent)
 
 
 SAFE_KEYS = (
@@ -40,7 +45,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--filename", required=True, help="Exact indexed PDF filename.")
     parser.add_argument("--limit", type=int, default=5, help="Maximum matching chunks to print.")
     parser.add_argument("--qdrant-mode", choices=("embedded", "server"), default="embedded")
-    parser.add_argument("--qdrant-url", default="http://localhost:6333")
+    parser.add_argument(
+        "--qdrant-url",
+        default=os.getenv("CIAL_QDRANT_URL") or os.getenv("QDRANT_URL") or "http://localhost:6335",
+    )
     parser.add_argument("--collection", default="cial_basic_rag")
     parser.add_argument("--data-dir", type=Path, default=PROJECT_ROOT.parent.parent / "data")
     return parser.parse_args()
@@ -48,11 +56,14 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    for source in ENV_REPORT.sources:
+        print(f"Server configuration source loaded: {source}")
     config = KnowledgeOSConfig(
         project_root=PROJECT_ROOT.parent.parent,
         data_dir=args.data_dir,
         qdrant_mode=args.qdrant_mode,
         qdrant_url=args.qdrant_url,
+        qdrant_api_key=os.getenv("CIAL_QDRANT_API_KEY") or os.getenv("QDRANT_API_KEY"),
         qdrant_collection_name=args.collection,
     )
     client = create_qdrant_client(config)
