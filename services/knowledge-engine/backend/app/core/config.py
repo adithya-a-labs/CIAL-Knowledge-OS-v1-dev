@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import re
+import secrets
 
 from .application_config import (
     application_config_path,
@@ -101,6 +102,12 @@ def _env_csv(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
     return parsed or default
 
 
+def _auth_secret_default() -> str:
+    """Use an ephemeral secret only for an explicit local development/test process."""
+
+    return secrets.token_urlsafe(48)
+
+
 @dataclass
 class Settings:
     app_name: str = "cial-knowledge-os"
@@ -114,7 +121,8 @@ class Settings:
     app_data_root: str = str(resolve_repo_path(_env_str("CIAL_APP_DATA_DIR", default=str(DATA_ROOT))))
     corpus_root: str = str(configured_corpus_root(DEFAULT_CORPUS_ROOT))
     workspace_root: str = str(resolve_repo_path(_env_str("CIAL_WORKSPACE_ROOT", default="data/user-workspaces")))
-    workspace_quota_bytes: int = _env_int("CIAL_WORKSPACE_QUOTA_BYTES", 0)
+    workspace_quota_bytes: int = _env_int("CIAL_WORKSPACE_QUOTA_BYTES", 1_073_741_824)
+    upload_max_bytes: int = _env_int("CIAL_UPLOAD_MAX_BYTES", 100 * 1024 * 1024)
     corpus_repository_id: str = configured_repository_id(DEFAULT_CORPUS_ROOT)
     outputs_root: str = str(resolve_repo_path(_env_str("CIAL_OUTPUTS_DIR", default=str(OUTPUTS_ROOT))))
     export_root: str = str(resolve_repo_path(_env_str("CIAL_EXPORT_ROOT", default=str(OUTPUTS_ROOT / "exports"))))
@@ -222,6 +230,7 @@ class Settings:
     summary_max_chunks: int = _env_int("CIAL_SUMMARY_MAX_CHUNKS", 20_000)
     chat_debug: bool = _env_bool("CIAL_CHAT_DEBUG", False)
     database_url: str = _env_str("DATABASE_URL", default="")
+    migration_database_url: str = _env_str("CIAL_MIGRATION_DATABASE_URL", default="")
     corpus_sync_on_startup: bool = _env_bool("CIAL_CORPUS_SYNC_ON_STARTUP", False)
     corpus_watch: bool = _env_bool("CIAL_CORPUS_WATCH", True)
     corpus_watch_debounce_ms: int = _env_int("CIAL_CORPUS_WATCH_DEBOUNCE_MS", 750)
@@ -292,13 +301,13 @@ class Settings:
     auth_secret_key: str = _env_str(
         "CIAL_AUTH_SECRET_KEY",
         "AUTH_SECRET_KEY",
-        default="cial-dev-auth-secret-change-me",
+        default=_auth_secret_default(),
     )
     auth_cookie_name: str = _env_str(
         "CIAL_AUTH_COOKIE_NAME",
         default="cial_auth_session",
     )
-    auth_session_ttl_hours: int = _env_int("CIAL_AUTH_SESSION_TTL_HOURS", 168)
+    auth_session_ttl_hours: int = _env_int("CIAL_AUTH_SESSION_TTL_HOURS", 12)
     auth_cookie_secure: bool = _env_bool(
         "CIAL_AUTH_COOKIE_SECURE",
         _env_str("CIAL_ENV", "ENV", default="development").casefold() == "production",
@@ -306,7 +315,7 @@ class Settings:
     auth_cookie_samesite: str = _env_str("CIAL_AUTH_COOKIE_SAMESITE", default="lax")
     auth_allow_user_headers: bool = _env_bool(
         "CIAL_AUTH_ALLOW_USER_HEADERS",
-        _env_str("CIAL_ENV", "ENV", default="development").casefold() != "production",
+        False,
     )
     auth_default_organization_code: str = _env_str(
         "CIAL_AUTH_DEFAULT_ORGANIZATION_CODE",
@@ -327,7 +336,7 @@ class Settings:
     lan_bind_interface: str = _env_str("CIAL_LAN_BIND_INTERFACE", default="auto")
     lan_bind_ip: str = _env_str("CIAL_LAN_BIND_IP", default="auto")
     lan_http_port: int = _env_int("CIAL_LAN_HTTP_PORT", 80)
-    lan_https_enabled: bool = _env_bool("CIAL_LAN_HTTPS_ENABLED", False)
+    lan_https_enabled: bool = _env_bool("CIAL_LAN_HTTPS_ENABLED", True)
     lan_https_port: int = _env_int("CIAL_LAN_HTTPS_PORT", 443)
     lan_allow_ip_fallback: bool = _env_bool("CIAL_LAN_ALLOW_IP_FALLBACK", True)
     lan_mdns_enabled: bool = _env_bool("CIAL_LAN_MDNS_ENABLED", True)
@@ -352,6 +361,39 @@ class Settings:
     lan_shutdown_timeout_seconds: int = _env_int("CIAL_LAN_SHUTDOWN_TIMEOUT_SECONDS", 10)
 
     def __post_init__(self) -> None:
+        if self.environment not in {"development", "test", "uat", "production"}:
+            raise ValueError("CIAL_ENV must be development, test, uat, or production.")
+        configured_auth_secret = os.getenv("CIAL_AUTH_SECRET_KEY") or os.getenv("AUTH_SECRET_KEY")
+        weak_secrets = {
+            "cial-dev-auth-secret-change-me",
+            "change-me",
+            "changeme",
+            "secret",
+        }
+        if self.environment in {"uat", "production"}:
+            if not configured_auth_secret:
+                raise ValueError("CIAL_AUTH_SECRET_KEY is required in UAT and production.")
+            if len(self.auth_secret_key.encode("utf-8")) < 32 or self.auth_secret_key.casefold() in weak_secrets:
+                raise ValueError("CIAL_AUTH_SECRET_KEY must be a strong, non-default secret of at least 32 bytes.")
+            if not self.reranker_local_files_only:
+                raise ValueError("CIAL_LOCAL_FILES_ONLY=true is required in UAT and production.")
+            if not _env_bool("TRANSFORMERS_OFFLINE", False) or not _env_bool("HF_HUB_OFFLINE", False):
+                raise ValueError("TRANSFORMERS_OFFLINE=1 and HF_HUB_OFFLINE=1 are required in UAT and production.")
+        if self.auth_session_ttl_hours < 1 or self.auth_session_ttl_hours > 24:
+            raise ValueError("CIAL_AUTH_SESSION_TTL_HOURS must be between 1 and 24.")
+        if self.upload_max_bytes < 1_048_576 or self.upload_max_bytes > 1_073_741_824:
+            raise ValueError("CIAL_UPLOAD_MAX_BYTES must be between 1 MiB and 1 GiB.")
+        if self.workspace_quota_bytes < self.upload_max_bytes:
+            raise ValueError("CIAL_WORKSPACE_QUOTA_BYTES must be at least CIAL_UPLOAD_MAX_BYTES.")
+        if self.auth_allow_user_headers and self.environment != "test":
+            raise ValueError("CIAL_AUTH_ALLOW_USER_HEADERS is permitted only when CIAL_ENV=test.")
+        if self.auth_allow_user_headers and self.lan_access_enabled:
+            raise ValueError("Test identity headers cannot be combined with LAN access.")
+        if self.lan_access_enabled and not self.lan_https_enabled and self.environment not in {"development", "test"}:
+            raise ValueError("LAN access requires HTTPS in UAT and production.")
+        if self.environment in {"uat", "production"} and self.qdrant_mode == "server":
+            if not self.qdrant_api_key or len(self.qdrant_api_key) < 24:
+                raise ValueError("CIAL_QDRANT_API_KEY must be configured for Qdrant server mode in UAT and production.")
         self.indexer_precision = {
             "fp16": "float16",
             "fp32": "float32",

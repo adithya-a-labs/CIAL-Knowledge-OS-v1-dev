@@ -23,30 +23,30 @@ uvicorn==0.50.0
 sqlalchemy==2.0.51
 alembic==1.17.2
 psycopg[binary]==3.3.2
-accelerate              # NEW
-beautifulsoup4          # NEW
-huggingface-hub         # NEW
-jsonschema              # NEW
-loguru                  # NEW
-lxml                    # NEW
-markdown                # NEW
-orjson                  # NEW
-pdfplumber              # NEW
-pydantic-settings       # NEW
-pypdf                   # NEW
-pytest                  # NEW
-pytest-asyncio          # NEW
+accelerate==1.14.0
+beautifulsoup4==4.15.0
+huggingface-hub==1.23.0
+jsonschema==4.26.0
+loguru==0.7.3
+lxml==6.1.1
+markdown==3.10.2
+orjson==3.11.9
+pdfplumber==0.11.9
+pydantic-settings==2.14.2
+pypdf==6.14.2
+pytest==9.1.1
+pytest-asyncio==1.4.0
 reportlab==5.0.0
 python-docx==1.2.0
 markdown-it-py==4.2.0
 bleach==6.4.0
-python-dotenv           # NEW
-PyYAML                  # NEW
-rapidfuzz               # NEW
-rich                    # NEW
-safetensors             # NEW
-tokenizers              # NEW
-transformers            # NEW
-unstructured            # NEW
-watchdog                # NEW
-xlrd                    # NEW
+python-dotenv==1.2.2
+PyYAML==6.0.3
+rapidfuzz==3.14.5
+rich==15.0.0
+safetensors==0.8.0
+tokenizers==0.22.2
+transformers==5.13.1
+unstructured==0.24.1
+watchdog==6.0.0
+xlrd==2.0.2
