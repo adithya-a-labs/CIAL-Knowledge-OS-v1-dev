@@ -26,10 +26,12 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    database_url = settings.migration_database_url or settings.database_url
-    if database_url:
-        return database_url
-    return config.get_main_option("sqlalchemy.url")
+    if settings.migration_database_url:
+        return settings.migration_database_url
+    raise RuntimeError(
+        "CIAL_MIGRATION_DATABASE_URL is required for Alembic. "
+        "Runtime DATABASE_URL is intentionally not accepted."
+    )
 
 
 def run_migrations_offline() -> None:
