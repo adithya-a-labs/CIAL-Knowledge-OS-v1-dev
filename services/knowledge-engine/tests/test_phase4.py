@@ -720,7 +720,7 @@ class Phase4PipelineAndArtifactTests(unittest.TestCase):
         self.assertIn("downloaded and cached successfully", output.getvalue())
         self.assertIn("loaded from local Hugging Face cache", output.getvalue())
 
-    def test_pipeline_answers_with_caution_when_only_weak_evidence_exists(
+    def test_pipeline_fails_closed_when_only_weak_evidence_exists(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -730,15 +730,12 @@ class Phase4PipelineAndArtifactTests(unittest.TestCase):
             )
             response = pipeline.answer("What control is required?")
 
-        self.assertEqual(response["answer_status"], "answered")
+        self.assertEqual(response["answer_status"], "insufficient_evidence")
         self.assertEqual(response["evidence_confidence"], "weak")
         self.assertTrue(response["weak_evidence"])
-        self.assertIn("Caution", response["answer"])
+        self.assertIn("sufficient evidence", response["answer"].casefold())
         self.assertGreater(len(response["selected_evidence"]), 0)
-        self.assertIn(
-            "All selected evidence is below the reranker threshold",
-            pipeline.llm.prompt,
-        )
+        self.assertEqual(response["citations"], [])
 
     def test_generation_retry_succeeds_without_repeating_retrieval(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1020,7 +1017,7 @@ class Phase4PipelineAndArtifactTests(unittest.TestCase):
         self.assertEqual(phase4.reranker_score_threshold, -4.0)
         self.assertTrue(phase4.fallback_to_top_n_if_empty)
         self.assertEqual(phase4.fallback_top_n, 3)
-        self.assertTrue(phase4.weak_evidence_answer_allowed)
+        self.assertFalse(phase4.weak_evidence_answer_allowed)
         self.assertEqual(phase4.answer_detail_level, "detailed")
         self.assertEqual(phase4.min_answer_words, 250)
         self.assertIsNone(phase4.max_answer_words)

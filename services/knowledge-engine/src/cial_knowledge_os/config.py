@@ -485,7 +485,7 @@ class Phase4Config(Phase3Config):
     reranker_score_threshold: float | None = None
     fallback_to_top_n_if_empty: bool = True
     fallback_top_n: int = 3
-    weak_evidence_answer_allowed: bool = True
+    weak_evidence_answer_allowed: bool = False
     min_fallback_reranker_score: float = 0.35
     allow_extractive_fallback_for_weak_evidence: bool = False
     unsupported_query_detection_enabled: bool = True
