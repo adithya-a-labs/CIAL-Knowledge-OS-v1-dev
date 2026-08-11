@@ -8,7 +8,7 @@ import ipaddress
 import re
 
 
-MAX_API_REQUEST_BODY_SIZE = "512MB"
+MAX_API_REQUEST_BODY_SIZE = "110MB"
 
 
 @dataclass(frozen=True)
@@ -56,7 +56,7 @@ def render_caddyfile(config: GatewayConfig) -> str:
             Referrer-Policy "no-referrer"
             Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
             X-Frame-Options "SAMEORIGIN"
-            Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; object-src 'none'; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' blob:; worker-src 'self' blob:; connect-src 'self'; media-src 'self' blob:"{hsts}
+            Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; object-src 'none'; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self' blob:; connect-src 'self'; media-src 'self' blob:"{hsts}
             -Server
         }}
 
@@ -70,6 +70,9 @@ def render_caddyfile(config: GatewayConfig) -> str:
                 header_up X-Forwarded-For {{remote_host}}
                 header_up X-Forwarded-Host {{host}}
                 header_up X-Forwarded-Proto {scheme}
+                header_up -X-CIAL-User-Id
+                header_up -X-User-Id
+                header_up -X-CIAL-Access-Scope
             }}
         }}
 
@@ -99,6 +102,7 @@ def render_caddyfile(config: GatewayConfig) -> str:
             fields {{
                 request>headers delete
                 request>uri delete
+                resp_headers delete
             }}
         }}
     }}
