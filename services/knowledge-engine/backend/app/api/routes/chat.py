@@ -22,7 +22,8 @@ from backend.app.repositories.chats import ChatRepository
 from backend.app.schemas.chat import ChatAttachmentResponse, ChatMessageRecord, ChatRequest, ChatResponse, ChatSessionCreate, ChatSessionList, ChatSessionRecord, MessageFeedbackRequest, MessageFeedbackResponse, MessageTransformRequest
 from backend.app.services.chat_action_service import ChatActionError, ChatActionService
 from backend.app.services.message_transformation_service import MessageTransformationError, MessageTransformationService
-from backend.app.security.access import require_authenticated_access_context
+from backend.app.security.access import can_monitor_system, require_authenticated_access_context
+from backend.app.core.config import settings
 from backend.app.services.personal_workspace_service import PersonalWorkspaceService, WorkspaceNotFound
 from backend.app.services.knowledge_engine_service import (
     KnowledgeEngineDocumentsNotReady,
@@ -39,6 +40,11 @@ from backend.app.services.chat_concurrency import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _require_debug_permission(payload: ChatRequest, access) -> None:
+    if payload.include_debug and not (settings.chat_debug and can_monitor_system(access)):
+        raise HTTPException(status_code=403, detail="Chat diagnostics are not available.")
 
 
 def _apply_summary_binding(payload: ChatRequest, db: Session, user_id: uuid.UUID) -> ChatRequest:
@@ -121,6 +127,7 @@ def stream_chat(payload: ChatRequest, request: Request):
     if not runtime_state.snapshot()["engine_ready"]:
         raise HTTPException(503, detail=runtime_state.chat_unavailable_detail())
     access = require_authenticated_access_context(request)
+    _require_debug_permission(payload, access)
     user_id = access.principal.user_id
     controller = getattr(request.app.state, "chat_concurrency", None)
     temporary_controller = controller is None
@@ -373,7 +380,9 @@ def stream_chat(payload: ChatRequest, request: Request):
 def chat_debug(request: Request) -> dict[str, object]:
     """Return safe query/index timing state without document or prompt content."""
 
-    require_authenticated_access_context(request)
+    access = require_authenticated_access_context(request)
+    if not settings.chat_debug or not can_monitor_system(access):
+        raise HTTPException(status_code=403, detail="Chat diagnostics are not available.")
     metrics = request.app.state.knowledge_engine.chat_debug_snapshot()
     controller = getattr(request.app.state, "chat_concurrency", None)
     concurrency = controller.snapshot() if controller is not None else {}
@@ -435,6 +444,7 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
             detail=runtime_state.chat_unavailable_detail(),
         )
     access_context = require_authenticated_access_context(request)
+    _require_debug_permission(payload, access_context)
     user_id = access_context.principal.user_id
     controller = request.app.state.chat_concurrency
 

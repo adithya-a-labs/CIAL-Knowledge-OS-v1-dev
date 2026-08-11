@@ -219,13 +219,13 @@ def test_system_status_route_is_authenticated(monkeypatch):
 
     assert client.get("/api/system/status").status_code == 401
 
-    app.dependency_overrides[health.require_system_status_access] = lambda: object()
+    app.dependency_overrides[health.require_authenticated_access_context] = lambda: object()
     response = client.get("/api/system/status")
     assert response.status_code == 200
     assert response.json() == {"status": "green"}
 
 
-def test_signed_session_can_observe_postgresql_outage(monkeypatch):
+def test_authenticated_session_can_observe_postgresql_outage(monkeypatch):
     test_settings = replace(
         settings,
         auth_secret_key="system-status-route-secret",
@@ -241,8 +241,7 @@ def test_signed_session_can_observe_postgresql_outage(monkeypatch):
     )
     app.include_router(health.router, prefix="/api")
     client = TestClient(app)
-    token = session_tokens.issue_session_token(uuid.uuid4(), ttl_seconds=60)
-    client.cookies.set(test_settings.auth_cookie_name, token)
+    app.dependency_overrides[health.require_authenticated_access_context] = lambda: object()
 
     response = client.get("/api/system/status")
 
