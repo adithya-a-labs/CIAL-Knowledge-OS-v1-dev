@@ -5,6 +5,12 @@ $frontend = Join-Path $repo "frontend"
 $backend = Join-Path $repo "services\knowledge-engine"
 $python = Join-Path $repo ".venv\Scripts\python.exe"
 $outputDir = Join-Path $repo "outputs\playwright"
+. (Join-Path $PSScriptRoot "runtime_env.ps1")
+Import-CialRuntimeEnvironment -RepoRoot $repo -RequiredKeys @(
+    "DATABASE_URL",
+    "CIAL_QDRANT_API_KEY"
+) | Out-Null
+Clear-CialMigrationCredential
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 
 function Stop-PortListener {
