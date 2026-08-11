@@ -26,7 +26,7 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    database_url = settings.database_url
+    database_url = settings.migration_database_url or settings.database_url
     if database_url:
         return database_url
     return config.get_main_option("sqlalchemy.url")
