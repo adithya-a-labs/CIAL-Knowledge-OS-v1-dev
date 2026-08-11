@@ -19,6 +19,7 @@ from backend.app.models.identity import User
 from backend.app.models.knowledge import Document, DocumentVersion, Folder, Workspace, WorkspaceUserPreference
 from backend.app.models.operations import AuditEvent, IndexingJob
 from cial_knowledge_os.file_formats import validate_ingestion_file
+from backend.app.services.document_service import DocumentService
 from backend.app.schemas.workspaces import WorkspacePreferences
 from backend.app.security.access import RequestAccessContext
 
@@ -246,6 +247,8 @@ class PersonalWorkspaceService:
         if resolve_collision:
             self.session.scalar(select(Workspace.id).where(Workspace.id == workspace.id).with_for_update())
             display_name = self._available_name(workspace.id, folder.id, display_name)
+        else:
+            self.session.scalar(select(Workspace.id).where(Workspace.id == workspace.id).with_for_update())
         extension = Path(display_name).suffix.casefold()
         if not validate_ingestion_file(display_name)["valid_for_ingestion"]:
             raise ValueError("This file type is not supported for indexing.")
@@ -263,10 +266,15 @@ class PersonalWorkspaceService:
             with temporary.open("wb") as target:
                 while chunk := stream.read(1024 * 1024):
                     size += len(chunk)
-                    if settings.workspace_quota_bytes > 0 and used_bytes + size > settings.workspace_quota_bytes:
+                    if size > settings.upload_max_bytes:
+                        raise ValueError("The uploaded file exceeds the configured size limit.")
+                    if used_bytes + size > settings.workspace_quota_bytes:
                         raise ValueError("Workspace storage quota reached.")
                     digest.update(chunk)
                     target.write(chunk)
+            if size == 0:
+                raise ValueError("Empty files are not accepted.")
+            DocumentService._validate_upload_content(temporary, expected_suffix=extension)
             temporary.replace(destination)
             now = datetime.now(timezone.utc)
             document = Document(
