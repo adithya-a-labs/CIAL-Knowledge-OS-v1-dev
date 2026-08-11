@@ -1,6 +1,6 @@
 services:
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.18.2@sha256:75eab8c4ba42096724fdcfde8b4de0b5713d529dde32f285a1f86fdcb2c9e50c
     container_name: cial-knowledge-os-v1-dev-qdrant
 
     ports:
@@ -10,6 +10,22 @@ services:
       - cial_qdrant_storage:/qdrant/storage
 
     restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: "${CIAL_QDRANT_API_KEY:?CIAL_QDRANT_API_KEY is required}"
+      QDRANT__SERVICE__ENABLE_TLS: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 3 bash -c '</dev/tcp/127.0.0.1/6333'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 4g
+    cpus: 4.0
 
 volumes:
   cial_qdrant_storage:
