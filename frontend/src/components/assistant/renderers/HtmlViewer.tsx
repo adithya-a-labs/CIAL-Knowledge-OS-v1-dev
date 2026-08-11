@@ -16,10 +16,13 @@ export default function HtmlViewer({ html, zoomLevel }: HtmlViewerProps) {
 
   return (
     <div ref={containerRef} className="document-paper scrollbar-soft h-full overflow-auto rounded-[1.5rem] border border-border p-5">
-      <article
-        className="prose prose-neutral max-w-none"
+      <iframe
+        title="Sanitized document preview"
+        className="h-full min-h-[32rem] w-full border-0"
+        sandbox=""
+        referrerPolicy="no-referrer"
         style={zoomStyle(zoomLevel)}
-        dangerouslySetInnerHTML={{ __html: html }}
+        srcDoc={`<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><body>${html}</body>`}
       />
     </div>
   );
