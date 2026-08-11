@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -15,15 +16,28 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from cial_knowledge_os.infra.qdrant_health import check_qdrant_health
+from cial_knowledge_os.runtime_env import load_server_environment
+
+
+ENV_REPORT = load_server_environment(PROJECT_ROOT.parent.parent)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Check a local Qdrant server and collection."
     )
-    parser.add_argument("--url", default="http://localhost:6333")
-    parser.add_argument("--collection", default="cial_phase4")
-    parser.add_argument("--api-key", default=None)
+    parser.add_argument(
+        "--url",
+        default=os.getenv("CIAL_QDRANT_URL") or os.getenv("QDRANT_URL") or "http://localhost:6335",
+    )
+    parser.add_argument(
+        "--collection", default=os.getenv("CIAL_QDRANT_COLLECTION", "cial_phase4")
+    )
+    parser.add_argument(
+        "--api-key",
+        default=os.getenv("CIAL_QDRANT_API_KEY") or os.getenv("QDRANT_API_KEY"),
+        help="One-off override; prefer the protected server environment.",
+    )
     parser.add_argument("--embedding-dimension", type=int, default=None)
     return parser.parse_args()
 
@@ -34,6 +48,8 @@ def _display(value: Any) -> str:
 
 def main() -> int:
     args = parse_args()
+    for source in ENV_REPORT.sources:
+        print(f"Server configuration source loaded: {source}")
     client = QdrantClient(url=args.url, api_key=args.api_key)
     try:
         report = check_qdrant_health(
