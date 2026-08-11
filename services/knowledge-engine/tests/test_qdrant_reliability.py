@@ -25,6 +25,8 @@ def config(tmp_path, **overrides):
         "qdrant_mode": "server",
         "qdrant_collection_name": "reliability",
         "qdrant_retry_backoff_seconds": 2,
+        # Keep unit expectations independent of an installed runtime env file.
+        "qdrant_query_timeout_seconds": 3,
     }
     values.update(overrides)
     return KnowledgeOSConfig(**values)

@@ -154,3 +154,23 @@ def test_production_model_policy_requires_consistent_offline_flags(monkeypatch) 
             qdrant_api_key="q" * 24,
             reranker_local_files_only=True,
         )
+
+
+def test_production_auth_secret_remains_fail_closed(monkeypatch) -> None:
+    monkeypatch.delenv("CIAL_AUTH_SECRET_KEY", raising=False)
+    monkeypatch.delenv("AUTH_SECRET_KEY", raising=False)
+    with pytest.raises(ValueError, match="CIAL_AUTH_SECRET_KEY is required"):
+        replace(
+            settings,
+            environment="production",
+            qdrant_api_key="q" * 24,
+        )
+
+    monkeypatch.setenv("CIAL_AUTH_SECRET_KEY", "change-me")
+    with pytest.raises(ValueError, match="strong, non-default"):
+        replace(
+            settings,
+            environment="production",
+            auth_secret_key="change-me",
+            qdrant_api_key="q" * 24,
+        )
