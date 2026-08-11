@@ -99,6 +99,12 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     ldap_dn: Mapped[str | None] = mapped_column(Text)
     last_directory_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    session_version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default="0",
+        default=0,
+    )
 
     organization: Mapped[Organization] = relationship(back_populates="users")
     department: Mapped[Department | None] = relationship(back_populates="users")
