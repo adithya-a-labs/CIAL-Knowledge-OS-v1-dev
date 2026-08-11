@@ -7,6 +7,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+. (Join-Path $PSScriptRoot "runtime_env.ps1")
+Import-CialRuntimeEnvironment -RepoRoot $RepoRoot -RequiredKeys @(
+    "DATABASE_URL",
+    "CIAL_AUTH_SECRET_KEY",
+    "CIAL_QDRANT_API_KEY"
+) | Out-Null
 if ([string]::IsNullOrWhiteSpace($ReportDirectory)) { $ReportDirectory = Join-Path $RepoRoot "outputs\installer\reports" }
 New-Item -ItemType Directory -Force -Path $ReportDirectory | Out-Null
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -76,7 +82,7 @@ try {
     Set-Result "qdrant" ($health.qdrant_ready -eq $true) "backend reports Qdrant ready"
     Set-Result "models" ($health.models_ready -eq $true) "backend reports embedding/reranker models ready"
     $qdrantBody = @{ limit=1; with_payload=$true; filter=@{ must=@(@{ key="metadata.repository_id"; match=@{ value=$repository.repository_id } }) } } | ConvertTo-Json -Depth 8
-    $qdrantResponse = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$QdrantUrl/collections/cial_phase4/points/scroll" -ContentType "application/json" -Body $qdrantBody -TimeoutSec 60
+    $qdrantResponse = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$QdrantUrl/collections/cial_phase4/points/scroll" -Headers @{ "api-key" = $env:CIAL_QDRANT_API_KEY } -ContentType "application/json" -Body $qdrantBody -TimeoutSec 60
     $qdrantPayload = $qdrantResponse.Content | ConvertFrom-Json
     Set-Result "qdrant_repository_data" ($qdrantResponse.StatusCode -eq 200 -and @($qdrantPayload.result.points).Count -gt 0) "active repository vector payload is queryable"
 
