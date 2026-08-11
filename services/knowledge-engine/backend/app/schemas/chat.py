@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -23,14 +23,14 @@ ChatProfile = Literal[
 class ChatRequest(BaseModel):
     session_id: UUID | None = None
     client_request_id: str | None = Field(default=None, min_length=1, max_length=128)
-    question: str = Field(min_length=1)
+    question: str = Field(min_length=1, max_length=8_000)
     search_scope: Literal["enterprise", "workspace", "hybrid", "current_upload"] = "hybrid"
-    selected_document_ids: list[str] = Field(default_factory=list)
-    selected_folder_ids: list[str] = Field(default_factory=list)
-    selected_note_ids: list[str] = Field(default_factory=list)
+    selected_document_ids: list[Annotated[str, Field(min_length=1, max_length=256)]] = Field(default_factory=list, max_length=20)
+    selected_folder_ids: list[Annotated[str, Field(min_length=1, max_length=256)]] = Field(default_factory=list, max_length=20)
+    selected_note_ids: list[Annotated[str, Field(min_length=1, max_length=256)]] = Field(default_factory=list, max_length=20)
     response_length: ChatProfile = "standard"
     profile: ChatProfile | None = None
-    max_answer_words: int | None = None
+    max_answer_words: int | None = Field(default=None, ge=50, le=4_000)
     include_sources: bool = True
     include_debug: bool = False
 
@@ -77,6 +77,7 @@ class ChatCitation(BaseModel):
     note_revision: int | None = None
     workspace_id: str | None = None
     block_id: str | None = None
+    support_state: Literal["source_mapped_unverified", "extractive_match"] = "source_mapped_unverified"
 
 
 class ChatSource(BaseModel):

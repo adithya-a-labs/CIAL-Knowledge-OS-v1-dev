@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import math
+import re
 from pathlib import Path
 import sys
 from threading import Lock, RLock, Thread
@@ -2096,6 +2097,14 @@ class KnowledgeEngineService:
                 access_relative_paths,
                 selected_scope,
             )
+            requested_scope_paths = self._requested_scope_relative_paths(
+                access_context,
+                request.search_scope,
+            )
+            if requested_scope_paths is not None:
+                effective_relative_paths = frozenset(
+                    effective_relative_paths.intersection(requested_scope_paths)
+                )
             progress("context.building", "completed", documents_searched=len(effective_relative_paths or ()))
             (
                 retrieval_cache_key,
@@ -2630,7 +2639,7 @@ class KnowledgeEngineService:
                 effective_document_ids.add(str(document.id))
 
             for value in folder_ids:
-                folder = self._folder_for_context_id(session, value)
+                folder = self._folder_for_context_id(session, value, access_context)
                 if folder is None:
                     raise KnowledgeEngineInvalidRequest(
                         f"Selected folder was not found: {value}"
@@ -2711,16 +2720,25 @@ class KnowledgeEngineService:
             )
 
     @staticmethod
-    def _folder_for_context_id(session: Any, value: str) -> Folder | None:
+    def _folder_for_context_id(session: Any, value: str, access_context: RequestAccessContext) -> Folder | None:
         try:
-            return session.get(Folder, uuid.UUID(value))
+            folder = session.get(Folder, uuid.UUID(value))
         except ValueError:
-            return session.scalar(
+            folder = session.scalar(
                 select(Folder).where(
                     Folder.repository_id == settings.corpus_repository_id,
                     Folder.relative_path == value,
                 )
             )
+        if folder is None:
+            return None
+        visible_document = session.scalar(
+            apply_document_access_filter(
+                select(Document.id).where(Document.folder_id == folder.id),
+                access_context,
+            ).limit(1)
+        )
+        return folder if visible_document is not None else None
 
     @staticmethod
     def _normalize_relative_path(value: Any) -> str:
@@ -2743,11 +2761,7 @@ class KnowledgeEngineService:
             cls._normalize_relative_path(metadata.get("absolute_path")),
         }
         candidates.discard("")
-        for candidate in candidates:
-            for allowed in allowed_relative_paths:
-                if candidate == allowed or candidate.endswith(f"/{allowed}"):
-                    return True
-        return False
+        return bool(candidates.intersection(allowed_relative_paths))
 
     def _run_with_selected_context(
         self,
@@ -3148,8 +3162,20 @@ class KnowledgeEngineService:
             if include_debug
             else None
         )
+        valid_citation_ids = {
+            int(item.id.removeprefix("S"))
+            for item in citations
+            if item.id.removeprefix("S").isdigit()
+        }
+        answer = re.sub(
+            r"\[(\d+)\]",
+            lambda match: match.group(0)
+            if int(match.group(1)) in valid_citation_ids
+            else "[citation unavailable]",
+            str(response.get("answer") or ""),
+        )
         return ChatResponse(
-            answer=str(response.get("answer") or ""),
+            answer=answer,
             citations=citations,
             sources=sources,
             metadata=metadata,
@@ -3247,12 +3273,21 @@ class KnowledgeEngineService:
         )
         source_by_id = {source.id: source for source in sources}
         citations: list[ChatCitation] = []
+        seen_reference_ids: set[int] = set()
         for index, citation in enumerate(citation_payload, start=1):
             if not isinstance(citation, Mapping):
                 continue
-            reference_id = int(citation.get("reference_id") or index)
+            try:
+                reference_id = int(citation.get("reference_id") or index)
+            except (TypeError, ValueError):
+                continue
+            if reference_id < 1 or reference_id in seen_reference_ids:
+                continue
             source_id = f"S{reference_id}"
             source = source_by_id.get(source_id)
+            if source is None:
+                continue
+            seen_reference_ids.add(reference_id)
             normalized_page = (
                 self._optional_page(citation.get("page_number"))
                 if citation.get("page_number") not in {None, ""}
@@ -3578,6 +3613,36 @@ class KnowledgeEngineService:
                 # query contributes authorization paths, never a second mutable
                 # lexical corpus.
                 paths.update(note_relative_path(note.id) for note, _ in rows)
+            return frozenset(paths)
+
+    def _requested_scope_relative_paths(
+        self,
+        access_context: RequestAccessContext,
+        search_scope: str,
+    ) -> frozenset[str] | None:
+        """Narrow authorized sources to the caller's explicit retrieval scope."""
+
+        if SessionLocal is None or search_scope == "hybrid":
+            return None
+        with SessionLocal() as session:
+            storage_scope = "enterprise" if search_scope == "enterprise" else "personal"
+            statement = select(Document.relative_path).where(Document.storage_scope == storage_scope)
+            paths = {
+                self._normalize_relative_path(value)
+                for value in session.scalars(apply_document_access_filter(statement, access_context))
+                if value
+            }
+            if search_scope in {"workspace", "current_upload"} and access_context.principal.user_id is not None:
+                paths.update(
+                    note_relative_path(note_id)
+                    for note_id in session.scalars(
+                        select(Note.id).where(
+                            Note.owner_user_id == access_context.principal.user_id,
+                            Note.deleted_at.is_(None),
+                            Note.is_archived.is_(False),
+                        )
+                    )
+                )
             return frozenset(paths)
 
     @staticmethod
