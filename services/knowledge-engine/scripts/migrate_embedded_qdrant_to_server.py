@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from cial_knowledge_os.runtime_env import load_server_environment  # noqa: E402
+
+ENV_REPORT = load_server_environment(PROJECT_ROOT.parent.parent)
 
 
 def positive_integer(value: str) -> int:
@@ -128,9 +138,18 @@ def migrate_collection(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True, type=Path)
-    parser.add_argument("--url", default="http://localhost:6333")
-    parser.add_argument("--api-key")
-    parser.add_argument("--collection", default="cial_phase4")
+    parser.add_argument(
+        "--url",
+        default=os.getenv("CIAL_QDRANT_URL") or os.getenv("QDRANT_URL") or "http://localhost:6335",
+    )
+    parser.add_argument(
+        "--api-key",
+        default=os.getenv("CIAL_QDRANT_API_KEY") or os.getenv("QDRANT_API_KEY"),
+        help="One-off override; prefer the protected server environment.",
+    )
+    parser.add_argument(
+        "--collection", default=os.getenv("CIAL_QDRANT_COLLECTION", "cial_phase4")
+    )
     parser.add_argument("--batch-size", type=positive_integer, default=512)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force", action="store_true")
@@ -139,6 +158,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    for source in ENV_REPORT.sources:
+        print(f"Server configuration source loaded: {source}")
     source_path = args.source.expanduser().resolve()
     if not source_path.is_dir():
         raise FileNotFoundError(
@@ -153,8 +174,8 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             raise RuntimeError(
                 f"Qdrant server at {args.url} is not reachable. "
-                "Start it with: docker compose -f "
-                "docker-compose.qdrant.yml up -d"
+                "Start it from the repository root with: "
+                r"scripts\start_qdrant.bat"
             ) from exc
         migrate_collection(
             source,
