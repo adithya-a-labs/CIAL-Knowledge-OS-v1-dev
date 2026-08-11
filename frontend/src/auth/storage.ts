@@ -45,7 +45,8 @@ export function readSessionEntryUserId() {
 
 export function writeSessionEntryUserId(userId: string) {
   if (typeof window === 'undefined') return;
-  window.sessionStorage.setItem(AUTH_SESSION_ENTRY_STORAGE_KEY, userId);
+  void userId;
+  window.sessionStorage.setItem(AUTH_SESSION_ENTRY_STORAGE_KEY, '1');
 }
 
 export function clearSessionEntryUserId() {
@@ -54,7 +55,8 @@ export function clearSessionEntryUserId() {
 }
 
 export function aiNoticeAcknowledgementKey(userId: string) {
-  return `${AI_NOTICE_ACK_STORAGE_PREFIX}:${userId}`;
+  void userId;
+  return AI_NOTICE_ACK_STORAGE_PREFIX;
 }
 
 export function clearUserWorkspaceState() {

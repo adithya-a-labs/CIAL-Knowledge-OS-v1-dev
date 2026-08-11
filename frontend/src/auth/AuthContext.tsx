@@ -130,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const acknowledged = window.localStorage.getItem(aiNoticeAcknowledgementKey(user.id)) === '1';
     setAiNoticeAcknowledged(acknowledged);
-    const shouldShowWelcome = consumeWelcomePending() || readSessionEntryUserId() !== user.id;
+    const shouldShowWelcome = consumeWelcomePending() || readSessionEntryUserId() !== '1';
     writeSessionEntryUserId(user.id);
     setShowWelcome(shouldShowWelcome);
   }, [status, user]);
