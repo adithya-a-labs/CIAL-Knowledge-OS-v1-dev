@@ -14,6 +14,7 @@ from backend.app.models.operations import IndexingJob
 from backend.app.schemas.documents import DocumentIndexingStatus, DocumentListResponse, DocumentMetadata, UploadResponse
 from backend.app.security.access import apply_document_access_filter, can_upload_enterprise_documents, require_authenticated_access_context, resolve_access_context
 from backend.app.services.indexing_retry_service import IndexingRetryError, IndexingRetryService
+from backend.app.services.document_service import DocumentUploadError
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ def retry_document_indexing(document_id: uuid.UUID, request: Request, db: Sessio
 
 @router.get("/documents", response_model=DocumentListResponse)
 def list_documents(request: Request) -> DocumentListResponse:
-    access_context = resolve_access_context(request)
+    access_context = require_authenticated_access_context(request)
     documents = request.app.state.document_service.list_documents(access_context=access_context)
     return DocumentListResponse(documents=documents)
 
@@ -77,7 +78,7 @@ def upload_document(
     metadata_enqueue = None
     if hasattr(request.app.state, "corpus_service") and request.app.state.corpus_service is not None:
         corpus_sync = request.app.state.corpus_service.sync
-    access_context = resolve_access_context(request)
+    access_context = require_authenticated_access_context(request)
     if not can_upload_enterprise_documents(access_context):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -89,10 +90,13 @@ def upload_document(
             created_by_user_id=access_context.principal.user_id,
         )
 
-    return request.app.state.document_service.save_upload_with_indexing(
-        file.filename or "upload",
-        file.file,
-        corpus_sync=corpus_sync,
-        metadata_enqueue=metadata_enqueue,
-        access_context=access_context,
-    )
+    try:
+        return request.app.state.document_service.save_upload_with_indexing(
+            file.filename or "upload",
+            file.file,
+            corpus_sync=corpus_sync,
+            metadata_enqueue=metadata_enqueue,
+            access_context=access_context,
+        )
+    except DocumentUploadError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

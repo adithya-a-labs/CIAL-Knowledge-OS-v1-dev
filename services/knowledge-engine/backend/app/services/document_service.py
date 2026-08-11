@@ -6,10 +6,11 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 import re
-import shutil
 import uuid
+import zipfile
 from typing import Any, BinaryIO, Callable
 
 from backend.app.core.config import settings
@@ -19,6 +20,12 @@ from backend.app.schemas.documents import DocumentMetadata, DocumentType, Upload
 from cial_knowledge_os.file_formats import validate_ingestion_file
 
 logger = logging.getLogger(__name__)
+
+
+class DocumentUploadError(RuntimeError):
+    def __init__(self, message: str, *, status_code: int = 400) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 _TYPE_BY_SUFFIX: dict[str, DocumentType] = {
     ".pdf": "pdf",
@@ -76,9 +83,14 @@ class DocumentService:
         safe_name = self._safe_filename(filename)
         if not validate_ingestion_file(safe_name)["valid_for_ingestion"]:
             raise ValueError("This file type is not supported for indexing.")
-        destination = self._available_path(self.root / safe_name)
-        with destination.open("wb") as handle:
-            shutil.copyfileobj(stream, handle)
+        destination = self._reserve_destination(self.root / safe_name)
+        try:
+            with destination.open("wb") as handle:
+                self._copy_bounded(stream, handle)
+            self._validate_upload_content(destination)
+        except Exception:
+            destination.unlink(missing_ok=True)
+            raise
         return self._metadata_for(destination, indexed_paths=self._indexed_paths())
 
     def save_upload_with_indexing(
@@ -101,7 +113,8 @@ class DocumentService:
         temp_path = self.root / f".upload_{uuid.uuid4().hex}_{safe_name}.tmp"
         try:
             with temp_path.open("wb") as handle:
-                shutil.copyfileobj(stream, handle)
+                self._copy_bounded(stream, handle)
+            self._validate_upload_content(temp_path, expected_suffix=Path(safe_name).suffix)
 
             content_hash = self._hash_file(temp_path)
             duplicate_doc = self._find_duplicate_by_hash(
@@ -109,9 +122,24 @@ class DocumentService:
                 access_context=access_context,
             )
 
-            # Move to final location
-            destination = self._available_path(self.root / safe_name)
-            temp_path.replace(destination)
+            if duplicate_doc is not None:
+                temp_path.unlink(missing_ok=True)
+                return UploadResponse(
+                    id=str(duplicate_doc.get("id") or ""),
+                    name=Path(str(duplicate_doc.get("relative_path") or safe_name)).name,
+                    path=str(duplicate_doc.get("relative_path") or ""),
+                    type=_TYPE_BY_SUFFIX.get(Path(safe_name).suffix.casefold(), "unknown"),
+                    size_bytes=0,
+                    modified_at=datetime.now(timezone.utc).isoformat(),
+                    indexed=True,
+                    indexing_status="skipped",
+                    content_hash=content_hash,
+                    duplicate_detected=True,
+                    message="Duplicate content already exists; no new file or indexing job was created.",
+                )
+
+            destination = self._reserve_destination(self.root / safe_name)
+            os.replace(temp_path, destination)
 
         except Exception:
             # Clean up temp file on error
@@ -175,19 +203,11 @@ class DocumentService:
                     indexing_job_id = self._find_latest_job_for_hash(content_hash)
             except Exception as exc:
                 logger.exception("upload_corpus_sync_failed")
-                return UploadResponse(
-                    id=hashlib.sha1(relative.encode("utf-8")).hexdigest()[:16],
-                    name=destination.name,
-                    path=relative,
-                    type=file_type,
-                    size_bytes=stat.st_size,
-                    modified_at=modified_at,
-                    indexed=False,
-                    indexing_status="failed",
-                    document_version_id=document_version_id,
-                    content_hash=content_hash,
-                    message=f"File saved but metadata sync failed: {exc}",
-                )
+                destination.unlink(missing_ok=True)
+                raise DocumentUploadError(
+                    "Upload registration failed; no document was published.",
+                    status_code=503,
+                ) from exc
 
         logger.info(
             "upload_accepted",
@@ -256,8 +276,15 @@ class DocumentService:
 
     @staticmethod
     def _safe_filename(filename: str) -> str:
-        name = Path(filename).name.strip() or "upload"
-        return re.sub(r"[^A-Za-z0-9._ -]+", "_", name)
+        name = Path(filename.replace("\\", "/")).name.strip().rstrip(". ")
+        name = re.sub(r"[^A-Za-z0-9._ -]+", "_", name)[:180].rstrip(". ")
+        if not name:
+            raise DocumentUploadError("A valid filename is required.")
+        stem = Path(name).stem.casefold()
+        reserved = {"con", "prn", "aux", "nul", "clock$"} | {f"com{i}" for i in range(1, 10)} | {f"lpt{i}" for i in range(1, 10)}
+        if stem in reserved:
+            raise DocumentUploadError("This filename is reserved by the operating system.")
+        return name
 
     @staticmethod
     def _available_path(path: Path) -> Path:
@@ -272,6 +299,71 @@ class DocumentService:
             if not candidate.exists():
                 return candidate
             counter += 1
+
+    @classmethod
+    def _reserve_destination(cls, path: Path) -> Path:
+        candidate = path
+        for counter in range(1, 10_000):
+            try:
+                descriptor = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                os.close(descriptor)
+                return candidate
+            except FileExistsError:
+                candidate = path.with_name(f"{path.stem}-{counter + 1}{path.suffix}")
+        raise DocumentUploadError("A unique storage name could not be allocated.", status_code=409)
+
+    @staticmethod
+    def _copy_bounded(source: BinaryIO, destination: BinaryIO) -> int:
+        total = 0
+        while True:
+            block = source.read(1024 * 1024)
+            if not block:
+                break
+            total += len(block)
+            if total > settings.upload_max_bytes:
+                raise DocumentUploadError("The uploaded file exceeds the configured size limit.", status_code=413)
+            destination.write(block)
+        if total == 0:
+            raise DocumentUploadError("Empty files are not accepted.")
+        return total
+
+    @staticmethod
+    def _validate_upload_content(path: Path, *, expected_suffix: str | None = None) -> None:
+        suffix = (expected_suffix or path.suffix).casefold()
+        with path.open("rb") as handle:
+            head = handle.read(16)
+        signatures = {
+            ".pdf": (b"%PDF-",),
+            ".png": (b"\x89PNG\r\n\x1a\n",),
+            ".jpg": (b"\xff\xd8\xff",),
+            ".jpeg": (b"\xff\xd8\xff",),
+            ".tif": (b"II*\x00", b"MM\x00*"),
+            ".tiff": (b"II*\x00", b"MM\x00*"),
+            ".doc": (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",),
+            ".xls": (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",),
+            ".ppt": (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",),
+        }
+        expected = signatures.get(suffix)
+        if expected and not any(head.startswith(signature) for signature in expected):
+            raise DocumentUploadError("File content does not match its filename extension.")
+        if suffix in {".docx", ".xlsx", ".pptx"}:
+            if not head.startswith(b"PK"):
+                raise DocumentUploadError("File content does not match its filename extension.")
+            try:
+                with zipfile.ZipFile(path) as archive:
+                    entries = archive.infolist()
+                    if len(entries) > 10_000:
+                        raise DocumentUploadError("The Office archive contains too many entries.")
+                    if sum(entry.file_size for entry in entries) > 500 * 1024 * 1024:
+                        raise DocumentUploadError("The Office archive expands beyond the safe limit.")
+                    if any(entry.file_size > max(entry.compress_size, 1) * 100 for entry in entries):
+                        raise DocumentUploadError("The Office archive compression ratio is unsafe.")
+                    if "[Content_Types].xml" not in {entry.filename for entry in entries}:
+                        raise DocumentUploadError("The Office archive structure is invalid.")
+            except zipfile.BadZipFile as exc:
+                raise DocumentUploadError("The Office archive is invalid.") from exc
+        if suffix in {".txt", ".md", ".markdown", ".html", ".htm", ".json", ".xml", ".yaml", ".yml", ".csv"} and b"\x00" in head:
+            raise DocumentUploadError("Text document contains binary content.")
 
     @staticmethod
     def _hash_file(path: Path) -> str:
