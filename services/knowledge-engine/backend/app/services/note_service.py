@@ -9,7 +9,7 @@ from backend.app.core.config import settings
 from backend.app.models.knowledge import Document
 from backend.app.models.operations import AuditEvent, IndexingJob
 from backend.app.models.workspace_content import Note, NoteDocumentLink, NoteIndexState, NoteTag, NoteTagLink, NoteVersion
-from backend.app.security.access import RequestAccessContext, document_is_accessible
+from backend.app.security.access import RequestAccessContext, apply_document_access_filter, document_is_accessible
 from backend.app.services.personal_workspace_service import PersonalWorkspaceService, WorkspaceNotFound
 
 class NoteConflict(RuntimeError):
@@ -32,9 +32,10 @@ class NoteService:
         note=self.session.scalar(select(Note).where(*clauses))
         if note is None: raise WorkspaceNotFound("Note not found.")
         return note
-    def _payload(self, note: Note):
+    def _payload(self, note: Note, access: RequestAccessContext):
         tags=list(self.session.execute(select(NoteTag).join(NoteTagLink, NoteTagLink.tag_id==NoteTag.id).where(NoteTagLink.note_id==note.id)).scalars())
-        docs=list(self.session.execute(select(Document).join(NoteDocumentLink, NoteDocumentLink.document_id==Document.id).where(NoteDocumentLink.note_id==note.id, Document.deleted_at.is_(None))).scalars())
+        linked_statement=select(Document).join(NoteDocumentLink, NoteDocumentLink.document_id==Document.id).where(NoteDocumentLink.note_id==note.id, Document.deleted_at.is_(None))
+        docs=list(self.session.scalars(apply_document_access_filter(linked_statement,access)))
         state=self.session.get(NoteIndexState,note.id)
         return {"id":note.id,"title":note.title,"content_json":note.content_json,"content_markdown":note.content_markdown,"content_format":note.content_format,"plain_text":note.plain_text,"is_pinned":note.is_pinned,"is_archived":note.is_archived,"revision":note.revision,"created_at":note.created_at,"updated_at":note.updated_at,"indexing_status":state.status if state else "pending","indexed_revision":state.indexed_revision if state else None,"tags":[{"id":str(t.id),"name":t.name,"color":t.color} for t in tags],"linked_documents":[{"id":str(d.id),"name":d.name,"file_type":d.file_type,"scope":d.storage_scope} for d in docs]}
     def list(self, access, query="", filter_name="all", tag_id=None, cursor=None, limit=25):
@@ -57,15 +58,15 @@ class NoteService:
         rows=list(self.session.scalars(statement.order_by(desc(Note.is_pinned),desc(Note.updated_at),desc(Note.id)).limit(limit+1)))
         more=len(rows)>limit; rows=rows[:limit]
         next_cursor=base64.urlsafe_b64encode(f"{rows[-1].updated_at.isoformat()}|{rows[-1].id}".encode()).decode() if more else None
-        self.session.commit(); return {"items":[self._payload(n) for n in rows],"next_cursor":next_cursor}
+        self.session.commit(); return {"items":[self._payload(n,access) for n in rows],"next_cursor":next_cursor}
     def create(self, access, title="Untitled"):
         user_id, workspace=self._scope(access); clean=" ".join(title.split()).strip() or "Untitled"
         note=Note(organization_id=workspace.organization_id,workspace_id=workspace.id,owner_user_id=user_id,title=clean)
-        self.session.add(note); self.session.flush(); self._version(note,user_id); self._audit(user_id,"workspace.note.created",note.id); self._schedule_index(note,"index"); self.session.commit(); self.session.refresh(note); return self._payload(note)
-    def get(self, access, note_id): return self._payload(self._get(access,note_id))
+        self.session.add(note); self.session.flush(); self._version(note,user_id); self._audit(user_id,"workspace.note.created",note.id); self._schedule_index(note,"index"); self.session.commit(); self.session.refresh(note); return self._payload(note,access)
+    def get(self, access, note_id): return self._payload(self._get(access,note_id),access)
     def update(self, access, note_id, payload):
         note=self._get(access,note_id)
-        if note.revision!=payload.expected_revision and not payload.force: raise NoteConflict(self._payload(note))
+        if note.revision!=payload.expected_revision and not payload.force: raise NoteConflict(self._payload(note,access))
         before=(note.is_pinned,note.is_archived)
         for field in ("title","content_json","content_markdown","content_format","is_pinned","is_archived"):
             value=getattr(payload,field,None)
@@ -75,13 +76,13 @@ class NoteService:
         action="workspace.note.updated"
         if before[0]!=note.is_pinned: action="workspace.note.pinned" if note.is_pinned else "workspace.note.unpinned"
         elif before[1]!=note.is_archived: action="workspace.note.archived" if note.is_archived else "workspace.note.unarchived"
-        self._audit(note.owner_user_id,action,note.id); self._schedule_index(note,"remove" if note.is_archived else "index"); self.session.commit(); return self._payload(note)
+        self._audit(note.owner_user_id,action,note.id); self._schedule_index(note,"remove" if note.is_archived else "index"); self.session.commit(); return self._payload(note,access)
     def delete(self, access,note_id):
         note=self._get(access,note_id); note.deleted_at=datetime.now(timezone.utc); note.deleted_by_user_id=note.owner_user_id; self._audit(note.owner_user_id,"workspace.note.deleted",note.id); self._schedule_index(note,"remove"); self.session.commit()
     def restore(self, access,note_id):
-        note=self._get(access,note_id,True); note.deleted_at=None; note.deleted_by_user_id=None; self._audit(note.owner_user_id,"workspace.note.restored",note.id); self._schedule_index(note,"index"); self.session.commit(); return self._payload(note)
+        note=self._get(access,note_id,True); note.deleted_at=None; note.deleted_by_user_id=None; self._audit(note.owner_user_id,"workspace.note.restored",note.id); self._schedule_index(note,"index"); self.session.commit(); return self._payload(note,access)
     def duplicate(self, access,note_id):
-        source=self._get(access,note_id); created=self.create(access,f"{source.title} copy"); target=self._get(access,created["id"]); target.content_json=source.content_json; target.content_markdown=source.content_markdown; target.plain_text=source.plain_text; target.revision+=1; self._version(target,target.owner_user_id); self._audit(target.owner_user_id,"workspace.note.duplicated",target.id); self._schedule_index(target,"index"); self.session.commit(); return self._payload(target)
+        source=self._get(access,note_id); created=self.create(access,f"{source.title} copy"); target=self._get(access,created["id"]); target.content_json=source.content_json; target.content_markdown=source.content_markdown; target.plain_text=source.plain_text; target.revision+=1; self._version(target,target.owner_user_id); self._audit(target.owner_user_id,"workspace.note.duplicated",target.id); self._schedule_index(target,"index"); self.session.commit(); return self._payload(target,access)
     def versions(self, access,note_id):
         note=self._get(access,note_id); rows=list(self.session.scalars(select(NoteVersion).where(NoteVersion.note_id==note.id).order_by(NoteVersion.revision.desc())))
         return [{"id":str(v.id),"revision":v.revision,"title":v.title,"created_at":v.created_at} for v in rows]
@@ -107,15 +108,15 @@ class NoteService:
         note=self._get(access,note_id); tag=self.session.scalar(select(NoteTag).where(NoteTag.id==tag_id,NoteTag.owner_user_id==note.owner_user_id,NoteTag.workspace_id==note.workspace_id))
         if tag is None: raise WorkspaceNotFound("Tag not found.")
         if self.session.get(NoteTagLink,{"note_id":note.id,"tag_id":tag.id}) is None: self.session.add(NoteTagLink(note_id=note.id,tag_id=tag.id)); self._audit(note.owner_user_id,"workspace.note.tag_added",note.id); self.session.commit()
-        return self._payload(note)
+        return self._payload(note,access)
     def remove_tag(self,access,note_id,tag_id):
         note=self._get(access,note_id); link=self.session.get(NoteTagLink,{"note_id":note.id,"tag_id":tag_id})
         if link: self.session.delete(link); self._audit(note.owner_user_id,"workspace.note.tag_removed",note.id); self.session.commit()
     def link_document(self,access,note_id,document_id):
         note=self._get(access,note_id); doc=self.session.get(Document,document_id)
-        if doc is None or not document_is_accessible(doc,access): raise WorkspaceNotFound("Document not found.")
+        if doc is None or not document_is_accessible(doc,access,self.session): raise WorkspaceNotFound("Document not found.")
         if self.session.get(NoteDocumentLink,{"note_id":note.id,"document_id":doc.id}) is None: self.session.add(NoteDocumentLink(note_id=note.id,document_id=doc.id)); self._audit(note.owner_user_id,"workspace.note.document_linked",note.id); self.session.commit()
-        return self._payload(note)
+        return self._payload(note,access)
     def unlink_document(self,access,note_id,document_id):
         note=self._get(access,note_id); link=self.session.get(NoteDocumentLink,{"note_id":note.id,"document_id":document_id})
         if link: self.session.delete(link); self._audit(note.owner_user_id,"workspace.note.document_unlinked",note.id); self.session.commit()
