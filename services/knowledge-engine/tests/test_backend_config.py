@@ -16,7 +16,7 @@ from backend.app.core.application_config import (
     save_primary_repository_path,
     validate_repository_path,
 )
-from backend.app.core.paths import REPO_ROOT
+from backend.app.core.paths import DATA_FILES_ROOT, REPO_ROOT
 from backend.app.services.knowledge_engine_service import (
     _server_collection_requires_rebuild,
 )
@@ -36,7 +36,8 @@ class BackendSettingsTests(unittest.TestCase):
         self.assertEqual(settings.indexer_precision, "float16")
 
     def test_application_config_stores_primary_repository_path(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
+        DATA_FILES_ROOT.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=DATA_FILES_ROOT) as directory:
             config_path = Path(directory) / "application.json"
             repository = Path(directory) / "KnowledgeRepository"
             repository.mkdir()

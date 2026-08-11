@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .paths import DATA_ROOT, resolve_repo_path
+from .paths import BACKEND_ROOT, DATA_FILES_ROOT, DATA_ROOT, OUTPUTS_ROOT, REPO_ROOT, resolve_repo_path
 
 
 APPLICATION_CONFIG_VERSION = 1
@@ -141,14 +141,21 @@ def configured_repository_id(default: Path) -> str:
 
 def configured_corpus_root(default: Path) -> Path:
     env_path = os.getenv("CIAL_CORPUS_ROOT") or os.getenv("CORPUS_ROOT")
+    config_path = application_config_path()
+    config_value = None
+    if config_path.is_file():
+        config_value = _repository_path_from_config(read_application_config(config_path))
+    if env_path and env_path.strip() and config_value:
+        env_resolved = resolve_repo_path(env_path.strip())
+        config_resolved = resolve_repo_path(config_value)
+        environment = (os.getenv("CIAL_ENV") or os.getenv("ENV") or "development").casefold()
+        if env_resolved != config_resolved and environment in {"uat", "production"}:
+            raise RuntimeError("Conflicting corpus roots are configured; startup refused.")
     if env_path and env_path.strip():
         return resolve_repo_path(env_path.strip())
 
-    config_path = application_config_path()
-    if config_path.is_file():
-        configured = _repository_path_from_config(read_application_config(config_path))
-        if configured:
-            return resolve_repo_path(configured)
+    if config_value:
+        return resolve_repo_path(config_value)
 
     legacy_path = os.getenv("CIAL_DATA_DIR")
     if legacy_path and legacy_path.strip():
@@ -203,6 +210,51 @@ def validate_repository_path(value: str | Path) -> RepositoryPathValidation:
     readable = False
     writable = False
     message = "Repository path is valid."
+
+    raw_value = str(value).strip()
+    if raw_value.startswith("\\\\"):
+        return RepositoryPathValidation(path, False, False, False, False, False, "UNC corpus roots are not permitted.")
+
+    configured_allowed = [
+        resolve_repo_path(item)
+        for item in (os.getenv("CIAL_ALLOWED_CORPUS_ROOTS") or "").split(os.pathsep)
+        if item.strip()
+    ]
+    allowed_roots = [DATA_FILES_ROOT.resolve(), *configured_allowed]
+    if not any(path == root or root in path.parents for root in allowed_roots):
+        return RepositoryPathValidation(
+            path, path.exists(), path.is_dir(), False, False, False,
+            "Repository root is outside CIAL_ALLOWED_CORPUS_ROOTS.",
+        )
+
+    sensitive_roots = {
+        BACKEND_ROOT.resolve(),
+        OUTPUTS_ROOT.resolve(),
+        (REPO_ROOT / "frontend").resolve(),
+        (REPO_ROOT / "scripts").resolve(),
+        (REPO_ROOT / ".git").resolve(),
+        (REPO_ROOT / "models").resolve(),
+        (DATA_ROOT / "config").resolve(),
+        (DATA_ROOT / "user-workspaces").resolve(),
+        Path.home().resolve(),
+    }
+    for environment_name in ("WINDIR", "ProgramFiles", "ProgramFiles(x86)", "ProgramData"):
+        configured = os.getenv(environment_name)
+        if configured:
+            sensitive_roots.add(Path(configured).resolve())
+    if any(path == root or path in root.parents or root in path.parents for root in sensitive_roots):
+        return RepositoryPathValidation(
+            path, path.exists(), path.is_dir(), False, False, False,
+            "Repository root overlaps a protected application, workspace, model, configuration, output, home, or system path.",
+        )
+
+    if os.name == "nt":
+        try:
+            for component in [path, *path.parents]:
+                if component.exists() and component.stat().st_file_attributes & 0x400:
+                    return RepositoryPathValidation(path, True, path.is_dir(), False, False, False, "Repository roots may not traverse Windows reparse points.")
+        except (AttributeError, OSError):
+            return RepositoryPathValidation(path, path.exists(), path.is_dir(), False, False, False, "Repository path security attributes could not be verified.")
 
     if not exists:
         return RepositoryPathValidation(
