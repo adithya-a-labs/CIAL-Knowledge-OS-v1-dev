@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import sys
 from pathlib import Path
 from typing import Any, Sequence
@@ -13,6 +14,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = PROJECT_ROOT / "src"
 if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
+
+from cial_knowledge_os.runtime_env import load_server_environment
+
+
+ENV_REPORT = load_server_environment(PROJECT_ROOT.parent.parent)
 
 
 # =====================================================
@@ -33,10 +39,12 @@ RERANKER_BATCH_SIZE = 16
 LOCAL_FILES_ONLY = False
 FORCE_REBUILD_INDEX = False
 RESUME_RUN_FOLDER = None
-QDRANT_MODE = "server"
-QDRANT_URL = "http://localhost:6333"
-QDRANT_API_KEY = None
-QDRANT_BATCH_SIZE = 32  # Recommended server value; embedded defaults to 256.
+QDRANT_MODE = os.getenv("CIAL_QDRANT_MODE") or os.getenv("QDRANT_MODE") or "server"
+QDRANT_URL = os.getenv("CIAL_QDRANT_URL") or os.getenv("QDRANT_URL") or "http://localhost:6335"
+QDRANT_API_KEY = os.getenv("CIAL_QDRANT_API_KEY") or os.getenv("QDRANT_API_KEY")
+QDRANT_BATCH_SIZE = int(
+    os.getenv("CIAL_QDRANT_BATCH_SIZE") or os.getenv("QDRANT_BATCH_SIZE") or "32"
+)
 QDRANT_UPSERT_WAIT = True
 
 
@@ -383,6 +391,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run Phase 4 directly; CLI arguments are optional overrides only."""
 
     _enable_immediate_output()
+    for source in ENV_REPORT.sources:
+        _print(f"Server configuration source loaded: {source}")
     _print("Starting Phase 4 batch run")
     args = build_parser().parse_args(argv)
     config = build_config(args)
