@@ -199,10 +199,10 @@ offline sections; CSV and XLSX retain only compact summary fields.
 ## Phase 4 Extension
 
 Phase 4 uses embedded Qdrant by default. For large local corpora, start the
-on-premises Docker service with
-`docker compose -f docker-compose.qdrant.yml up -d`, verify
-`curl http://localhost:6333/healthz`, and construct `Phase4Config` with
-`qdrant_mode="server"` and `qdrant_url="http://localhost:6333"`. This does not
+on-premises Docker service from the repository root with
+`scripts\start_qdrant.bat`, verify it with the authenticated
+`scripts/check_qdrant_health.py` helper, and construct `Phase4Config` with
+`qdrant_mode="server"` and `qdrant_url="http://localhost:6335"`. This does not
 use Qdrant Cloud. Existing embedded points can be copied with
 `scripts/migrate_embedded_qdrant_to_server.py`; see the repository README for
 the complete command and overwrite safeguards. Server indexing defaults to

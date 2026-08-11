@@ -152,9 +152,9 @@ Embedded Qdrant remains the default for backward compatibility and is suitable
 for notebooks, demos, and small corpora. For large corpora, run Qdrant as a
 local Docker service:
 
-```bash
-docker compose -f docker-compose.qdrant.yml up -d
-curl http://localhost:6333/healthz
+```powershell
+scripts\start_qdrant.bat
+python services\knowledge-engine\scripts\check_qdrant_health.py --url http://localhost:6335 --collection cial_phase4
 ```
 
 Select the service explicitly in configuration:
@@ -164,13 +164,13 @@ from cial_knowledge_os import Phase4Config
 
 config = Phase4Config(
     qdrant_mode="server",
-    qdrant_url="http://localhost:6333",
+    qdrant_url="http://localhost:6335",
 )
 ```
 
 For `scripts/run_phase4_batch.py`, the same opt-in is available through the
-`QDRANT_MODE`, `QDRANT_URL`, `QDRANT_API_KEY`, `QDRANT_BATCH_SIZE`, and
-`QDRANT_UPSERT_WAIT` values in its user configuration section.
+shared runtime settings (`CIAL_QDRANT_URL`, `CIAL_QDRANT_API_KEY`, and
+`CIAL_QDRANT_COLLECTION`) plus its batch-size and wait configuration.
 
 The defaults are `qdrant_mode="embedded"`,
 `qdrant_url="http://localhost:6333"`, `qdrant_api_key=None`, and the existing
@@ -185,10 +185,10 @@ vectors, and payload metadata retain the same behavior.
 
 Stop and restart the local service with:
 
-```bash
-docker compose -f docker-compose.qdrant.yml down
-docker compose -f docker-compose.qdrant.yml up -d
-python scripts/check_qdrant_health.py --url http://localhost:6333 --collection cial_phase4
+```powershell
+scripts\stop_qdrant.bat
+scripts\start_qdrant.bat
+python services\knowledge-engine\scripts\check_qdrant_health.py --url http://localhost:6335 --collection cial_phase4
 ```
 
 Migrate an existing embedded Phase 4 collection after starting the server:
@@ -196,7 +196,7 @@ Migrate an existing embedded Phase 4 collection after starting the server:
 ```bash
 python scripts/migrate_embedded_qdrant_to_server.py \
   --source data/qdrant/cial_phase4 \
-  --url http://localhost:6333 \
+  --url http://localhost:6335 \
   --collection cial_phase4 \
   --batch-size 512
 ```

@@ -12,17 +12,22 @@ corpora and concurrent processes, opt into server Qdrant.
 
 ```powershell
 scripts\start_qdrant.bat
-python scripts/check_qdrant_health.py --url http://localhost:6333 --collection cial_phase4
+python scripts/check_qdrant_health.py --url http://localhost:6335 --collection cial_phase4
 scripts\stop_qdrant.bat
 ```
 
 Equivalent commands:
 
 ```powershell
-docker compose -f docker-compose.qdrant.yml up -d
+..\..\scripts\start_qdrant.bat
 docker compose -f docker-compose.qdrant.yml ps
 docker compose -f docker-compose.qdrant.yml down
 ```
+
+The startup wrapper imports the protected/local server environment before
+Compose interpolation. Direct `docker compose up` requires the caller to supply
+the same `CIAL_QDRANT_API_KEY` explicitly and is not the normal fresh-shell
+workflow.
 
 The service stores data in the named volume `cial_qdrant_storage`. Compose
 `down` preserves it.
@@ -47,7 +52,7 @@ Restore only into an empty replacement volume:
 ```powershell
 docker volume create cial_qdrant_storage
 docker run --rm -v cial_qdrant_storage:/target -v "${PWD}:/backup" alpine sh -c "cd /target && tar xzf /backup/cial_qdrant_storage.tar.gz"
-docker compose -f docker-compose.qdrant.yml up -d
+..\..\scripts\start_qdrant.bat
 ```
 
 Validate the restored collection with the health script before enabling

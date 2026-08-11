@@ -10,10 +10,10 @@ Qdrant Cloud.
 From the repository root:
 
 ```powershell
-docker compose -f docker-compose.qdrant.yml up -d
-docker compose -f docker-compose.qdrant.yml ps
-curl.exe http://localhost:6333/healthz
-python scripts/check_qdrant_health.py --url http://localhost:6333 --collection cial_phase4
+scripts\start_qdrant.bat
+docker compose -f services\knowledge-engine\docker-compose.qdrant.yml ps
+curl.exe http://localhost:6335/healthz
+python services/knowledge-engine/scripts/check_qdrant_health.py --url http://localhost:6335 --collection cial_phase4
 ```
 
 The Compose file uses the Docker named volume `cial_qdrant_storage`. This avoids
@@ -25,7 +25,7 @@ Enable server mode explicitly:
 ```python
 config = Phase4Config(
     qdrant_mode="server",
-    qdrant_url="http://localhost:6333",
+    qdrant_url="http://localhost:6335",
     qdrant_batch_size=32,
     qdrant_upsert_wait=True,
 )
@@ -59,9 +59,13 @@ on every run.
 ## Stop and restart
 
 ```powershell
-docker compose -f docker-compose.qdrant.yml down
-docker compose -f docker-compose.qdrant.yml up -d
+scripts\stop_qdrant.bat
+scripts\start_qdrant.bat
 ```
+
+The wrapper and health script resolve `CIAL_QDRANT_API_KEY` from the shared
+server configuration. They never print it. Direct Compose commands remain an
+advanced flow and require an explicit shell value or `--env-file`.
 
 `down` does not delete the named volume. Do not add `--volumes` unless permanent
 deletion is explicitly intended.
@@ -79,5 +83,6 @@ deletion is explicitly intended.
   unchanged manifest when the active collection is absent.
 - Dimension mismatch: use the embedding model that created the collection, or
   rebuild into a new/recreated collection.
-- Unreachable server: run `docker compose -f docker-compose.qdrant.yml ps` and
-  verify `http://localhost:6333/healthz`.
+- Unreachable server: run
+  `docker compose -f services\knowledge-engine\docker-compose.qdrant.yml ps`
+  and verify `http://localhost:6335/healthz`.

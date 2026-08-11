@@ -245,13 +245,13 @@ Embedded mode remains appropriate for notebooks, demonstrations, and small
 collections. The local Docker server is recommended for large collections and
 concurrent clients:
 
-```bash
-docker compose -f docker-compose.qdrant.yml up -d
-curl http://localhost:6333/healthz
+```powershell
+scripts\start_qdrant.bat
+python services\knowledge-engine\scripts\check_qdrant_health.py --url http://localhost:6335 --collection cial_phase4
 ```
 
 Set `qdrant_mode="server"` and
-`qdrant_url="http://localhost:6333"` in the active phase configuration. Stop
+`qdrant_url="http://localhost:6335"` in the active phase configuration. Stop
 and start it with Docker Compose. Storage remains on-premises in the Docker
 named volume `cial_qdrant_storage`; there is no Qdrant Cloud dependency. The
 named volume replaces the previous Windows bind mount that could fail Qdrant
@@ -270,7 +270,7 @@ the frozen notebooks:
 ```bash
 python scripts/migrate_embedded_qdrant_to_server.py \
   --source data/qdrant/cial_phase4 \
-  --url http://localhost:6333 \
+  --url http://localhost:6335 \
   --collection cial_phase4 \
   --batch-size 512
 ```
