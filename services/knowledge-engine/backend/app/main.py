@@ -32,6 +32,7 @@ from backend.app.services.system_status_service import SystemStatusService
 from backend.app.services.admin_system_monitor_service import AdminSystemMonitorService
 from backend.app.services.chat_concurrency import ChatConcurrencyController
 from backend.app.security.host_boundary import LanHostBoundaryMiddleware
+from backend.app.security.http_security import HttpSecurityMiddleware
 from cial_knowledge_os.corpus.service import CorpusService
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,15 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     configure_logging()
-    app = FastAPI(title="CIAL Knowledge OS API", version="0.1.0", lifespan=lifespan)
+    expose_docs = settings.environment in {"development", "test"}
+    app = FastAPI(
+        title="CIAL Knowledge OS API",
+        version="0.1.0",
+        lifespan=lifespan,
+        docs_url="/docs" if expose_docs else None,
+        redoc_url="/redoc" if expose_docs else None,
+        openapi_url="/openapi.json" if expose_docs else None,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.cors_origins),
@@ -70,6 +79,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.add_middleware(LanHostBoundaryMiddleware)
+    app.add_middleware(HttpSecurityMiddleware)
 
     engine = KnowledgeEngineService()
     runtime_state = RuntimeState(engine_available=engine.engine_available)
