@@ -10,6 +10,7 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $PythonExe = Join-Path $RepoRoot ".venv\Scripts\python.exe"
+. (Join-Path $PSScriptRoot "runtime_env.ps1")
 if (-not (Test-Path -LiteralPath $PythonExe -PathType Leaf)) {
     throw "Missing Python environment. Run Install-CIAL-Knowledge-OS.bat first."
 }
@@ -64,6 +65,11 @@ if (Test-Path -LiteralPath (Join-Path $LanRoot "caddy.pid.json") -PathType Leaf)
     if ($LASTEXITCODE -ne 0) { throw "Unable to recover the previously owned LAN gateway." }
 }
 
+Import-CialRuntimeEnvironment -RepoRoot $RepoRoot -RequiredKeys @(
+    "DATABASE_URL",
+    "CIAL_QDRANT_API_KEY"
+) | Out-Null
+Clear-CialMigrationCredential
 $env:CIAL_LAN_ACCESS_ENABLED = "true"
 $env:PYTHONPATH = "$(Join-Path $RepoRoot 'services\knowledge-engine');$(Join-Path $RepoRoot 'services\knowledge-engine\src')"
 $arguments = @("-m", "backend.app.lan.manager", "--backend-port", "$BackendPort")
