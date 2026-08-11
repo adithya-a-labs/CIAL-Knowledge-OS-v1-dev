@@ -20,6 +20,8 @@ $QdrantComposeFile = Join-Path $BackendRoot "docker-compose.qdrant.yml"
 $LogsRoot = Join-Path $RepoRoot "outputs\launcher\logs"
 $StateRoot = Join-Path $RepoRoot "outputs\launcher\runtime"
 $MigrationEnvPath = Join-Path $RepoRoot "outputs\installer\runtime\migration.env"
+$RuntimeEnvScript = Join-Path $RepoRoot "scripts\runtime_env.ps1"
+. $RuntimeEnvScript
 New-Item -ItemType Directory -Force -Path $LogsRoot, $StateRoot | Out-Null
 $Timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $LogPath = Join-Path $LogsRoot "launch-$Timestamp.log"
@@ -96,25 +98,6 @@ function Get-PortProcessId {
     return $null
 }
 
-function Get-EnvMap {
-    param([string[]]$Paths)
-    $map = @{}
-    foreach ($path in $Paths) {
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
-        foreach ($line in Get-Content -LiteralPath $path) {
-            $trimmed = $line.Trim()
-            if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed.StartsWith("#") -or -not $trimmed.Contains("=")) { continue }
-            $parts = $trimmed.Split("=", 2)
-            $value = $parts[1].Trim()
-            if ($value.Length -ge 2 -and (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'")))) {
-                $value = $value.Substring(1, $value.Length - 2)
-            }
-            $map[$parts[0].Trim()] = $value
-        }
-    }
-    return $map
-}
-
 function Assert-ApplicationFiles {
     Write-Step "Checking installed files"
     if (-not (Test-Path -LiteralPath $PythonExe -PathType Leaf)) {
@@ -175,8 +158,7 @@ function Ensure-Docker {
 
 function Ensure-Postgres {
     Write-Step "Checking PostgreSQL"
-    $envMap = Get-EnvMap -Paths @((Join-Path $RepoRoot ".env"), (Join-Path $BackendRoot ".env"), (Join-Path $BackendRoot "backend\.env"))
-    $databaseUrl = $envMap["DATABASE_URL"]
+    $databaseUrl = $env:DATABASE_URL
     if ([string]::IsNullOrWhiteSpace($databaseUrl)) {
         Stop-Launch "DATABASE_URL is not configured in backend environment."
     }
@@ -204,10 +186,8 @@ function Ensure-Postgres {
 
 function Ensure-Qdrant {
     Write-Step "Checking Qdrant"
-    $envMap = Get-EnvMap -Paths @($BackendEnvPath)
-    if (-not $envMap.ContainsKey("CIAL_QDRANT_API_KEY")) { Stop-Launch "CIAL_QDRANT_API_KEY is missing." }
-    $env:CIAL_QDRANT_API_KEY = $envMap["CIAL_QDRANT_API_KEY"]
-    $qdrantHeaders = @{ "api-key" = $envMap["CIAL_QDRANT_API_KEY"] }
+    if ([string]::IsNullOrWhiteSpace($env:CIAL_QDRANT_API_KEY)) { Stop-Launch "CIAL_QDRANT_API_KEY is missing." }
+    $qdrantHeaders = @{ "api-key" = $env:CIAL_QDRANT_API_KEY }
     if (Wait-Url -Url "$QdrantUrl/collections" -Seconds 5 -Headers $qdrantHeaders) {
         Write-Host "Qdrant is already ready at $QdrantUrl."
         return
@@ -281,10 +261,9 @@ function Assert-LanFrontendBundle {
 function Invoke-DatabaseMigrations {
     Write-Step "Applying metadata database migrations"
     $previousPythonPath = $env:PYTHONPATH
-    $previousMigrationUrl = $env:CIAL_MIGRATION_DATABASE_URL
-    $migrationMap = Get-EnvMap -Paths @($MigrationEnvPath)
-    if (-not $migrationMap.ContainsKey("CIAL_MIGRATION_DATABASE_URL")) { Stop-Launch "Protected migration credentials are missing." }
-    $env:CIAL_MIGRATION_DATABASE_URL = $migrationMap["CIAL_MIGRATION_DATABASE_URL"]
+    $env:CIAL_MIGRATION_DATABASE_URL = Get-CialScopedEnvironmentValue `
+        -Name "CIAL_MIGRATION_DATABASE_URL" `
+        -ProtectedPath $MigrationEnvPath
     $env:PYTHONPATH = "$BackendRoot;$BackendRoot\src"
     Push-Location $BackendRoot
     try {
@@ -294,7 +273,7 @@ function Invoke-DatabaseMigrations {
     finally {
         Pop-Location
         $env:PYTHONPATH = $previousPythonPath
-        $env:CIAL_MIGRATION_DATABASE_URL = $previousMigrationUrl
+        Clear-CialMigrationCredential
     }
 }
 
@@ -324,16 +303,9 @@ function Start-Backend {
 function Start-LanGateway {
     if (-not $Lan) { return }
     Write-Step "Starting optional Laptop LAN Server Mode"
-    $backendEnvironment = Get-EnvMap -Paths @($BackendEnvPath)
     $httpsEnabled = if (-not [string]::IsNullOrWhiteSpace($env:CIAL_LAN_HTTPS_ENABLED)) {
         $env:CIAL_LAN_HTTPS_ENABLED
-    }
-    elseif ($backendEnvironment.ContainsKey("CIAL_LAN_HTTPS_ENABLED")) {
-        $backendEnvironment["CIAL_LAN_HTTPS_ENABLED"]
-    }
-    else {
-        "true"
-    }
+    } else { "true" }
     if ($httpsEnabled -notmatch "^(1|true|yes|on)$") {
         Stop-Launch "LAN mode requires HTTPS. Set CIAL_LAN_HTTPS_ENABLED=true and provision the gateway certificate."
     }
@@ -432,17 +404,14 @@ function Confirm-ApplicationStable {
 }
 
 try {
+    Import-CialRuntimeEnvironment -RepoRoot $RepoRoot -RequiredKeys @(
+        "DATABASE_URL",
+        "CIAL_QDRANT_API_KEY"
+    ) | Out-Null
     if ($Lan) {
-        $backendEnvironment = Get-EnvMap -Paths @($BackendEnvPath)
         $httpsEnabled = if (-not [string]::IsNullOrWhiteSpace($env:CIAL_LAN_HTTPS_ENABLED)) {
             $env:CIAL_LAN_HTTPS_ENABLED
-        }
-        elseif ($backendEnvironment.ContainsKey("CIAL_LAN_HTTPS_ENABLED")) {
-            $backendEnvironment["CIAL_LAN_HTTPS_ENABLED"]
-        }
-        else {
-            "true"
-        }
+        } else { "true" }
         if ($httpsEnabled -notmatch "^(1|true|yes|on)$") {
             Stop-Launch "LAN mode requires HTTPS. Set CIAL_LAN_HTTPS_ENABLED=true and provision the gateway certificate."
         }
@@ -457,6 +426,7 @@ try {
     Ensure-Qdrant
     Ensure-Ollama
     Invoke-DatabaseMigrations
+    Clear-CialMigrationCredential
     Start-Backend
     Start-Indexer
     Start-Frontend
