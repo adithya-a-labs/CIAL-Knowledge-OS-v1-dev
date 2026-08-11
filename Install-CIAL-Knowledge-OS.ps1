@@ -31,6 +31,8 @@ $MigrationEnvPath = Join-Path $StateRoot "migration.env"
 $AppConfigPath = Join-Path $RepoRoot "data\config\application.json"
 $BackendEnvPath = Join-Path $BackendRoot "backend\.env"
 $FrontendEnvPath = Join-Path $FrontendRoot ".env"
+$RuntimeEnvScript = Join-Path $RepoRoot "scripts\runtime_env.ps1"
+. $RuntimeEnvScript
 if ([string]::IsNullOrWhiteSpace($QdrantComposeFile)) {
     $QdrantComposeFile = Join-Path $BackendRoot "docker-compose.qdrant.yml"
 }
@@ -423,22 +425,7 @@ function Wait-Url {
 
 function Get-EnvMap {
     param([string[]]$Paths)
-    $map = @{}
-    foreach ($path in $Paths) {
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
-        foreach ($line in Get-Content -LiteralPath $path) {
-            $trimmed = $line.Trim()
-            if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed.StartsWith("#") -or -not $trimmed.Contains("=")) { continue }
-            $parts = $trimmed.Split("=", 2)
-            $key = $parts[0].Trim()
-            $value = $parts[1].Trim()
-            if ($value.Length -ge 2 -and (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'")))) {
-                $value = $value.Substring(1, $value.Length - 2)
-            }
-            $map[$key] = $value
-        }
-    }
-    return $map
+    return Get-CialEnvironmentMap -Paths $Paths -IncludeProcessEnvironment
 }
 
 function Set-EnvFileValue {
@@ -496,7 +483,14 @@ function Ensure-BackendEnv {
         $databaseUrl = "postgresql+psycopg://cial_runtime:$runtimePassword@localhost:$PostgresPort/cial_knowledge_os_dev"
         Write-Host "Generated PostgreSQL bootstrap password directly into the protected backend environment."
     }
-    if ([string]::IsNullOrWhiteSpace($migrationDatabaseUrl)) { $migrationDatabaseUrl = $databaseUrl }
+    if ([string]::IsNullOrWhiteSpace($migrationDatabaseUrl)) {
+        Stop-Install (
+            "Protected migration credentials are missing. Configure " +
+            "CIAL_MIGRATION_DATABASE_URL in outputs\installer\runtime\migration.env " +
+            "or supply it explicitly for this installer run. Runtime DATABASE_URL " +
+            "is not reused for migrations."
+        )
+    }
     Set-EnvFileValue -Path $MigrationEnvPath -Values @{ "CIAL_MIGRATION_DATABASE_URL" = $migrationDatabaseUrl }
     $authSecret = if ($existingEnv.ContainsKey("CIAL_AUTH_SECRET_KEY")) { $existingEnv["CIAL_AUTH_SECRET_KEY"] } else { New-Password }
     $qdrantApiKey = if ($existingEnv.ContainsKey("CIAL_QDRANT_API_KEY")) { $existingEnv["CIAL_QDRANT_API_KEY"] } else { New-Password }
@@ -902,7 +896,6 @@ function Ensure-CorpusConfiguration {
 
 function Run-Alembic {
     Write-Step "Running Alembic migrations"
-    $previousMigrationUrl = $env:CIAL_MIGRATION_DATABASE_URL
     $env:CIAL_MIGRATION_DATABASE_URL = Get-MigrationDatabaseUrl
     Push-Location $BackendRoot
     try {
@@ -918,7 +911,7 @@ function Run-Alembic {
         }
     }
     finally {
-        $env:CIAL_MIGRATION_DATABASE_URL = $previousMigrationUrl
+        Clear-CialMigrationCredential
         Pop-Location
     }
 }
