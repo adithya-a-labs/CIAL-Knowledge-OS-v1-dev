@@ -58,6 +58,10 @@ starts the backend on a custom port.
 
 The Qdrant compose file maps host port `6335` to container port `6333`, so use
 `CIAL_QDRANT_URL=http://localhost:6335` when running that local compose stack.
+Startup scripts automatically resolve protected/local server configuration;
+manual `set CIAL_QDRANT_API_KEY=...` is not required when the key is already
+configured. See `docs/RUNTIME_CONFIGURATION.md` for precedence, component flow,
+migration isolation, and the frontend secret boundary.
 
 ## Manual Fallback
 
@@ -91,6 +95,7 @@ Validation:
 
 ```powershell
 cd services/knowledge-engine
+$env:CIAL_MIGRATION_DATABASE_URL='<protected-migration-url>'
 ..\..\.venv\Scripts\python.exe -m alembic upgrade head
 cd ..\..
 curl.exe http://localhost:8000/api/health

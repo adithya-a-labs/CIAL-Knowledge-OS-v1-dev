@@ -93,6 +93,14 @@ The launcher applies `alembic upgrade head` before starting the API. It does
 not force a rebuild when a valid generation exists. Qdrant server mode is
 required because API and indexer are concurrent processes.
 
+The daily launcher and individual backend/indexer/Qdrant/LAN scripts use the
+shared, non-evaluating environment loader documented in
+[`RUNTIME_CONFIGURATION.md`](RUNTIME_CONFIGURATION.md). A fresh shell does not
+need manual `set` commands for values already stored in the protected backend
+environment. Explicit process values still win. Migration credentials remain
+in the protected scoped migration file and are never loaded into normal runtime
+processes.
+
 ## Default Ports
 
 - Backend: `8000`

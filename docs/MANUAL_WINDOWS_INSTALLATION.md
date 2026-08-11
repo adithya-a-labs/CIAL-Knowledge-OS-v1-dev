@@ -388,18 +388,13 @@ URL-encode reserved password characters. Never assume changing `POSTGRES_PASSWOR
 ## 8. Qdrant
 
 ```powershell
-Set-Location .\services\knowledge-engine
-docker.exe compose -f .\docker-compose.qdrant.yml up -d
-Set-Location ..\..
-Invoke-RestMethod http://localhost:6335/
-Invoke-RestMethod http://localhost:6335/collections
+scripts\start_qdrant.bat
+.venv\Scripts\python.exe services\knowledge-engine\scripts\check_qdrant_health.py --url http://localhost:6335 --collection cial_phase4
 ```
 
 The Compose file uses `qdrant/qdrant:v1.18.2`, container `cial-knowledge-os-v1-dev-qdrant`, host port 6335, container port 6333, restart `unless-stopped`, and persistent volume `cial_qdrant_storage`. The application collection is `cial_phase4`; after indexing:
 
-```powershell
-Invoke-RestMethod http://localhost:6335/collections/cial_phase4
-```
+The health script authenticates collection checks without printing the API key.
 
 Never use `docker compose down -v` or clear the collection during repair/upgrade.
 
@@ -467,7 +462,7 @@ CIAL_STARTUP_INDEX_TIMEOUT_SECONDS=0
 CIAL_APP_DATA_DIR=data
 CIAL_OUTPUTS_DIR=outputs
 CIAL_MODELS_DIR=models
-DATABASE_URL=postgresql+psycopg://postgres:<URL-ENCODED-PASSWORD>@localhost:5432/cial_knowledge_os_dev
+DATABASE_URL=postgresql+psycopg://cial_runtime:<URL-ENCODED-RUNTIME-PASSWORD>@localhost:5432/cial_knowledge_os_dev
 CIAL_AUTH_SECRET_KEY=<LONG-RANDOM-SECRET>
 CIAL_CORPUS_SYNC_ON_STARTUP=false
 CIAL_CORPUS_WATCH=true
@@ -498,7 +493,7 @@ CIAL_INDEXER_GPU_POLICY=balanced
 CIAL_BM25_REFRESH_DEBOUNCE_SECONDS=2
 CIAL_QDRANT_MODE=server
 CIAL_QDRANT_URL=http://localhost:6335
-CIAL_QDRANT_API_KEY=
+CIAL_QDRANT_API_KEY=<LONG-RANDOM-QDRANT-KEY>
 CIAL_QDRANT_BATCH_SIZE=32
 CIAL_QDRANT_UPSERT_WAIT=true
 CIAL_OLLAMA_MODEL_NAME=gemma3:12b
@@ -548,6 +543,15 @@ Files load without overriding an existing process variable. Later file values wi
 2. `services\knowledge-engine\.env`
 3. `services\knowledge-engine\backend\.env`
 4. existing process environment overrides all files
+
+An optional protected file selected by `CIAL_RUNTIME_ENV_FILE` has higher file
+priority than `backend/.env` but remains below explicit process values. See
+[`RUNTIME_CONFIGURATION.md`](RUNTIME_CONFIGURATION.md) for the complete flow.
+
+Do not place `CIAL_MIGRATION_DATABASE_URL` in any of these normal runtime
+files. Store it in protected `outputs\installer\runtime\migration.env` as a
+literal `KEY=VALUE` assignment. Alembic requires that scoped credential and
+does not fall back to `DATABASE_URL`.
 
 ### Corpus precedence
 
