@@ -81,7 +81,7 @@ class SavedKnowledgeService:
             current=dict(value);document_id=current.get("document_id");available=False
             if document_id:
                 try:
-                    document=self.session.get(Document,uuid.UUID(str(document_id)));available=document is not None and document_is_accessible(document,access)
+                    document=self.session.get(Document,uuid.UUID(str(document_id)));available=document is not None and document_is_accessible(document,access,self.session)
                 except ValueError:available=False
             elif current.get("note_id"):
                 try:

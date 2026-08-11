@@ -27,7 +27,7 @@ class SummaryService:
         candidate=self.db.scalar(select(SummaryArtifact).where(SummaryArtifact.id==summary_id,SummaryArtifact.deleted_at.is_(None)))
         if candidate is not None and candidate.document_id is not None:
             document=self.db.get(Document,candidate.document_id)
-            if document is None or not document_is_accessible(document,access): raise WorkspaceNotFound("Summary not found.")
+            if document is None or not document_is_accessible(document,access,self.session): raise WorkspaceNotFound("Summary not found.")
             return candidate
         user_id,workspace=self._identity(access)
         row=self.db.scalar(select(SummaryArtifact).where(SummaryArtifact.id==summary_id,SummaryArtifact.owner_user_id==user_id,SummaryArtifact.workspace_id==workspace.id,SummaryArtifact.deleted_at.is_(None)))
@@ -45,7 +45,7 @@ class SummaryService:
             while pending:
                 current=pending.pop();folder_ids.append(current);pending.extend(self.db.scalars(select(Folder.id).where(Folder.parent_id==current)).all())
             documents=list(self.db.scalars(select(Document).where(Document.folder_id.in_(folder_ids),Document.deleted_at.is_(None))))
-            authorized=[document for document in documents if document_is_accessible(document,access)]
+            authorized=[document for document in documents if document_is_accessible(document,access,self.session)]
             if not authorized: raise WorkspaceNotFound("Source folder not found or contains no accessible documents.")
             from types import SimpleNamespace
             expanded.extend(SimpleNamespace(source_type="document",source_id=document.id,title=None,content=None) for document in authorized)
@@ -62,7 +62,7 @@ class SummaryService:
             elif requested.source_type=="document":
                 if requested.source_id is None: raise WorkspaceNotFound("Source not found.")
                 doc=self.db.get(Document,requested.source_id)
-                if doc is None or not document_is_accessible(doc,access) or doc.current_version_id is None: raise WorkspaceNotFound("Source not found.")
+                if doc is None or not document_is_accessible(doc,access,self.session) or doc.current_version_id is None: raise WorkspaceNotFound("Source not found.")
                 version=self.db.get(DocumentVersion,doc.current_version_id)
                 if version is None or version.status!="indexed": raise SummaryError(f"{doc.name} is not ready for summarization.")
                 chunks=list(self.db.scalars(select(DocumentChunk).where(DocumentChunk.document_id==doc.id,DocumentChunk.document_version_id==version.id).order_by(DocumentChunk.chunk_index)))

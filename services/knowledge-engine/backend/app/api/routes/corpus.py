@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from backend.app.db.session import SessionLocal
 from backend.app.models.knowledge import Document
-from backend.app.security.access import apply_document_access_filter, can_sync_corpus, can_upload_enterprise_documents, resolve_access_context
+from backend.app.security.access import apply_document_access_filter, can_sync_corpus, can_upload_enterprise_documents, require_authenticated_access_context, resolve_access_context
 from backend.app.services.document_preview_service import (
     file_response,
     parse_document_id,
@@ -41,7 +41,7 @@ def _apply_retry_permissions(payload: dict[str, object], *, can_retry_enterprise
 
 @router.post("/corpus/sync", status_code=status.HTTP_202_ACCEPTED)
 def corpus_sync(request: Request) -> dict[str, object]:
-    access_context = resolve_access_context(request)
+    access_context = require_authenticated_access_context(request)
     if not can_sync_corpus(access_context):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -61,7 +61,7 @@ def corpus_sync(request: Request) -> dict[str, object]:
 
 @router.get("/corpus/tree")
 def corpus_tree(request: Request) -> dict[str, object]:
-    access_context = resolve_access_context(request)
+    access_context = require_authenticated_access_context(request)
     try:
         payload = request.app.state.corpus_service.get_tree(access_context=access_context)
         return _apply_retry_permissions(payload, can_retry_enterprise=can_upload_enterprise_documents(access_context))
@@ -74,7 +74,7 @@ def corpus_folder(
     request: Request,
     path: str = Query(default="", description="Corpus-relative folder path."),
 ) -> dict[str, object]:
-    access_context = resolve_access_context(request)
+    access_context = require_authenticated_access_context(request)
     try:
         payload = request.app.state.corpus_service.get_folder(path, access_context=access_context)
     except CorpusServiceUnavailable as exc:
@@ -86,7 +86,7 @@ def corpus_folder(
 
 def _get_corpus_document_or_404(document_id: str, request: Request) -> dict[str, object]:
     parsed_document_id = parse_document_id(document_id)
-    access_context = resolve_access_context(request)
+    access_context = require_authenticated_access_context(request)
     try:
         document = request.app.state.corpus_service.get_document(
             parsed_document_id,
@@ -169,5 +169,5 @@ def corpus_document_preview(
 @router.get("/corpus/document/{document_id}")
 def corpus_document(document_id: str, request: Request) -> dict[str, object]:
     payload = _get_corpus_document_or_404(document_id, request)
-    access_context = resolve_access_context(request)
+    access_context = require_authenticated_access_context(request)
     return _apply_retry_permissions(payload, can_retry_enterprise=can_upload_enterprise_documents(access_context))

@@ -16,7 +16,7 @@ from backend.app.schemas.settings import (
     EnterpriseRepositoryRequest,
     EnterpriseRepositoryResponse,
 )
-from backend.app.security.access import can_manage_settings, resolve_access_context
+from backend.app.security.access import can_manage_settings, require_authenticated_access_context
 from backend.app.services.document_service import DocumentService
 from backend.app.services.indexing_queue import DurableIndexQueue
 from cial_knowledge_os.corpus.service import CorpusService
@@ -39,15 +39,28 @@ def _response(folder: str) -> EnterpriseRepositoryResponse:
     )
 
 
+def _require_settings_manager(request: Request):
+    access_context = require_authenticated_access_context(request)
+    if not can_manage_settings(access_context):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to manage application settings.",
+        )
+    return access_context
+
+
 @router.get("/settings/enterprise-repository", response_model=EnterpriseRepositoryResponse)
-def get_enterprise_repository() -> EnterpriseRepositoryResponse:
+def get_enterprise_repository(request: Request) -> EnterpriseRepositoryResponse:
+    _require_settings_manager(request)
     return _response(str(settings.corpus_root_path))
 
 
 @router.post("/settings/enterprise-repository/validate", response_model=EnterpriseRepositoryResponse)
 def validate_enterprise_repository(
     payload: EnterpriseRepositoryRequest,
+    request: Request,
 ) -> EnterpriseRepositoryResponse:
+    _require_settings_manager(request)
     return _response(payload.folder)
 
 
@@ -56,12 +69,7 @@ def save_enterprise_repository(
     payload: EnterpriseRepositoryRequest,
     request: Request,
 ) -> EnterpriseRepositoryResponse:
-    access_context = resolve_access_context(request)
-    if not can_manage_settings(access_context):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to manage application settings.",
-        )
+    access_context = _require_settings_manager(request)
 
     validation = validate_repository_path(payload.folder)
     if not validation.valid:

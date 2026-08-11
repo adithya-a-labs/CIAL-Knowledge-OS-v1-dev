@@ -1232,7 +1232,7 @@ class DocumentSummaryService:
 
     def _document(self, access: RequestAccessContext, document_id: uuid.UUID) -> tuple[Document, DocumentVersion]:
         document = self.db.get(Document, document_id)
-        if document is None or not document_is_accessible(document, access) or document.current_version_id is None:
+        if document is None or not document_is_accessible(document, access, self.session) or document.current_version_id is None:
             raise DocumentSummaryError("Document unavailable.", code="document_not_found", status_code=404)
         version = self.db.get(DocumentVersion, document.current_version_id)
         if version is None or version.document_id != document.id:
@@ -1246,7 +1246,7 @@ class DocumentSummaryService:
         if artifact is None or artifact.document_id is None:
             raise DocumentSummaryError("Analysis unavailable.", code="analysis_not_found", status_code=404)
         document = self.db.get(Document, artifact.document_id)
-        if document is None or not document_is_accessible(document, access):
+        if document is None or not document_is_accessible(document, access, self.session):
             raise DocumentSummaryError("Analysis unavailable.", code="analysis_not_found", status_code=404)
         return artifact
 

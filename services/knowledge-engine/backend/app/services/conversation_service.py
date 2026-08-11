@@ -26,7 +26,7 @@ class ConversationService:
         documents: list[Document] = []
         for document_id in dict.fromkeys(payload.selected_document_ids):
             document = self.session.get(Document, document_id)
-            if document is None or not document_is_accessible(document, access):
+            if document is None or not document_is_accessible(document, access, self.session):
                 raise WorkspaceNotFound("Selected context was not found.")
             documents.append(document)
         notes: list[Note] = []

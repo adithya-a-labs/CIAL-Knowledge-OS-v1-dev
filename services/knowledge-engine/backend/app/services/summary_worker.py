@@ -105,7 +105,7 @@ class SummaryWorker:
                 document = db.get(Document, artifact.document_id)
                 version = db.get(DocumentVersion, artifact.document_version_id)
                 access = access_context_for_user(db, artifact.created_by_user_id or artifact.owner_user_id)
-                if document is None or version is None or version.document_id != document.id or not document_is_accessible(document, access):
+                if document is None or version is None or version.document_id != document.id or not document_is_accessible(document, access, session):
                     raise DocumentSummaryError("Analysis source is unavailable.", code="analysis_source_unavailable", status_code=404)
                 DocumentSummaryPipeline(db, self.generator).run(artifact, document, version)
                 metrics = artifact.generation_config or {}

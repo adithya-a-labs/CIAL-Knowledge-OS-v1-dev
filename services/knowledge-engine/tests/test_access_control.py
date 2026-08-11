@@ -20,6 +20,7 @@ from backend.app.services.knowledge_engine_service import KnowledgeEngineService
 def _access_context(
     *,
     user_id: uuid.UUID | None = None,
+    organization_id: uuid.UUID | None = None,
     department_ids: set[uuid.UUID] | None = None,
     permission_names: set[str] | None = None,
     scope: str = "enterprise",
@@ -27,6 +28,7 @@ def _access_context(
     return RequestAccessContext(
         principal=AccessPrincipal(
             user_id=user_id,
+            organization_id=organization_id or (uuid.uuid4() if user_id is not None else None),
             department_ids=frozenset(department_ids or set()),
             permission_names=frozenset(permission_names or set()),
             is_authenticated=user_id is not None,
@@ -40,11 +42,12 @@ def _document(
     storage_scope: str = "enterprise",
     visibility: str = "enterprise",
     owner_user_id: uuid.UUID | None = None,
+    organization_id: uuid.UUID | None = None,
     department_id: uuid.UUID | None = None,
     lifecycle_status: str = "indexed",
     indexing_status: str = "indexed",
 ) -> Document:
-    organization_id = uuid.uuid4()
+    organization_id = organization_id or uuid.uuid4()
     return Document(
         organization_id=organization_id,
         department_id=department_id or uuid.uuid4(),
@@ -67,10 +70,10 @@ def _document(
     )
 
 
-def test_anonymous_context_can_view_public_enterprise_document() -> None:
+def test_anonymous_context_cannot_view_public_enterprise_document() -> None:
     document = _document()
 
-    assert document_is_accessible(document, _access_context()) is True
+    assert document_is_accessible(document, _access_context()) is False
 
 
 def test_anonymous_context_cannot_view_personal_document() -> None:
@@ -85,16 +88,19 @@ def test_anonymous_context_cannot_view_personal_document() -> None:
 
 def test_owner_can_view_personal_document_in_hybrid_scope() -> None:
     owner_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
     document = _document(
         storage_scope="personal",
         visibility="private",
         owner_user_id=owner_id,
+        organization_id=organization_id,
     )
 
     assert document_is_accessible(
         document,
         _access_context(
             user_id=owner_id,
+            organization_id=organization_id,
             permission_names={"view_own_documents"},
             scope="hybrid",
         ),
@@ -103,18 +109,22 @@ def test_owner_can_view_personal_document_in_hybrid_scope() -> None:
 
 def test_department_document_requires_department_permission() -> None:
     department_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
     document = _document(
         visibility="department",
         department_id=department_id,
+        organization_id=organization_id,
     )
 
     denied = _access_context(
         user_id=uuid.uuid4(),
+        organization_id=organization_id,
         department_ids={department_id},
         scope="hybrid",
     )
     allowed = _access_context(
         user_id=uuid.uuid4(),
+        organization_id=organization_id,
         department_ids={department_id},
         permission_names={"view_department_documents"},
         scope="hybrid",
@@ -145,7 +155,7 @@ def test_enterprise_sql_filter_requires_read_permission() -> None:
     assert enterprise_visibility_clause in compiled_filter(allowed)
 
 
-def test_upload_permission_preserves_legacy_anonymous_behavior_but_checks_authenticated_users() -> None:
+def test_upload_permission_denies_anonymous_and_checks_authenticated_users() -> None:
     anonymous = _access_context()
     denied = _access_context(user_id=uuid.uuid4(), scope="hybrid")
     allowed = _access_context(
@@ -154,7 +164,7 @@ def test_upload_permission_preserves_legacy_anonymous_behavior_but_checks_authen
         scope="hybrid",
     )
 
-    assert can_upload_enterprise_documents(anonymous) is True
+    assert can_upload_enterprise_documents(anonymous) is False
     assert can_upload_enterprise_documents(denied) is False
     assert can_upload_enterprise_documents(allowed) is True
 

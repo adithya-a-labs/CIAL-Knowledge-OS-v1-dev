@@ -15,7 +15,7 @@ from sqlalchemy.sql import ColumnElement, Select
 from backend.app.core.config import settings
 from backend.app.db.session import SessionLocal
 from backend.app.models.identity import DepartmentRoleAssignment, GroupMembership, Permission, Role, User
-from backend.app.security.session_tokens import session_cookie_settings, verify_session_token
+from backend.app.security.session_tokens import session_cookie_settings, verify_session_claims, verify_session_token
 from backend.app.models.knowledge import (
     Document,
     DocumentPermission,
@@ -64,10 +64,20 @@ def session_user_id_from_request(request: Request) -> uuid.UUID | None:
 
 def resolve_access_context(request: Request) -> RequestAccessContext:
     raw_user_id = None
-    session_user_id = session_user_id_from_request(request)
-    if session_user_id is None and settings.auth_allow_user_headers:
+    cookie_name = session_cookie_settings()["key"]
+    session_token = request.cookies.get(cookie_name)
+    session_claims = verify_session_claims(session_token) if session_token else None
+    session_user_id = session_claims.user_id if session_claims is not None else None
+    allow_test_headers = (
+        settings.environment == "test"
+        and settings.auth_allow_user_headers
+        and not settings.lan_access_enabled
+        and request.client is not None
+        and request.client.host in {"127.0.0.1", "::1", "testclient"}
+    )
+    if session_user_id is None and allow_test_headers:
         raw_user_id = request.headers.get("X-CIAL-User-Id") or request.headers.get("X-User-Id")
-    raw_scope = (request.headers.get("X-CIAL-Access-Scope") or "").strip().casefold()
+    raw_scope = (request.headers.get("X-CIAL-Access-Scope") or "").strip().casefold() if allow_test_headers else ""
     scope = raw_scope if raw_scope in _VALID_ACCESS_SCOPES else None
     if SessionLocal is None:
         return RequestAccessContext(
@@ -107,7 +117,14 @@ def resolve_access_context(request: Request) -> RequestAccessContext:
             )
             .where(User.id == user_id)
         )
-        if user is None or not bool(user.is_active):
+        if (
+            user is None
+            or not bool(user.is_active)
+            or (
+                session_claims is not None
+                and int(getattr(user, "session_version", 0) or 0) != session_claims.session_version
+            )
+        ):
             return RequestAccessContext(
                 principal=AccessPrincipal(),
                 scope=scope or "enterprise",
@@ -222,23 +239,26 @@ def access_context_for_user(session: Session, user_id: uuid.UUID, *, scope: Acce
 
 def can_upload_enterprise_documents(access_context: RequestAccessContext) -> bool:
     permissions = access_context.principal.permission_names
-    if permissions.intersection(_ENTERPRISE_WRITE_PERMISSIONS):
-        return True
-    return not access_context.principal.is_authenticated
+    return bool(
+        access_context.principal.is_authenticated
+        and permissions.intersection(_ENTERPRISE_WRITE_PERMISSIONS)
+    )
 
 
 def can_sync_corpus(access_context: RequestAccessContext) -> bool:
     permissions = access_context.principal.permission_names
-    if permissions.intersection(_CORPUS_SYNC_PERMISSIONS):
-        return True
-    return not access_context.principal.is_authenticated
+    return bool(
+        access_context.principal.is_authenticated
+        and permissions.intersection(_CORPUS_SYNC_PERMISSIONS)
+    )
 
 
 def can_manage_settings(access_context: RequestAccessContext) -> bool:
     permissions = access_context.principal.permission_names
-    if "manage_settings" in permissions or "manage_enterprise_documents" in permissions:
-        return True
-    return not access_context.principal.is_authenticated
+    return bool(
+        access_context.principal.is_authenticated
+        and ({"manage_settings", "manage_enterprise_documents"} & permissions)
+    )
 
 
 def can_monitor_system(access_context: RequestAccessContext) -> bool:
@@ -254,7 +274,10 @@ def can_monitor_system(access_context: RequestAccessContext) -> bool:
 
 def has_enterprise_read_access(access_context: RequestAccessContext) -> bool:
     permissions = access_context.principal.permission_names
-    return bool(permissions.intersection(_ENTERPRISE_READ_PERMISSIONS)) or not access_context.principal.is_authenticated
+    return bool(
+        access_context.principal.is_authenticated
+        and permissions.intersection(_ENTERPRISE_READ_PERMISSIONS)
+    )
 
 
 def has_department_read_access(access_context: RequestAccessContext) -> bool:
@@ -268,11 +291,28 @@ def document_is_soft_deleted(document: Document) -> bool:
     return document.deleted_at is not None or lifecycle_status == "deleted" or indexing_status == "deleted"
 
 
-def document_is_accessible(document: Document, access_context: RequestAccessContext) -> bool:
+def document_is_accessible(
+    document: Document,
+    access_context: RequestAccessContext,
+    session: Session | None = None,
+) -> bool:
+    if session is not None:
+        return session.scalar(
+            apply_document_access_filter(
+                select(Document.id).where(Document.id == document.id),
+                access_context,
+            )
+        ) is not None
     if document_is_soft_deleted(document):
         return False
 
     principal = access_context.principal
+    if (
+        not principal.is_authenticated
+        or principal.organization_id is None
+        or document.organization_id != principal.organization_id
+    ):
+        return False
     is_owner = principal.user_id is not None and document.owner_user_id == principal.user_id
 
     if access_context.scope == "my-workspace":
@@ -326,6 +366,12 @@ def apply_document_access_filter(
     allowed_relative_paths: Iterable[str] | None = None,
 ) -> Select:
     principal = access_context.principal
+    if (
+        not principal.is_authenticated
+        or principal.user_id is None
+        or principal.organization_id is None
+    ):
+        return statement.where(false())
     requested_permissions = _acl_permissions_for_action(action)
     deleted_clause = and_(
         Document.deleted_at.is_(None),
@@ -336,6 +382,7 @@ def apply_document_access_filter(
         Document.storage_scope != literal("enterprise"),
         Document.repository_id == settings.corpus_repository_id,
     )
+    organization_clause = Document.organization_id == principal.organization_id
 
     scope_clauses: list[ColumnElement[bool]] = []
     acl_clause = _document_acl_clause(principal, requested_permissions)
@@ -362,11 +409,12 @@ def apply_document_access_filter(
                     Document.department_id.in_(sorted(principal.department_ids)),
                 )
             )
-        if principal.permission_names.intersection(_ENTERPRISE_READ_PERMISSIONS):
+        if principal.user_id is not None:
             scope_clauses.append(
                 and_(
                     Document.storage_scope == literal("enterprise"),
                     Document.visibility.in_(["restricted", "private"]),
+                    Document.owner_user_id == principal.user_id,
                 )
             )
         if access_context.scope == "hybrid":
@@ -386,7 +434,12 @@ def apply_document_access_filter(
     if not scope_clauses:
         scope_clauses.append(false())
 
-    filtered = statement.where(deleted_clause, repository_clause, or_(*scope_clauses))
+    filtered = statement.where(
+        deleted_clause,
+        repository_clause,
+        organization_clause,
+        or_(*scope_clauses),
+    )
     normalized_paths = [
         str(value).replace("\\", "/").strip("/")
         for value in (allowed_relative_paths or [])
