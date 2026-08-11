@@ -61,6 +61,16 @@ test('draft materialization is single identity while chat execution is multi-fli
   assert.match(sessions, /sessionAliasesRef/);
 });
 
+test('ordinary chat requests omit the protected diagnostics flag for both chat transports', () => {
+  const adapterFunction = adapters
+    .split('export function toChatRequest', 2)[1]
+    .split('export function', 1)[0];
+  assert.doesNotMatch(adapterFunction, /include_debug/);
+  assert.match(client, /request<ChatResponse>\('\/api\/chat'/);
+  assert.match(client, /apiUrl\('\/api\/chat\/stream'\)/);
+  assert.match(client, /body: JSON\.stringify\(payload\)/);
+});
+
 test('capacity errors retain the composer and auth invalidation aborts every stream', () => {
   assert.match(client, /new ApiError\(message, response\.status, detail\)/);
   assert.match(panel, /error instanceof ApiError && error\.status === 429/);
