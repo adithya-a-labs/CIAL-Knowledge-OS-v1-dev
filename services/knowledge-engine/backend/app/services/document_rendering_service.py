@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import os
+import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -35,13 +38,13 @@ DIRECT_VIEWER_EXTENSIONS = {
     ".md",
     ".markdown",
     ".json",
-    ".xml",
     ".yaml",
     ".yml",
     ".csv",
-    ".html",
-    ".htm",
 }
+_SUPPORTED_RENDER_TARGETS = frozenset({"pdf", "png", "jpg", "jpeg", "webp"})
+_conversion_locks: dict[str, threading.Lock] = {}
+_conversion_locks_guard = threading.Lock()
 
 
 class RenderingDocument(Protocol):
@@ -77,12 +80,18 @@ def _soffice_binary() -> str | None:
 
 def _converted_path(document: RenderingDocument, output_format: str) -> Path:
     extension = output_format.lower().lstrip(".")
+    if extension not in _SUPPORTED_RENDER_TARGETS:
+        raise ValueError("Unsupported render target.")
     directory = _rendered_dir() / _cache_key(document)
     directory.mkdir(parents=True, exist_ok=True)
     return directory / f"{document.path.stem}.{extension}"
 
 
 def _ensure_converted(document: RenderingDocument, output_format: str) -> Path | None:
+    normalized_target = output_format.casefold().lstrip(".")
+    expected_target = INLINE_CONVERSION_TARGETS.get(document.extension.casefold())
+    if normalized_target not in _SUPPORTED_RENDER_TARGETS or normalized_target != expected_target:
+        return None
     image_converted = _ensure_image_converted(document, output_format)
     if image_converted is not None:
         return image_converted
@@ -95,29 +104,41 @@ def _ensure_converted(document: RenderingDocument, output_format: str) -> Path |
     if output_path.is_file():
         return output_path
 
-    command = [
-        soffice,
-        "--headless",
-        "--convert-to",
-        output_format,
-        "--outdir",
-        str(output_path.parent),
-        str(document.path),
-    ]
-    try:
-        completed = subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-
-    if completed.returncode != 0 or not output_path.is_file():
-        return None
-    return output_path
+    lock_key = str(output_path)
+    with _conversion_locks_guard:
+        lock = _conversion_locks.setdefault(lock_key, threading.Lock())
+    with lock:
+        if output_path.is_file():
+            return output_path
+        with tempfile.TemporaryDirectory(prefix="cial-render-") as temporary_directory:
+            temporary_root = Path(temporary_directory)
+            profile_uri = (temporary_root / "profile").resolve().as_uri()
+            command = [
+                soffice,
+                "--headless",
+                f"-env:UserInstallation={profile_uri}",
+                "--convert-to",
+                normalized_target,
+                "--outdir",
+                str(temporary_root),
+                str(document.path),
+            ]
+            try:
+                completed = subprocess.run(
+                    command,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                    cwd=temporary_root,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                return None
+            staged = temporary_root / f"{document.path.stem}.{normalized_target}"
+            if completed.returncode != 0 or not staged.is_file() or staged.stat().st_size <= 0:
+                return None
+            os.replace(staged, output_path)
+            return output_path
 
 
 def _ensure_image_converted(document: RenderingDocument, output_format: str) -> Path | None:
@@ -140,7 +161,9 @@ def _ensure_image_converted(document: RenderingDocument, output_format: str) -> 
             image.seek(0)
             converted = ImageOps.exif_transpose(image.convert("RGB"))
             save_format = "JPEG" if target in {"jpg", "jpeg"} else target.upper()
-            converted.save(output_path, format=save_format)
+            temporary = output_path.with_suffix(f"{output_path.suffix}.tmp")
+            converted.save(temporary, format=save_format)
+            os.replace(temporary, output_path)
     except Exception:
         return None
 
@@ -183,6 +206,9 @@ def viewer_asset_payload(document: RenderingDocument) -> dict[str, Any]:
 
 
 def rendered_response(document: RenderingDocument, output_format: str) -> FileResponse:
+    normalized = output_format.casefold().lstrip(".")
+    if normalized != INLINE_CONVERSION_TARGETS.get(document.extension.casefold()):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported render target for this document type.")
     converted = _ensure_converted(document, output_format)
     if converted is None:
         raise HTTPException(
@@ -194,6 +220,12 @@ def rendered_response(document: RenderingDocument, output_format: str) -> FileRe
         media_type=_rendered_media_type(output_format),
         filename=converted.name,
         content_disposition_type="inline",
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+            "Cache-Control": "private, no-store",
+            "Content-Security-Policy": "default-src 'none'; frame-ancestors 'self'; sandbox",
+        },
     )
 
 
