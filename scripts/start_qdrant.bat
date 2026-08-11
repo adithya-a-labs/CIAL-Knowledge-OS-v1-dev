@@ -1,30 +1,4 @@
 @echo off
 setlocal
-
-set "ROOT=%~dp0.."
-set "SERVICE_ROOT=%ROOT%\services\knowledge-engine"
-
-pushd "%ROOT%" >nul
-
-where docker >nul 2>nul
-if errorlevel 1 (
-  echo Docker CLI was not found. Install Docker Desktop and start it before running Qdrant.
-  popd >nul
-  exit /b 1
-)
-
-docker info >nul 2>nul
-if errorlevel 1 (
-  echo Docker is not running. Start Docker Desktop and try again.
-  popd >nul
-  exit /b 1
-)
-
-cd /d "%SERVICE_ROOT%"
-echo Starting Qdrant from services\knowledge-engine\docker-compose.qdrant.yml
-echo Qdrant host URL for this compose file: http://localhost:6335
-docker compose -f docker-compose.qdrant.yml up -d
-set "EXIT_CODE=%ERRORLEVEL%"
-
-popd >nul
-exit /b %EXIT_CODE%
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0start_qdrant.ps1" %*
+exit /b %errorlevel%
