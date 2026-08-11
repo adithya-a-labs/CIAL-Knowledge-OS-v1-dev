@@ -87,9 +87,25 @@ export function resetAuthInvalidationGuard() {
   authInvalidationDispatched = false;
 }
 
+function csrfToken() {
+  if (typeof document === 'undefined') return '';
+  const entry = document.cookie.split('; ').find((value) => value.startsWith('cial_csrf='));
+  return entry ? decodeURIComponent(entry.slice('cial_csrf='.length)) : '';
+}
+
+async function secureFetch(input: RequestInfo | URL, init: RequestInit = {}) {
+  const method = (init.method || 'GET').toUpperCase();
+  const headers = new Headers(init.headers);
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const token = csrfToken();
+    if (token) headers.set('X-CIAL-CSRF-Token', token);
+  }
+  return globalThis.fetch(input, { credentials: 'include', ...init, headers });
+}
+
 async function request<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
   const { authInvalidation = 'protected', ...fetchInit } = init;
-  const response = await fetch(`${resolveApiBaseUrl()}${path}`, {
+  const response = await secureFetch(`${resolveApiBaseUrl()}${path}`, {
     credentials: 'include',
     ...fetchInit,
     headers: {
@@ -153,7 +169,7 @@ export async function streamAdminSystemMonitor(
   signal: AbortSignal,
   onConnected?: () => void,
 ) {
-  const response = await fetch(apiUrl('/api/admin/system/stream'), {
+  const response = await secureFetch(apiUrl('/api/admin/system/stream'), {
     credentials: 'include',
     cache: 'no-store',
     headers: { Accept: 'text/event-stream' },
@@ -229,7 +245,7 @@ export function updateNotebook(id: string, payload: { title?: string; descriptio
   return request<NotebookRecord>(`/api/notebooks/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) });
 }
 export async function deleteNotebook(id: string) {
-  const response = await fetch(apiUrl(`/api/notebooks/${encodeURIComponent(id)}`), { method: 'DELETE', credentials: 'include' });
+  const response = await secureFetch(apiUrl(`/api/notebooks/${encodeURIComponent(id)}`), { method: 'DELETE' });
   if (!response.ok) throw new ApiError('Could not delete notebook.', response.status, null);
 }
 export function listNotebookSources(id: string, signal?: AbortSignal) {
@@ -242,7 +258,7 @@ export function updateNotebookSource(id: string, sourceId: string, isDefaultActi
   return request(`/api/notebooks/${encodeURIComponent(id)}/sources/${encodeURIComponent(sourceId)}`, { method: 'PATCH', body: JSON.stringify({ is_default_active: isDefaultActive }) });
 }
 export async function detachNotebookSource(id: string, sourceId: string) {
-  const response = await fetch(apiUrl(`/api/notebooks/${encodeURIComponent(id)}/sources/${encodeURIComponent(sourceId)}`), { method: 'DELETE', credentials: 'include' });
+  const response = await secureFetch(apiUrl(`/api/notebooks/${encodeURIComponent(id)}/sources/${encodeURIComponent(sourceId)}`), { method: 'DELETE' });
   if (!response.ok) throw new ApiError('Could not detach source.', response.status, null);
 }
 export function getNotebookChatBinding(id: string, signal?: AbortSignal) {
@@ -255,7 +271,7 @@ export function createNotebookArtifact(id: string, payload: { artifact_type: Not
   return request<NotebookArtifactRecord>(`/api/notebooks/${encodeURIComponent(id)}/artifacts`, { method: 'POST', body: JSON.stringify(payload) });
 }
 export async function deleteNotebookArtifact(id: string, artifactId: string) {
-  const response = await fetch(apiUrl(`/api/notebooks/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(artifactId)}`), { method: 'DELETE', credentials: 'include' });
+  const response = await secureFetch(apiUrl(`/api/notebooks/${encodeURIComponent(id)}/artifacts/${encodeURIComponent(artifactId)}`), { method: 'DELETE' });
   if (!response.ok) throw new ApiError('Could not delete artifact.', response.status, null);
 }
 
@@ -302,18 +318,18 @@ export function listMyNotes(params: { query?: string; filter?: string; cursor?: 
 }
 export function createMyNote(title = 'Untitled') { return request<WorkspaceNote>('/api/workspaces/me/notes', { method: 'POST', body: JSON.stringify({ title }) }); }
 export function updateMyNote(id: string, payload: Partial<WorkspaceNote> & { expected_revision: number; force?: boolean }) { return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }); }
-export async function deleteMyNote(id: string) { const response = await fetch(apiUrl(`/api/workspaces/me/notes/${encodeURIComponent(id)}`), { method: 'DELETE', credentials: 'include' }); if (!response.ok) throw new ApiError('Could not delete note.', response.status, null); }
+export async function deleteMyNote(id: string) { const response = await secureFetch(apiUrl(`/api/workspaces/me/notes/${encodeURIComponent(id)}`), { method: 'DELETE' }); if (!response.ok) throw new ApiError('Could not delete note.', response.status, null); }
 export function restoreMyNote(id: string) { return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(id)}/restore`, { method: 'POST' }); }
 export function duplicateMyNote(id: string) { return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(id)}/duplicate`, { method: 'POST' }); }
 export function getNoteExportUrl(id: string) { return apiUrl(`/api/workspaces/me/notes/${encodeURIComponent(id)}/export?format=markdown`); }
 export function listNoteTags(){return request<{items:Array<{id:string;name:string;color?:string|null;count:number}>}>('/api/workspaces/me/note-tags');}
 export function createNoteTag(name:string,color?:string){return request<{id:string;name:string;color?:string|null}>('/api/workspaces/me/note-tags',{method:'POST',body:JSON.stringify({name,color:color??null})});}
 export function renameNoteTag(id:string,name:string,color?:string){return request<{id:string;name:string;color?:string|null}>(`/api/workspaces/me/note-tags/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify({name,color:color??null})});}
-export async function deleteNoteTag(id:string){const response=await fetch(apiUrl(`/api/workspaces/me/note-tags/${encodeURIComponent(id)}`),{method:'DELETE',credentials:'include'});if(!response.ok)throw new ApiError('Could not delete tag.',response.status,null);}
+export async function deleteNoteTag(id:string){const response=await secureFetch(apiUrl(`/api/workspaces/me/note-tags/${encodeURIComponent(id)}`),{method:'DELETE'});if(!response.ok)throw new ApiError('Could not delete tag.',response.status,null);}
 export function addNoteTag(noteId:string,tagId:string){return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(noteId)}/tags/${encodeURIComponent(tagId)}`,{method:'POST'});}
-export async function removeNoteTag(noteId:string,tagId:string){const response=await fetch(apiUrl(`/api/workspaces/me/notes/${encodeURIComponent(noteId)}/tags/${encodeURIComponent(tagId)}`),{method:'DELETE',credentials:'include'});if(!response.ok)throw new ApiError('Could not remove tag.',response.status,null);}
+export async function removeNoteTag(noteId:string,tagId:string){const response=await secureFetch(apiUrl(`/api/workspaces/me/notes/${encodeURIComponent(noteId)}/tags/${encodeURIComponent(tagId)}`),{method:'DELETE'});if(!response.ok)throw new ApiError('Could not remove tag.',response.status,null);}
 export function linkNoteDocument(noteId:string,documentId:string){return request<WorkspaceNote>(`/api/workspaces/me/notes/${encodeURIComponent(noteId)}/documents`,{method:'POST',body:JSON.stringify({document_id:documentId})});}
-export async function unlinkNoteDocument(noteId:string,documentId:string){const response=await fetch(apiUrl(`/api/workspaces/me/notes/${encodeURIComponent(noteId)}/documents/${encodeURIComponent(documentId)}`),{method:'DELETE',credentials:'include'});if(!response.ok)throw new ApiError('Could not unlink document.',response.status,null);}
+export async function unlinkNoteDocument(noteId:string,documentId:string){const response=await secureFetch(apiUrl(`/api/workspaces/me/notes/${encodeURIComponent(noteId)}/documents/${encodeURIComponent(documentId)}`),{method:'DELETE'});if(!response.ok)throw new ApiError('Could not unlink document.',response.status,null);}
 
 export interface SummaryRecord {
   id:string; title:string; summary_type:string; summary_length:string; multi_document_mode:string; status:string; content_markdown:string|null;
@@ -342,7 +358,7 @@ export interface DocumentAnalysisCreateResponse{disposition:'reused'|'queued'|'r
 export interface SummaryCreatePayload { sources:Array<{source_type:'document'|'folder'|'note'|'conversation'|'pasted_text';source_id?:string|null;title?:string|null;content?:string|null}>; summary_type:'executive'|'detailed'|'key_points'|'action_items'; summary_length:'brief'|'standard'|'detailed'; multi_document_mode:'together'|'separate'|'compare'; custom_instructions?:string|null; }
 export interface SummaryStreamEvent { request_id:string; type:'stage'|'token'|'result'|'error'|'cancelled'; stage_id:string; status:string; metrics?:Record<string,number|string>; delta?:string; payload?:SummaryRecord|{message?:string}; }
 export async function streamSummary(payload: SummaryCreatePayload,onEvent:(event:SummaryStreamEvent)=>void,signal?:AbortSignal) {
-  const response=await fetch(apiUrl('/api/summaries/stream'),{method:'POST',credentials:'include',signal,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const response=await secureFetch(apiUrl('/api/summaries/stream'),{method:'POST',signal,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
   if(!response.ok||!response.body)throw new ApiError(`Summary request failed with status ${response.status}`,response.status,null);
   const reader=response.body.getReader();const decoder=new TextDecoder();let buffer='';let result:SummaryRecord|null=null;
   while(true){const {value,done}=await reader.read();buffer+=decoder.decode(value,{stream:!done});const lines=buffer.split('\n');buffer=lines.pop()??'';for(const line of lines){if(!line.trim())continue;const event=JSON.parse(line) as SummaryStreamEvent;onEvent(event);if(event.type==='result')result=event.payload as SummaryRecord;if(event.type==='error')throw new Error((event.payload as {message?:string})?.message||'Summary generation failed.');}if(done)break;}
@@ -363,12 +379,12 @@ export function saveAnswerToKnowledge(payload:{message_id:string;title:string;co
 export function updateSavedKnowledge(id:string,payload:{expected_version:number;title?:string;collection?:string|null;tags?:string[];description?:string|null;is_favorite?:boolean;state?:'active'|'archived'}){return request<SavedKnowledgeRecord>(`/api/saved-knowledge/${encodeURIComponent(id)}`,{method:'PATCH',body:JSON.stringify(payload)});}
 export function duplicateSavedKnowledge(id:string){return request<SavedKnowledgeRecord>(`/api/saved-knowledge/${encodeURIComponent(id)}/duplicate`,{method:'POST'});}
 export function convertSavedKnowledgeToNote(id:string){return request<WorkspaceNote>(`/api/saved-knowledge/${encodeURIComponent(id)}/convert-to-note`,{method:'POST'});}
-export async function removeSavedKnowledge(id:string){const response=await fetch(apiUrl(`/api/saved-knowledge/${encodeURIComponent(id)}`),{method:'DELETE',credentials:'include'});if(!response.ok)throw new ApiError('Could not remove saved item.',response.status,null);}
+export async function removeSavedKnowledge(id:string){const response=await secureFetch(apiUrl(`/api/saved-knowledge/${encodeURIComponent(id)}`),{method:'DELETE'});if(!response.ok)throw new ApiError('Could not remove saved item.',response.status,null);}
 
 export function createChatSession(payload:ChatSessionCreatePayload){return request<ChatHistorySession>('/api/chat/sessions',{method:'POST',body:JSON.stringify(payload)});}
 export function globalSearch(payload:{query:string;mode:'instant'|'full';filters:GlobalSearchFilters;cursor?:string|null;limit?:number;interpret?:boolean},signal?:AbortSignal){return request<GlobalSearchResponse>('/api/search',{method:'POST',body:JSON.stringify(payload),signal});}
 export function listRecentSearches(){return request<RecentSearchList>('/api/search/recent');}
-export async function clearRecentSearches(id?:string){const response=await fetch(apiUrl(id?`/api/search/recent/${encodeURIComponent(id)}`:'/api/search/recent'),{method:'DELETE',credentials:'include'});if(!response.ok)throw new ApiError('Could not clear search history.',response.status,null);}
+export async function clearRecentSearches(id?:string){const response=await secureFetch(apiUrl(id?`/api/search/recent/${encodeURIComponent(id)}`:'/api/search/recent'),{method:'DELETE'});if(!response.ok)throw new ApiError('Could not clear search history.',response.status,null);}
 
 export function askQuestion(payload: ChatRequest, signal?: AbortSignal) {
   const boundedSignal = signal
@@ -394,7 +410,7 @@ export async function streamQuestion(
   if (signal?.aborted) abortFromCaller(); else signal?.addEventListener('abort', abortFromCaller, { once: true });
   const timer = window.setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
   try {
-    const response = await fetch(apiUrl('/api/chat/stream'), { method: 'POST', credentials: 'include', signal: controller.signal,
+    const response = await secureFetch(apiUrl('/api/chat/stream'), { method: 'POST', signal: controller.signal,
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     if (!response.ok || !response.body) {
       let detail: unknown = null;
@@ -478,11 +494,11 @@ export function saveAssistantExportToWorkspace(exportId: string, payload: import
   return request<import('./types').AssistantExportWorkspaceSaveResponse>(`/api/exports/${encodeURIComponent(exportId)}/save-to-workspace`, { method: 'POST', body: JSON.stringify(payload) });
 }
 export async function cancelAssistantExport(exportId: string) {
-  const response = await fetch(apiUrl(`/api/exports/${encodeURIComponent(exportId)}`), { method: 'DELETE', credentials: 'include' });
+  const response = await secureFetch(apiUrl(`/api/exports/${encodeURIComponent(exportId)}`), { method: 'DELETE' });
   if (!response.ok) throw new ApiError(`Cancel failed with status ${response.status}`, response.status, null);
 }
 export async function fetchAssistantExportArtifact(path: string, signal?: AbortSignal) {
-  const response = await fetch(apiUrl(path), { credentials: 'include', signal });
+  const response = await secureFetch(apiUrl(path), { signal });
   if (!response.ok) throw new ApiError(`Export request failed with status ${response.status}`, response.status, null);
   return response;
 }
