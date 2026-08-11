@@ -32,7 +32,8 @@ TABLE_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 OFFICE_EXTENSIONS = {".docx", ".doc", ".pptx", ".ppt"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".gif"}
 SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | TABLE_EXTENSIONS | OFFICE_EXTENSIONS | IMAGE_EXTENSIONS | {".pdf"}
-DIRECT_INLINE_EXTENSIONS = TEXT_EXTENSIONS | {".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif", ".csv"}
+DIRECT_INLINE_EXTENSIONS = {".txt", ".md", ".markdown", ".json", ".yaml", ".yml", ".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif", ".csv"}
+ACTIVE_CONTENT_EXTENSIONS = {".html", ".htm", ".xml", ".svg", ".xhtml"}
 MAX_TEXT_PREVIEW_BYTES = 256 * 1024
 MAX_PREVIEW_CHARS = 24_000
 THUMBNAIL_SIZE = (360, 240)
@@ -129,27 +130,17 @@ def _text_lines(value: str, *, limit: int = 6) -> list[str]:
 
 def _html_to_safe_fragment(value: str) -> str:
     try:
-        from bs4 import BeautifulSoup
+        import bleach
     except Exception:
         return f"<pre>{escape(_trim_preview_text(value))}</pre>"
-
-    soup = BeautifulSoup(value, "html.parser")
-    for tag in soup.find_all(["script", "style", "iframe", "object", "embed", "meta", "link"]):
-        tag.decompose()
-    for tag in soup.find_all(True):
-        removable = [
-            attribute
-            for attribute in list(tag.attrs)
-            if attribute.lower().startswith("on")
-            or (
-                isinstance(tag.attrs.get(attribute), str)
-                and str(tag.attrs.get(attribute)).strip().lower().startswith("javascript:")
-            )
-        ]
-        for attribute in removable:
-            tag.attrs.pop(attribute, None)
-    fragment = soup.body or soup
-    return str(fragment)[: MAX_PREVIEW_CHARS * 2]
+    return bleach.clean(
+        value[: MAX_PREVIEW_CHARS * 2],
+        tags={"p", "br", "strong", "em", "ul", "ol", "li", "blockquote", "pre", "code", "h1", "h2", "h3", "h4", "table", "thead", "tbody", "tr", "th", "td"},
+        attributes={},
+        protocols=set(),
+        strip=True,
+        strip_comments=True,
+    )
 
 
 def _markdown_to_html(value: str) -> str:
@@ -544,11 +535,20 @@ def file_response(
     *,
     disposition: str = "inline",
 ) -> FileResponse:
+    active_content = document.extension in ACTIVE_CONTENT_EXTENSIONS
+    effective_disposition = "attachment" if active_content else disposition
+    headers = {
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+        "Cache-Control": "private, no-store",
+        "Content-Security-Policy": "default-src 'none'; frame-ancestors 'self'; sandbox",
+    }
     return FileResponse(
         document.path,
-        media_type=_media_type(document.path, document.metadata.get("mime_type")),
+        media_type="application/octet-stream" if active_content else _media_type(document.path, document.metadata.get("mime_type")),
         filename=document.metadata.get("name") or document.path.name,
-        content_disposition_type=disposition,
+        content_disposition_type=effective_disposition,
+        headers=headers,
     )
 
 
@@ -800,7 +800,9 @@ def preview_payload(
             slide_number=resolved_slide_number,
         )
         try:
-            cache_path.write_text(json.dumps(cached, ensure_ascii=False), encoding="utf-8")
+            temporary = cache_path.with_suffix(f"{cache_path.suffix}.{uuid.uuid4().hex}.tmp")
+            temporary.write_text(json.dumps(cached, ensure_ascii=False), encoding="utf-8")
+            temporary.replace(cache_path)
         except OSError:
             pass
 
