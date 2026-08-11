@@ -36,7 +36,6 @@ export function toChatRequest(payload: ChatRequestPayload, sessionId?: string, c
     response_length: toApiResponseLength(payload.activeProfile),
     profile: payload.activeProfile,
     include_sources: true,
-    include_debug: false,
   };
 }
 
