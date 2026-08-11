@@ -18,7 +18,9 @@ $PythonExe = Join-Path $RepoRoot ".venv\Scripts\python.exe"
 $AppConfigPath = Join-Path $RepoRoot "data\config\application.json"
 $QdrantComposeFile = Join-Path $BackendRoot "docker-compose.qdrant.yml"
 $LogsRoot = Join-Path $RepoRoot "outputs\launcher\logs"
-New-Item -ItemType Directory -Force -Path $LogsRoot | Out-Null
+$StateRoot = Join-Path $RepoRoot "outputs\launcher\runtime"
+$MigrationEnvPath = Join-Path $RepoRoot "outputs\installer\runtime\migration.env"
+New-Item -ItemType Directory -Force -Path $LogsRoot, $StateRoot | Out-Null
 $Timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $LogPath = Join-Path $LogsRoot "launch-$Timestamp.log"
 Start-Transcript -Path $LogPath -Append | Out-Null
@@ -61,12 +63,13 @@ function Wait-Url {
     param(
         [string]$Url,
         [int]$Seconds = 120,
-        [scriptblock]$Predicate = $null
+        [scriptblock]$Predicate = $null,
+        [hashtable]$Headers = @{}
     )
     $deadline = (Get-Date).AddSeconds($Seconds)
     do {
         try {
-            $response = Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec 5
+            $response = Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec 5 -Headers $Headers
             if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) {
                 if ($null -eq $Predicate) { return $true }
                 $json = $response.Content | ConvertFrom-Json
@@ -201,7 +204,11 @@ function Ensure-Postgres {
 
 function Ensure-Qdrant {
     Write-Step "Checking Qdrant"
-    if (Wait-Url -Url "$QdrantUrl/collections" -Seconds 5) {
+    $envMap = Get-EnvMap -Paths @($BackendEnvPath)
+    if (-not $envMap.ContainsKey("CIAL_QDRANT_API_KEY")) { Stop-Launch "CIAL_QDRANT_API_KEY is missing." }
+    $env:CIAL_QDRANT_API_KEY = $envMap["CIAL_QDRANT_API_KEY"]
+    $qdrantHeaders = @{ "api-key" = $envMap["CIAL_QDRANT_API_KEY"] }
+    if (Wait-Url -Url "$QdrantUrl/collections" -Seconds 5 -Headers $qdrantHeaders) {
         Write-Host "Qdrant is already ready at $QdrantUrl."
         return
     }
@@ -211,7 +218,7 @@ function Ensure-Qdrant {
     Ensure-Docker
     & docker.exe compose -f $QdrantComposeFile up -d
     if ($LASTEXITCODE -ne 0) { Stop-Launch "Qdrant compose startup failed." }
-    if (-not (Wait-Url -Url "$QdrantUrl/collections" -Seconds 90)) {
+    if (-not (Wait-Url -Url "$QdrantUrl/collections" -Seconds 90 -Headers $qdrantHeaders)) {
         Stop-Launch "Qdrant did not become ready at $QdrantUrl."
     }
 }
@@ -227,6 +234,23 @@ function Ensure-Ollama {
     if (-not (Wait-Url -Url "http://127.0.0.1:11434/api/tags" -Seconds 90)) {
         Stop-Launch "Ollama did not become ready."
     }
+}
+
+function Assert-OwnedListener {
+    param([int]$Port, [string]$ExpectedExecutable, [string]$CommandPattern)
+    $processId = Get-PortProcessId -Port $Port
+    if ($null -eq $processId) { return $false }
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction Stop
+    $actualExecutable = [System.IO.Path]::GetFullPath([string]$process.ExecutablePath)
+    $expected = [System.IO.Path]::GetFullPath($ExpectedExecutable)
+    if ($actualExecutable -ne $expected -or [string]$process.CommandLine -notmatch $CommandPattern) {
+        Stop-Launch "Port $Port is occupied by an unexpected process; service reuse was refused."
+    }
+    $owner = Invoke-CimMethod -InputObject $process -MethodName GetOwner
+    if ($owner.ReturnValue -ne 0 -or $owner.User -ne [Environment]::UserName) {
+        Stop-Launch "Port $Port listener is not owned by the current CIAL operator."
+    }
+    return $true
 }
 
 function Assert-LanFrontendBundle {
@@ -257,6 +281,10 @@ function Assert-LanFrontendBundle {
 function Invoke-DatabaseMigrations {
     Write-Step "Applying metadata database migrations"
     $previousPythonPath = $env:PYTHONPATH
+    $previousMigrationUrl = $env:CIAL_MIGRATION_DATABASE_URL
+    $migrationMap = Get-EnvMap -Paths @($MigrationEnvPath)
+    if (-not $migrationMap.ContainsKey("CIAL_MIGRATION_DATABASE_URL")) { Stop-Launch "Protected migration credentials are missing." }
+    $env:CIAL_MIGRATION_DATABASE_URL = $migrationMap["CIAL_MIGRATION_DATABASE_URL"]
     $env:PYTHONPATH = "$BackendRoot;$BackendRoot\src"
     Push-Location $BackendRoot
     try {
@@ -266,12 +294,14 @@ function Invoke-DatabaseMigrations {
     finally {
         Pop-Location
         $env:PYTHONPATH = $previousPythonPath
+        $env:CIAL_MIGRATION_DATABASE_URL = $previousMigrationUrl
     }
 }
 
 function Start-Backend {
     Write-Step "Checking backend"
     if (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 5) {
+        [void](Assert-OwnedListener -Port $BackendPort -ExpectedExecutable $PythonExe -CommandPattern "backend\.app\.main:app")
         Write-Host "Backend already responds on port $BackendPort."
         return
     }
@@ -288,22 +318,28 @@ function Start-Backend {
     if (-not (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 180)) {
         Stop-Launch "Backend did not become reachable. See $out and $err."
     }
-    $ready = Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 300 -Predicate { param($body) $body.api_ready -eq $true }
-    if (-not $ready) {
-        Stop-Launch "Backend reached HTTP health but API readiness failed. Check backend startup logs."
-    }
+    [void](Assert-OwnedListener -Port $BackendPort -ExpectedExecutable $PythonExe -CommandPattern "backend\.app\.main:app")
 }
 
 function Start-LanGateway {
     if (-not $Lan) { return }
     Write-Step "Starting optional Laptop LAN Server Mode"
-    $env:CIAL_LAN_ACCESS_ENABLED = "true"
-    if ($env:CIAL_LAN_HTTPS_ENABLED -match "^(1|true|yes|on)$") {
-        $env:CIAL_AUTH_COOKIE_SECURE = "true"
+    $backendEnvironment = Get-EnvMap -Paths @($BackendEnvPath)
+    $httpsEnabled = if (-not [string]::IsNullOrWhiteSpace($env:CIAL_LAN_HTTPS_ENABLED)) {
+        $env:CIAL_LAN_HTTPS_ENABLED
+    }
+    elseif ($backendEnvironment.ContainsKey("CIAL_LAN_HTTPS_ENABLED")) {
+        $backendEnvironment["CIAL_LAN_HTTPS_ENABLED"]
     }
     else {
-        $env:CIAL_AUTH_COOKIE_SECURE = "false"
+        "true"
     }
+    if ($httpsEnabled -notmatch "^(1|true|yes|on)$") {
+        Stop-Launch "LAN mode requires HTTPS. Set CIAL_LAN_HTTPS_ENABLED=true and provision the gateway certificate."
+    }
+    $env:CIAL_LAN_ACCESS_ENABLED = "true"
+    $env:CIAL_LAN_HTTPS_ENABLED = "true"
+    $env:CIAL_AUTH_COOKIE_SECURE = "true"
     $script = Join-Path $RepoRoot "scripts\start_lan_gateway.ps1"
     $out = Join-Path $LogsRoot "lan-manager-$Timestamp.out.log"
     $err = Join-Path $LogsRoot "lan-manager-$Timestamp.err.log"
@@ -332,24 +368,30 @@ function Start-LanGateway {
 
 function Start-Indexer {
     Write-Step "Checking standalone indexer"
-    if (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 5 -Predicate { param($body) $body.indexer_seen -eq $true }) {
-        Write-Host "A fresh standalone indexer heartbeat already exists."
+    $existingIndexer = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue | Where-Object {
+        [System.IO.Path]::GetFullPath([string]$_.ExecutablePath) -eq [System.IO.Path]::GetFullPath($PythonExe) -and
+        [string]$_.CommandLine -match "backend\\indexer_main\.py"
+    } | Select-Object -First 1
+    if ($null -ne $existingIndexer) {
+        Write-Host "An owned standalone indexer process is already running."
         return
     }
     $out = Join-Path $LogsRoot "indexer-$Timestamp.out.log"
     $err = Join-Path $LogsRoot "indexer-$Timestamp.err.log"
     $previousPythonPath = $env:PYTHONPATH
     $env:PYTHONPATH = "$BackendRoot;$BackendRoot\src"
-    Start-Process -FilePath $PythonExe -ArgumentList @("backend\indexer_main.py") -WorkingDirectory $BackendRoot -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err | Out-Null
+    $indexerProcess = Start-Process -FilePath $PythonExe -ArgumentList @("backend\indexer_main.py") -WorkingDirectory $BackendRoot -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err -PassThru
+    [pscustomobject]@{ pid=$indexerProcess.Id; started_at=(Get-Date).ToString("o"); executable=$PythonExe } | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $StateRoot "indexer.pid.json") -Encoding UTF8
     $env:PYTHONPATH = $previousPythonPath
-    if (-not (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 60 -Predicate { param($body) $body.indexer_seen -eq $true })) {
-        Write-Warning "The standalone indexer did not publish a heartbeat. Chat will continue from the last published generation. See $out and $err."
-    }
+    Start-Sleep -Seconds 2
+    if ($indexerProcess.HasExited) { Write-Warning "The standalone indexer exited during startup. See $out and $err." }
 }
 
 function Start-Frontend {
     Write-Step "Checking frontend"
     if (Wait-Url -Url "http://127.0.0.1:$FrontendPort" -Seconds 5) {
+        $nodeExecutable = (Get-Command node.exe -ErrorAction Stop).Source
+        [void](Assert-OwnedListener -Port $FrontendPort -ExpectedExecutable $nodeExecutable -CommandPattern "vite")
         Write-Host "Frontend already responds on port $FrontendPort."
         return
     }
@@ -381,8 +423,8 @@ function Start-Frontend {
 function Confirm-ApplicationStable {
     Write-Step "Confirming application readiness"
     Start-Sleep -Seconds 3
-    if (-not (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 10 -Predicate { param($body) $body.api_ready -eq $true })) {
-        Stop-Launch "Backend readiness was not stable after startup."
+    if (-not (Wait-Url -Url "http://127.0.0.1:$BackendPort/api/health" -Seconds 10)) {
+        Stop-Launch "Backend liveness was not stable after startup."
     }
     if (-not (Wait-Url -Url "http://127.0.0.1:$FrontendPort/login" -Seconds 10)) {
         Stop-Launch "Frontend readiness was not stable after startup."
@@ -391,13 +433,22 @@ function Confirm-ApplicationStable {
 
 try {
     if ($Lan) {
-        $env:CIAL_LAN_ACCESS_ENABLED = "true"
-        if ($env:CIAL_LAN_HTTPS_ENABLED -match "^(1|true|yes|on)$") {
-            $env:CIAL_AUTH_COOKIE_SECURE = "true"
+        $backendEnvironment = Get-EnvMap -Paths @($BackendEnvPath)
+        $httpsEnabled = if (-not [string]::IsNullOrWhiteSpace($env:CIAL_LAN_HTTPS_ENABLED)) {
+            $env:CIAL_LAN_HTTPS_ENABLED
+        }
+        elseif ($backendEnvironment.ContainsKey("CIAL_LAN_HTTPS_ENABLED")) {
+            $backendEnvironment["CIAL_LAN_HTTPS_ENABLED"]
         }
         else {
-            $env:CIAL_AUTH_COOKIE_SECURE = "false"
+            "true"
         }
+        if ($httpsEnabled -notmatch "^(1|true|yes|on)$") {
+            Stop-Launch "LAN mode requires HTTPS. Set CIAL_LAN_HTTPS_ENABLED=true and provision the gateway certificate."
+        }
+        $env:CIAL_LAN_ACCESS_ENABLED = "true"
+        $env:CIAL_LAN_HTTPS_ENABLED = "true"
+        $env:CIAL_AUTH_COOKIE_SECURE = "true"
     }
     Assert-ApplicationFiles
     Assert-LanFrontendBundle

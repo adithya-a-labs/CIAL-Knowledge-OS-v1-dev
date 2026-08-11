@@ -27,6 +27,7 @@ $VenvRoot = Join-Path $RepoRoot ".venv"
 $PythonExe = Join-Path $VenvRoot "Scripts\python.exe"
 $LogsRoot = Join-Path $RepoRoot "outputs\installer\logs"
 $StateRoot = Join-Path $RepoRoot "outputs\installer\runtime"
+$MigrationEnvPath = Join-Path $StateRoot "migration.env"
 $AppConfigPath = Join-Path $RepoRoot "data\config\application.json"
 $BackendEnvPath = Join-Path $BackendRoot "backend\.env"
 $FrontendEnvPath = Join-Path $FrontendRoot ".env"
@@ -464,7 +465,9 @@ function Set-EnvFileValue {
     }
     $parent = Split-Path -Parent $Path
     New-Item -ItemType Directory -Force -Path $parent | Out-Null
-    $lines | Set-Content -LiteralPath $Path -Encoding UTF8
+    $temporary = "$Path.$([Guid]::NewGuid().ToString('N')).tmp"
+    [System.IO.File]::WriteAllLines($temporary, $lines, [System.Text.UTF8Encoding]::new($false))
+    Move-Item -LiteralPath $temporary -Destination $Path -Force
 }
 
 function Get-DatabaseUrl {
@@ -483,13 +486,20 @@ function New-Password {
 
 function Ensure-BackendEnv {
     Write-Step "Preparing backend environment file"
+    $existingEnv = Get-EnvMap -Paths @((Join-Path $RepoRoot ".env"), (Join-Path $BackendRoot ".env"), $BackendEnvPath)
     $databaseUrl = Get-DatabaseUrl
+    $migrationDatabaseUrl = Get-MigrationDatabaseUrl
     if ([string]::IsNullOrWhiteSpace($databaseUrl)) {
-        $password = New-Password
-        $databaseUrl = "postgresql+psycopg://postgres:$password@localhost:$PostgresPort/cial_knowledge_os_dev"
-        Set-Content -LiteralPath (Join-Path $StateRoot "postgres-password.txt") -Value $password -Encoding UTF8
-        Write-Host "Generated PostgreSQL password and stored it under outputs\installer\runtime."
+        $adminPassword = New-Password
+        $runtimePassword = New-Password
+        $migrationDatabaseUrl = "postgresql+psycopg://postgres:$adminPassword@localhost:$PostgresPort/cial_knowledge_os_dev"
+        $databaseUrl = "postgresql+psycopg://cial_runtime:$runtimePassword@localhost:$PostgresPort/cial_knowledge_os_dev"
+        Write-Host "Generated PostgreSQL bootstrap password directly into the protected backend environment."
     }
+    if ([string]::IsNullOrWhiteSpace($migrationDatabaseUrl)) { $migrationDatabaseUrl = $databaseUrl }
+    Set-EnvFileValue -Path $MigrationEnvPath -Values @{ "CIAL_MIGRATION_DATABASE_URL" = $migrationDatabaseUrl }
+    $authSecret = if ($existingEnv.ContainsKey("CIAL_AUTH_SECRET_KEY")) { $existingEnv["CIAL_AUTH_SECRET_KEY"] } else { New-Password }
+    $qdrantApiKey = if ($existingEnv.ContainsKey("CIAL_QDRANT_API_KEY")) { $existingEnv["CIAL_QDRANT_API_KEY"] } else { New-Password }
     Set-EnvFileValue -Path $BackendEnvPath -Values @{
         "CIAL_AUTO_INDEX_ON_STARTUP" = "false"
         "CIAL_FORCE_REBUILD_ON_STARTUP" = "false"
@@ -498,6 +508,9 @@ function Ensure-BackendEnv {
         "CIAL_OUTPUTS_DIR" = "outputs"
         "CIAL_MODELS_DIR" = "models"
         "DATABASE_URL" = $databaseUrl
+        "CIAL_AUTH_SECRET_KEY" = $authSecret
+        "CIAL_AUTH_ALLOW_USER_HEADERS" = "false"
+        "CIAL_AUTH_SESSION_TTL_HOURS" = "12"
         "CIAL_CORPUS_SYNC_ON_STARTUP" = "false"
         "CIAL_CORPUS_WATCH" = "true"
         "CIAL_CORPUS_WATCH_DEBOUNCE_MS" = "750"
@@ -506,6 +519,7 @@ function Ensure-BackendEnv {
         "CIAL_CORPUS_RECONCILE_INTERVAL_SECONDS" = "300"
         "CIAL_QDRANT_MODE" = "server"
         "CIAL_QDRANT_URL" = $QdrantUrl
+        "CIAL_QDRANT_API_KEY" = $qdrantApiKey
         "CIAL_QDRANT_BATCH_SIZE" = "32"
         "CIAL_QDRANT_UPSERT_WAIT" = "true"
         "QDRANT_TIMEOUT_SECONDS" = "30"
@@ -557,6 +571,14 @@ function Ensure-FrontendEnv {
     }
 }
 
+function Get-MigrationDatabaseUrl {
+    $map = Get-EnvMap -Paths @($MigrationEnvPath)
+    if ($map.ContainsKey("CIAL_MIGRATION_DATABASE_URL") -and -not [string]::IsNullOrWhiteSpace($map["CIAL_MIGRATION_DATABASE_URL"])) {
+        return $map["CIAL_MIGRATION_DATABASE_URL"]
+    }
+    return $null
+}
+
 function Verify-LanGatewayStaging {
     if (-not $VerifyLanSupport) { return }
     Write-Step "Verifying optional LAN gateway staging"
@@ -601,7 +623,7 @@ function Ensure-DockerDesktop {
 function Ensure-Postgres {
     Write-Step "Starting PostgreSQL"
     $docker = Get-CommandPath "docker.exe"
-    $databaseUrl = Get-DatabaseUrl
+    $databaseUrl = Get-MigrationDatabaseUrl
     if ($databaseUrl -match "@([^:/]+):(\d+)/") {
         $hostName = $Matches[1]
         $port = [int]$Matches[2]
@@ -610,11 +632,10 @@ function Ensure-Postgres {
             return
         }
     }
-    $passwordFile = Join-Path $StateRoot "postgres-password.txt"
-    if (-not (Test-Path -LiteralPath $passwordFile -PathType Leaf)) {
-        Stop-Install "PostgreSQL is not reachable and no installer-managed password file exists. Configure DATABASE_URL in backend\.env or rerun after removing the incomplete installer state."
+    if ($databaseUrl -notmatch "^postgresql(?:\+psycopg)?://[^:]+:([^@]+)@") {
+        Stop-Install "PostgreSQL is not reachable and DATABASE_URL does not contain installer-usable bootstrap credentials."
     }
-    $password = (Get-Content -LiteralPath $passwordFile -Raw).Trim()
+    $password = $Matches[1]
     $containerExists = ((& $docker ps -a --format "{{.Names}}") -contains $PostgresContainerName)
     if (-not $containerExists) {
         & $docker run -d --name $PostgresContainerName `
@@ -636,15 +657,39 @@ function Ensure-Postgres {
     Stop-Install "PostgreSQL did not become reachable on port $PostgresPort."
 }
 
+function Ensure-PostgresRuntimeRole {
+    Write-Step "Provisioning least-privilege PostgreSQL runtime role"
+    $runtimeUrl = Get-DatabaseUrl
+    if ($runtimeUrl -notmatch "^postgresql(?:\+psycopg)?://cial_runtime:([^@]+)@") {
+        Write-Warning "Existing DATABASE_URL is not the installer-managed cial_runtime identity; credential rotation remains an operator action."
+        return
+    }
+    $runtimePassword = $Matches[1]
+    $roleScript = Join-Path $BackendRoot "scripts\provision_runtime_role.sql"
+    Get-Content -LiteralPath $roleScript -Raw | docker.exe exec -i $PostgresContainerName psql -U postgres -d cial_knowledge_os_dev -v "runtime_password=$runtimePassword"
+    if ($LASTEXITCODE -ne 0) { Stop-Install "PostgreSQL runtime role provisioning failed." }
+}
+
 function Ensure-Qdrant {
     Write-Step "Starting Qdrant"
     if (-not (Test-Path -LiteralPath $QdrantComposeFile -PathType Leaf)) {
         Stop-Install "Qdrant compose file was not found: $QdrantComposeFile"
     }
+    $map = Get-EnvMap -Paths @($BackendEnvPath)
+    if (-not $map.ContainsKey("CIAL_QDRANT_API_KEY")) { Stop-Install "CIAL_QDRANT_API_KEY is missing." }
+    $env:CIAL_QDRANT_API_KEY = $map["CIAL_QDRANT_API_KEY"]
     Invoke-Logged -FilePath "docker.exe" -Arguments @("compose", "-f", $QdrantComposeFile, "up", "-d") -WorkingDirectory $BackendRoot -FailureMessage "Qdrant compose startup failed."
-    if (-not (Wait-Url -Url "$QdrantUrl/collections" -Seconds 90)) {
+    if (-not (Wait-Url -Url "$QdrantUrl/healthz" -Seconds 90)) {
         Stop-Install "Qdrant did not become ready at $QdrantUrl."
     }
+}
+
+function Protect-DeploymentBoundary {
+    Write-Step "Applying deployment filesystem security boundary"
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $aclScript = Join-Path $RepoRoot "scripts\lan_caddy_acl.ps1"
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $aclScript -Mode Apply -RootPath $RepoRoot -CurrentUserSid $sid | Out-Null
+    if ($LASTEXITCODE -ne 0) { Stop-Install "Deployment ACL provisioning failed." }
 }
 
 function Ensure-Ollama {
@@ -857,6 +902,8 @@ function Ensure-CorpusConfiguration {
 
 function Run-Alembic {
     Write-Step "Running Alembic migrations"
+    $previousMigrationUrl = $env:CIAL_MIGRATION_DATABASE_URL
+    $env:CIAL_MIGRATION_DATABASE_URL = Get-MigrationDatabaseUrl
     Push-Location $BackendRoot
     try {
         & $PythonExe -m alembic upgrade head
@@ -871,6 +918,7 @@ function Run-Alembic {
         }
     }
     finally {
+        $env:CIAL_MIGRATION_DATABASE_URL = $previousMigrationUrl
         Pop-Location
     }
 }
@@ -894,6 +942,8 @@ try {
     Write-Host "NVIDIA GPU: $($gpu.Name)"
     Write-Host "Driver version: $($gpu.DriverVersion)"
 
+    Protect-DeploymentBoundary
+
     Write-Step "Installing/verifying prerequisites"
     Ensure-WingetPackage -Id "Git.Git" -DisplayName "Git"
     Ensure-WingetPackage -Id "Python.Python.3.11" -DisplayName "Python 3.11"
@@ -907,6 +957,7 @@ try {
     Ensure-FrontendEnv
     Ensure-DockerDesktop
     Ensure-Postgres
+    Ensure-PostgresRuntimeRole
     Ensure-Qdrant
     Ensure-Ollama
     Ensure-PythonEnvironment
