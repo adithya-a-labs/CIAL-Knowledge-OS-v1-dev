@@ -7,6 +7,8 @@ $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $Activate = Join-Path $Root ".venv\Scripts\Activate.ps1"
 $ServiceRoot = Join-Path $Root "services\knowledge-engine"
 
+. (Join-Path $PSScriptRoot "runtime_env.ps1")
+
 if (-not (Test-Path -LiteralPath $Activate)) {
     Write-Host "Missing .venv. Create it with: py -3.11 -m venv .venv" -ForegroundColor Red
     exit 1
@@ -17,6 +19,11 @@ if (-not (Test-Path -LiteralPath (Join-Path $ServiceRoot "backend\app\main.py"))
     exit 1
 }
 
+Import-CialRuntimeEnvironment -RepoRoot $Root -RequiredKeys @(
+    "DATABASE_URL",
+    "CIAL_QDRANT_API_KEY"
+) | Out-Null
+Clear-CialMigrationCredential
 . $Activate
 Set-Location -LiteralPath $ServiceRoot
 
