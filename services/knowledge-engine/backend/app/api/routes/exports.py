@@ -29,8 +29,17 @@ def create_export(payload:ExportCreateRequest,request:Request,db:Session=Depends
     except ExportError as exc:raise _error(exc) from exc
     return ExportCreateResponse(export_id=job.id,status="queued")
 @router.get("/exports",response_model=ExportListResponse)
-def list_exports(request:Request):
-    require_authenticated_access_context(request);return ExportListResponse(exports=request.app.state.export_service.list_exports())
+def list_exports(request:Request,db:Session=Depends(get_db_session)):
+    access=require_authenticated_access_context(request)
+    jobs=ExportRepository(db).list_for_user(access.principal.user_id)
+    return ExportListResponse(exports=[{
+        "id":str(job.id),
+        "name":job.output_filename or job.title,
+        "path":f"/api/exports/{job.id}/download" if job.status=="ready" else "",
+        "type":job.format,
+        "size_bytes":int(job.file_size_bytes or 0),
+        "modified_at":job.updated_at.isoformat(),
+    } for job in jobs])
 @router.get("/exports/{export_id}",response_model=ExportJobResponse)
 def get_export(export_id:uuid.UUID,request:Request,db:Session=Depends(get_db_session)):return _response(_owned(export_id,request,db))
 @router.get("/exports/{export_id}/preview")
