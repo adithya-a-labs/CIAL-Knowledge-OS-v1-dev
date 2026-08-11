@@ -554,7 +554,6 @@ class LanManager:
                 state="caddy_validating",
                 firewall_state=firewall_state,
             )
-            self._start_gateway(self.adapter)
             if settings.lan_firewall_managed and not self.test_bind:
                 try:
                     firewall_state = _run_firewall(
@@ -578,6 +577,7 @@ class LanManager:
                     )
                     raise
                 _event("firewall_rule_verified", state=firewall_state)
+            self._start_gateway(self.adapter)
             discovery_ready = False
             mdns_failed = False
             if settings.lan_mdns_enabled and not self.dry_run and not self.test_bind:

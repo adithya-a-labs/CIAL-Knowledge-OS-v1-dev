@@ -252,7 +252,7 @@ def test_caddyfile_is_interface_bound_same_origin_and_streaming_safe(tmp_path):
     assert "bind 0.0.0.0" not in rendered
     assert "reverse_proxy 127.0.0.1:8000" in rendered
     assert "request_body" in rendered
-    assert "max_size 512MB" in rendered
+    assert "max_size 110MB" in rendered
     assert "flush_interval -1" in rendered
     assert "try_files {path} /index.html" in rendered
     assert "Unexpected Host" in rendered
@@ -650,7 +650,8 @@ def test_manager_stops_caddy_and_skips_mdns_on_firewall_failure(monkeypatch, tmp
 
     monkeypatch.setattr(lan_manager, "_run_firewall", firewall)
     assert manager.run() == 1
-    assert "caddy_started" in events and "caddy_stopped" in events
+    assert "caddy_started" not in events
+    assert "caddy_stopped" in events
     assert "mdns_started" not in events
     status = read_status(manager.status_path)
     assert status["state"] == "firewall_failed"
