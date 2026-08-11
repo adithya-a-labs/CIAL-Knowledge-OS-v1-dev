@@ -8,6 +8,7 @@ import re
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy import update
 from sqlalchemy.orm import selectinload
 
 from backend.app.core.config import settings
@@ -213,3 +214,14 @@ class AuthService:
             if user is None or not bool(user.is_active):
                 return None
             return _to_profile(user)
+
+    def revoke_sessions(self, user_id: uuid.UUID) -> None:
+        """Invalidate every token issued with the user's prior version."""
+
+        with self._require_session() as session:
+            session.execute(
+                update(User)
+                .where(User.id == user_id)
+                .values(session_version=User.session_version + 1)
+            )
+            session.commit()
