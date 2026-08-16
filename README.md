@@ -116,6 +116,34 @@ flowchart LR
 
 The API does not scan or embed the corpus during ordinary startup. A standalone indexer owns extraction, embedding, vector writes, lexical snapshot creation, and publication. This separation keeps user requests away from expensive mutation work and makes queue state, worker leases, and generation identity explicit.
 
+### Application layering and dependency direction
+
+The main architecture diagram shows runtime topology; the diagram below shows the software dependency direction inside the integrated repository. FastAPI's composition root constructs shared services and places them on application state. Most domain routes validate transport contracts and delegate to services. Chat is the deliberate exception: its route also coordinates streaming, request/session identity, and cancellation, while retrieval, reranking, evidence selection, generation, and citation behavior remain in the reusable knowledge-engine package.
+
+```mermaid
+flowchart TB
+    UI["Presentation<br/>React components, routes, query state"]
+    HTTP["Transport<br/>FastAPI routes, Pydantic schemas, NDJSON/SSE"]
+    APP["Application services<br/>auth, corpus, documents, chat, notes, summaries, exports"]
+    AI["AI systems<br/>retrievers, RRF, reranker, evidence, prompts, generation, evaluation"]
+    DATA["Persistence adapters<br/>SQLAlchemy, Qdrant, filesystem, published BM25"]
+    EXT["Local infrastructure<br/>PostgreSQL, Qdrant server, Ollama, OCR/conversion tools"]
+
+    UI --> HTTP --> APP
+    APP --> AI
+    APP --> DATA
+    AI --> DATA
+    DATA --> EXT
+
+    POLICY["Cross-cutting contracts<br/>identity, authorization, configuration, telemetry"]
+    POLICY -.-> HTTP
+    POLICY -.-> APP
+    POLICY -.-> AI
+    POLICY -.-> DATA
+```
+
+Dependencies point inward from delivery mechanisms toward domain and AI behavior; storage and model runtimes are reached through explicit adapters. This is not a claim of strict clean-architecture purity—the integrated chat route and application state are pragmatic composition boundaries—but it prevents React, database sessions, vector clients, and model adapters from collapsing into one undifferentiated pipeline.
+
 ### Software boundaries
 
 | Layer | Responsibilities | Deliberate exclusions |
@@ -129,6 +157,52 @@ The API does not scan or embed the corpus during ordinary startup. A standalone 
 | Filesystem | Authoritative original enterprise and managed personal files | Is never exposed as an arbitrary path API |
 
 The backend currently has one linear Alembic history of 20 revisions, ending at `20260811_0020`. It evolved from metadata foundations through access control, local auth, repository scoping, private workspaces, notes/summaries, analysis artifacts, continuous indexing, incremental chunk reuse, deterministic chat ordering, notebooks, and session revocation.
+
+### API domain map
+
+The backend exposes 16 router modules under the same `/api` boundary. Sixty-eight operations declare explicit Pydantic response models; long-running chat and summary responses use newline-delimited JSON, while the authenticated admin monitor uses server-sent events.
+
+| Domain | Representative responsibility | Service boundary / persistence consequence |
+|---|---|---|
+| Health and administration | Liveness, bounded dependency probes, live system events | Public health is minimal; detailed state is permission-protected and content-minimized |
+| Authentication | Signup/login/logout/current user, signed session and CSRF cookies | Credential and session-version state lives in PostgreSQL; browser code never receives the signing secret |
+| Corpus and documents | Browse, upload, metadata, source file, preview, thumbnail, rendering | Source identities are authorized before file resolution; uploads create durable metadata/indexing work |
+| Chat | Sessions, messages, attachments, grounded streaming, feedback | Durable turn order and evidence snapshots are retained independently of stream completion order |
+| Indexing and settings | Queue/status controls, repository/runtime settings | API requests enqueue or project work; the standalone worker performs expensive mutation |
+| Workspaces, notebooks, notes | Private knowledge organization and versioned authored content | Ownership is enforced server-side; notes can become separately versioned/indexed assets |
+| Search and saved knowledge | Authorized cross-surface search, retained grounded answers | Search history and saved artifacts reference server-owned source and answer identities |
+| Summaries and evaluation | Version-pinned document analysis and controlled experiment execution | Summary jobs retain source fingerprints/citations; evaluation outputs are separated from product claims |
+| Exports | Asynchronous PDF/DOCX generation and expiry | Jobs snapshot authorized server-side content and reject stale source hashes |
+
+The schemas are transport contracts, not duplicate domain models. Route handlers translate HTTP concerns into service calls; SQLAlchemy models and knowledge-engine dataclasses remain authoritative for persistence and pipeline state. Errors are intentionally typed at important boundaries—such as unavailable runtime reasons, stale exports, unsafe paths, and invalid scope—but the repository does not yet impose one universal error envelope across every route.
+
+### PostgreSQL as the control plane
+
+PostgreSQL coordinates the parts of the system that must remain consistent across API, indexer, and future process restarts:
+
+| Model family | Examples | Integrity mechanism |
+|---|---|---|
+| Identity and policy | organizations, departments, users, credentials, roles, permissions, groups and memberships | Foreign keys, scoped uniqueness, role/permission joins, session-version revocation |
+| Knowledge lifecycle | workspaces, folders, documents, immutable document versions, chunks, relationships and search metadata | Repository/path uniqueness, lifecycle/status checks, current-version identity, content hashes |
+| Durable operations | ingestion runs, indexing jobs, worker heartbeat, index generations, exports | Status/operation constraints, claim-order and lease-recovery indexes, retry availability, single publication pointer |
+| Conversation provenance | sessions, messages, saved contexts, feedback, summaries | Stable session/message identities, deterministic turn ordering, persisted evidence/config snapshots |
+| Personal knowledge | notes and versions, notebooks and sources, saved knowledge, summary artifacts/citations/map results | Owner-scoped indexes, revision uniqueness, one-target constraints, private/restricted visibility checks |
+| Audit and measurement | audit events, retrieval events, search history | Actor/entity indexes, normalized-query uniqueness, safe structured metadata |
+
+Indexes follow actual access paths rather than indexing every column: owner-plus-recency for personal content, repository/path and content hash for corpus reconciliation, status-plus-availability for workers, and partial unique indexes that prevent two active jobs for the same document or note version and operation. Alembic is the only supported schema-evolution path. Runtime credentials and migration credentials are separate because ordinary request/indexer roles should not require schema-changing authority.
+
+### System invariants
+
+The implementation repeatedly enforces a small set of cross-layer rules:
+
+1. **Authorization precedes ranking.** Dense and lexical candidates are filtered to the same resolved source boundary before scoring; citations and attached sources are re-authorized on return.
+2. **A query reads one published generation.** It may complete against generation *N* while *N+1* is built, but it does not observe a half-published mix.
+3. **Original bytes, metadata, and embeddings have different authorities.** Filesystem, PostgreSQL, Qdrant, and BM25 publication artifacts are not interchangeable.
+4. **Content change creates version identity.** Reuse requires matching content/chunk hashes plus the embedding and chunking contract; a path-only move updates provenance without pretending bytes changed.
+5. **The API does not become an indexer.** Startup checks query readiness, and request paths durably enqueue work instead of performing corpus-wide extraction or embedding.
+6. **Personal artifacts remain owner-scoped by default.** Notebook visibility is database-constrained to private; saved knowledge permits only private or restricted visibility.
+7. **Unsupported evidence does not become confident prose.** Weak evidence, unsupported scope, and generation failure remain distinct outcomes.
+8. **Benchmark targets are immutable.** A correction or extension creates a new benchmark version; it does not silently edit the baseline used for prior comparisons.
 
 ---
 
@@ -174,6 +248,23 @@ The “4.5” work is distributed across the system: versioned adaptive prompts,
 ### Phase 5 — what is not claimed
 
 Current source retains some Phase 5-shaped export fields and observability event names, while older documentation describes an optional agentic planner. The active package no longer contains that planner/agent/consensus implementation. Accordingly, Phase 5 is treated here as historical/experimental lineage, not a shipped capability.
+
+### From research concept to engineered subsystem
+
+The integrated application did not merely wrap a notebook with an API. Each research idea acquired operational contracts that make it testable under concurrency, authorization, failure, and corpus change:
+
+| Research concept | Engineered subsystem | Contract that makes the concept operational |
+|---|---|---|
+| Dense retrieval baseline | Embedding adapter, Qdrant collection contract, indexed provenance payload | Model identity/dimension, source authorization fields, version and generation identity are validated |
+| Deterministic query expansion | Reusable query transformer and traceable variant set | Original and derived variants remain inspectable and cannot widen the user's authorized scope |
+| Hybrid retrieval | Concurrent dense/BM25 branches plus RRF | Common candidate identity/provenance, independent time bounds, rank-based fusion rather than score mixing |
+| Cross-encoder reranking | Lazy local reranker with bounded batches/cache-first loading | Reranking receives only fused authorized candidates and reports the effective device/model |
+| Evidence selection | Explicit token/count/source/diversity funnel | Final context is smaller than the candidate pool, deterministic under fixed inputs, and independently observable |
+| Grounded generation | Versioned prompts, answer profiles, local streaming adapter | The prompt consumes selected evidence only and exposes safe insufficient-evidence/generation-failure states |
+| Citations | Stable evidence IDs, source-coordinate metadata, authorized preview routes | A citation resolves to the retained document version/chunk and is authorized again when opened |
+| Comparative evaluation | Frozen benchmark, grid runner, checkpoint/resume, self-contained reports | Effective configuration and ordered-question identity travel with results; proxies are not overstated as truth |
+
+This bridge matters scientifically: a measured retrieval technique is reproducible only when the surrounding source identity, effective configuration, and failure policy are controlled. It also matters operationally: a production-safe subsystem can be implemented and regression-tested without claiming that it has already improved answer quality.
 
 ---
 
@@ -336,6 +427,22 @@ Before a version is marked indexed, the worker verifies that it is still current
 
 The publication pointer lets an active request finish against generation *N* while the indexer prepares and atomically exposes generation *N+1*. Query startup refreshes published identities, but it does not scan, chunk, embed, or mutate the corpus.
 
+### Synchronization, indexing, and document lifecycle
+
+Corpus synchronization and indexing are separate transactions. The watcher debounces filesystem events and waits for file stability; the scanner builds a path/hash snapshot; the synchronizer reconciles that snapshot into PostgreSQL document/version records and durable jobs. Only the standalone worker claims those jobs and mutates derived retrieval state. Periodic reconciliation remains necessary because filesystem watchers are hints, not an authoritative event log.
+
+| Lifecycle transition | PostgreSQL effect | Derived-state effect |
+|---|---|---|
+| New file or changed content | Create/update document identity, append immutable `DocumentVersion`, set current version, enqueue `upsert_version` | Extract, chunk, embed/reuse eligible chunks, write Qdrant, rebuild BM25 when dirty, publish generation |
+| Unchanged size/mtime/hash | Refresh scan facts where needed; create no content job | Preserve current vectors and lexical publication |
+| Path-only move/rename | Update folder/path provenance and enqueue metadata refresh | Rewrite citation/access payload as needed; avoid re-extraction and re-embedding |
+| Missing enterprise file | Soft-delete lifecycle record and enqueue `delete_asset` | Remove obsolete vector/lexical entries before publication |
+| Retry after transient failure | Revalidate current bytes/hash, create a new version if bytes changed, schedule availability with bounded attempts | Resume from a durable job, never trust a stale artifact merely because a retry was requested |
+
+The indexing queue has explicit pending, claimed, extraction, chunking, embedding, writing, verification, retry-wait, completed, failed, superseded, and cancelled states. Claims carry worker identity, heartbeat, and lease expiry; a stale lease can be recovered after a worker dies. Active-job partial unique indexes prevent duplicate work for the same document/note version and operation. Before completion, the worker checks that the indexed version is still current and verifies required Qdrant payload fields. Publication follows durable verification, not the earlier moment when extraction happened to finish.
+
+Preview lifecycle is intentionally derived and bounded. A preview resolves an already-authorized document below an allowed root, then chooses a type-specific reader or an optional Office-to-PDF rendering path. Preview and thumbnail cache keys include document identity and content hash, so a changed version cannot silently reuse the prior representation. Cache writes use a temporary file followed by replacement. HTML/Markdown paths are sanitized and active content is sandboxed or downloaded; unsupported conversion produces a limited state rather than bypassing the original-file authorization route.
+
 ### Supported document intelligence
 
 Current ingestion-enabled formats are:
@@ -366,6 +473,31 @@ Preview responses resolve sources below configured roots, are authorization-chec
 The indexer’s device is `auto` by default and its preferred precision is FP16. CPU resolution changes effective precision to FP32 with an explicit diagnostic. An explicitly requested CUDA device that cannot be used is an error; the system does not silently certify GPU execution from configuration alone.
 
 Embedding and generation are coordinated because both may want most of the same VRAM. A cross-process chat-priority marker lets the indexer pause or move the embedding model away from CUDA; it can release a warm Ollama model before a large embedding interval and later rewarm as work returns. The operator view reports configured device, resolved model device, memory, utilization, load source, queue state, and measured timing boundaries. Ollama does not expose a trustworthy layer count here, so the telemetry deliberately leaves it null instead of fabricating a value.
+
+### Concurrency and resource controls
+
+Concurrency is bounded at the scarce resource, not only at the HTTP worker:
+
+| Boundary | Control | Failure/ordering property |
+|---|---|---|
+| Chat admission | Global and per-user active/queued limits with fair scheduling and queue-wait timeout | One user cannot consume every slot; overload becomes an explicit admission/timeout result |
+| Per-session persistence | Request IDs, reserved turn order, message-scoped cancellation | Streams may complete out of order while durable conversation order remains deterministic |
+| Query stages | Separate gates for query embedding, retrieval, reranking, and generation | A large executor cannot accidentally create unbounded model concurrency |
+| Dense and lexical retrieval | Concurrent branches with independent timeouts | One surviving authorized branch may produce a bounded degraded result; scope cannot widen during fallback |
+| Index extraction/OCR | Separate bounded CPU pools | Slow OCR does not monopolize every extraction worker |
+| Embedding | Cross-document adaptive batches bounded by item count, token count, and wait time | Batches shrink recursively on memory pressure instead of assuming fixed GPU capacity |
+| Vector writes | Single serialized Qdrant writer | Concurrent preparation cannot race publication mutations |
+| Chat versus indexing GPU use | Cross-process priority marker, model offload/release/rewarm policy | Interactive generation can take precedence without claiming that configured CUDA equals observed residency |
+
+The default local generator is effectively serialized even though the application can admit and retrieve multiple requests. This is a deliberate capacity constraint for one Ollama/model runtime, not a claim that the whole query pipeline is single-threaded.
+
+### Configuration as a runtime contract
+
+Python entry points share one non-evaluating environment loader. It reads repository, service, and backend `.env` files from lower to higher priority, optionally appends an explicitly named runtime file, and preserves variables already set by the calling process. Values are parsed as literal assignments—no shell expansion or command execution. Required-key errors list key names without printing values.
+
+Repository selection has a separate application-config layer: explicit corpus environment variables take precedence over saved repository configuration, with a legacy data-directory fallback. Conflicting environment and saved corpus roots cause startup refusal in UAT/production. Candidate roots are checked against allowed roots and protected application, workspace, model, output, home, configuration, and system locations before being saved.
+
+Configuration affects scientific reproducibility as well as deployment. Retrieval depths, timeouts, model identities, devices, batching, token budgets, prompt profile, and fallback policy can change an answer while source code remains constant. Evaluation fingerprints therefore retain effective values; runtime status distinguishes requested from resolved device/model state. Browser-visible `VITE_*` configuration is treated separately from server credentials, and migrations use a dedicated database identity.
 
 ---
 
@@ -523,6 +655,21 @@ The repository history includes several useful examples where the visible sympto
 
 These investigations are documented across [`docs/PHASE_4_5_TO_DEV_PROMPT_REGRESSION_AUDIT.md`](docs/PHASE_4_5_TO_DEV_PROMPT_REGRESSION_AUDIT.md), [`docs/architecture/PROMPT_PROFILE_FIX.md`](docs/architecture/PROMPT_PROFILE_FIX.md), [`LATENCY_REGRESSION_ANALYSIS.md`](LATENCY_REGRESSION_ANALYSIS.md), [`docs/RUNTIME_CONFIGURATION.md`](docs/RUNTIME_CONFIGURATION.md), and the current architecture/test surfaces.
 
+### Key engineering decisions
+
+| Decision | Why this repository chose it | Trade-off retained |
+|---|---|---|
+| PostgreSQL metadata plus Qdrant vectors instead of treating vector payload as the database | Relational lifecycle, policy, versioning, leases, and joins require transactional constraints; vector search requires a specialized index | Publication and deletion must keep two derived views aligned with relational truth |
+| Standalone indexer instead of API-startup indexing | Heavy extraction/embedding survives request-process restarts and has durable queue/lease state | Installation and launch must supervise one more process and expose its heartbeat |
+| Published BM25 snapshot instead of per-scope model construction | Lexical indexing cost is paid once; request-time scope is an index selection over immutable postings | Publication must track lexical dirtiness and generation identity |
+| Application-enforced authorization with pre-score filters | The same resolved policy graph can constrain PostgreSQL, dense, and lexical paths now | Lack of PostgreSQL RLS remains a defense-in-depth gap |
+| Deterministic query transforms before any future learned rewrite | Variants are inspectable, cheap, and reproducible | They cannot supply all semantic reformulations a learned rewriter might discover |
+| Rank fusion followed by cross-encoder and explicit evidence selection | Each stage has one interpretable job; incompatible scores are not averaged | More stages add latency and more configuration that must be pinned in evaluation |
+| Local model serving | Enterprise content and prompts need not be sent to a hosted inference API | Workstation VRAM, model lifecycle, capacity, and device truth become first-class operational concerns |
+| Versioned artifacts and source snapshots | Citations, summaries, exports, and experiments can point to the evidence actually used | Retention, expiry, and stale-artifact handling are more complex than overwriting the latest output |
+
+The recurring system-design principles are: make authority explicit; separate mutable preparation from immutable publication; carry source identity through every transformation; authorize as early as possible and again at the final dereference; bound queues, tokens, time, and device use; prefer observed runtime facts to configured intent; and keep implementation evidence separate from research qualification.
+
 ---
 
 ## Operational observability
@@ -535,6 +682,25 @@ There are two related but distinct observability paths:
 Observability is content-minimized: operational views report counts, states, timings, devices, and safe error classifications, not raw private prompts or retrieved text. The monitor is itself RBAC-protected (`monitor_system` or `manage_settings`).
 
 The system uses explicit degraded states. Qdrant, BM25, Ollama, GPU, and indexer failure are not collapsed into one “AI offline” boolean; the UI can distinguish chat-capable, indexing, stale, degraded, and unavailable conditions.
+
+### Failure model and degraded operation
+
+Startup prepares only the query runtime. It validates the corpus location, PostgreSQL, Qdrant, the exact Ollama model, embedding/reranker readiness, and published-generation state without initiating a corpus scan. A failed dependency can leave FastAPI alive and observable while retrieval/chat remains unavailable; this is a deliberate diagnostic state, not a claim that every feature continues to work.
+
+| Failure boundary | Exposed state | Behavior |
+|---|---|---|
+| No published documents | `no_documents` / retrieval unavailable | API and corpus workflows remain reachable; grounded chat does not invent an answer |
+| Qdrant or publication unavailable | Degraded/unavailable with a specific retrieval reason | Chat admission fails before generation; health/admin projections retain component detail |
+| Exact local generator unavailable | Model-unavailable reason | The runtime does not silently substitute a different model identity |
+| One retrieval branch times out | Stage telemetry records the timeout | The other authorized branch may continue when policy permits; no unfiltered fallback is introduced |
+| Evidence is weak or empty | `insufficient_evidence` or `unsupported_query` | The prompt is not used as a route to outside-knowledge completion |
+| Generation fails after retrieval | `generation_failed` | Retrieval evidence and failure identity remain distinguishable from an unsupported query |
+| Index worker dies mid-job | Lease expires and stale-worker recovery can requeue work | The job remains durable; publication does not advance from an unverified partial write |
+| New document version wins a race | Older job becomes superseded/obsolete | Obsolete points are cleaned; the older version cannot become current again through late completion |
+| Preview/converter dependency missing | Limited preview/open-original state | Original download still follows authorization and safe content disposition |
+| Export source changes | Typed stale-content failure | A queued export is not produced from client text or a mismatched server snapshot |
+
+System status probes database, Qdrant, and Ollama with bounded timeouts; independent Qdrant/Ollama probes run concurrently so one slow dependency does not linearly delay the entire snapshot. Chat availability is stricter than API availability: it requires the relational store, vector store, published generation, engine, exact generator, and embedding runtime. Noncritical worker/queue/GPU degradation may leave already-published chat usable, and the status response says which condition applies.
 
 ---
 
@@ -561,6 +727,18 @@ The system uses explicit degraded states. Qdrant, BM25, Ollama, GPU, and indexer
 ├── Install-CIAL-Knowledge-OS.*       Automated Windows installation
 └── Launch-CIAL-Knowledge-OS.*        Daily loopback/LAN launch orchestration
 ```
+
+Language and artifact roles are intentionally split:
+
+| Surface | Primary role |
+|---|---|
+| Python | FastAPI services, SQLAlchemy persistence, corpus/indexing workers, RAG pipelines, model adapters, evaluation and diagnostics |
+| TypeScript/TSX | React product shell, typed API boundaries, server-state management, streaming clients, previews, responsive interaction |
+| PowerShell/batch | Idempotent Windows installation, protected configuration, service orchestration, verification and LAN-edge setup |
+| SQL/Alembic | Schema evolution, runtime-role provisioning, relational integrity and operational indexes |
+| YAML/JSON/Markdown/notebooks | Prompt registry/assets, benchmark/config metadata, architecture/operations evidence and preserved experiments |
+
+This division is a responsibility map, not a set of independent products. For example, a document summary crosses a TypeScript request, Pydantic contract, Python service/worker, PostgreSQL version snapshot, local model adapter, and citation records before returning to the UI.
 
 Recommended technical entry points:
 
@@ -592,6 +770,15 @@ The automated path targets a clean Windows 11 x64 NVIDIA workstation. It expects
 - Tesseract OCR and LibreOffice for the full format/preview path
 
 Exact versions and fallback steps are in [`docs/WINDOWS_INSTALLER.md`](docs/WINDOWS_INSTALLER.md) and [`docs/MANUAL_WINDOWS_INSTALLATION.md`](docs/MANUAL_WINDOWS_INSTALLATION.md).
+
+Installation and daily launch solve different problems:
+
+| Workflow | Owns | Does not imply |
+|---|---|---|
+| Installer | Prerequisite discovery/installation, virtual environments, protected runtime and migration configuration, database provisioning/migrations, frontend build/typecheck, CUDA and service validation | That a benchmark has been qualified, a corpus has finished indexing, or LAN exposure is enabled |
+| Launcher | Start/verify persistent dependencies and application processes, apply pending migrations, wait for API/frontend and a fresh indexer heartbeat, open the local UI | Reinstalling tools, draining the entire indexing queue, or changing the selected enterprise repository |
+
+The reference topology is a single Windows workstation with local persistent PostgreSQL/Qdrant/model state and a separately selected enterprise repository. Generated previews, exports, logs, and launcher state live under application data/output roots rather than the source corpus. Re-running installation is designed to preserve the configured corpus and persistent services, but operators should still back up PostgreSQL, Qdrant storage, application configuration, and the authoritative document repository according to their own recovery policy.
 
 ### Install
 
@@ -657,6 +844,16 @@ The API and indexer are concurrent processes, so the integrated runtime requires
 
 The repository separates deterministic contract tests from model/corpus qualification.
 
+| Test layer | What it checks | What it does not prove |
+|---|---|---|
+| Knowledge-engine unit/regression tests | Query transforms, retrieval/fusion, evidence, prompts, citations, evaluation artifacts, model/device and timeout contracts | Real-model quality on the enterprise corpus |
+| Backend service/API tests | Authentication/access control, route schemas, chat isolation/concurrency, indexing leases/retries, status, previews, summaries, exports, security remediations | A complete installed workstation with every external dependency live |
+| Frontend Node contract tests | API adapters, secret boundary, navigation, chat state, responsive modal ownership, motion/reduced motion, system monitor and workspace behavior | Browser rendering across every device/browser combination |
+| TypeScript and production build | Static interface consistency and build-time asset/module resolution | Runtime service health or answer correctness |
+| Integrated browser verification | Built UI against the local API, screenshots and critical flows where the runbook invokes it | Statistical retrieval/answer improvement |
+| Installer/runtime scripts | Prerequisites, migration head, CUDA/service/process and protected-config assumptions | Organization-specific backup, capacity, compliance or disaster-recovery readiness |
+| Frozen benchmark runs | Controlled comparative behavior with retained artifacts and effective config | General correctness beyond the benchmark or expert judgment without human review |
+
 ### Fast local checks
 
 ```powershell
@@ -688,6 +885,21 @@ The normal Phase 4 runner can produce smoke, manual-QA, benchmark, or export-onl
 - proxy-metric interpretation plus human review where correctness is claimed.
 
 Do not infer quality from a single UI response, an implementation status, or a unit-test pass.
+
+---
+
+## Engineering and research lessons
+
+- **The pipeline contract is larger than the prompt.** Effective response length, selected scope, retrieval filters, context budgets, profile metadata, and citation mapping can change an answer even when the prompt asset is byte-for-byte identical.
+- **Incremental indexing is a consistency problem before it is a speed optimization.** Hash reuse is safe only after version identity, model/chunking compatibility, stale-job races, deletion, path changes, and atomic publication are defined.
+- **Authorization must share candidate identity across retrieval methods.** Dense and lexical search cannot be safely fused if they use different source boundaries or if filtering happens only after top-*k* truncation.
+- **Local AI turns hardware state into application state.** Requested CUDA, actual model device, Ollama residency, queue pressure, memory failures, and model rewarming affect latency and availability and therefore belong in observable runtime contracts.
+- **Degraded operation needs named failure states.** “API is responding,” “chat can answer from a published generation,” and “the indexer is healthy” are different facts; collapsing them makes recovery and user communication worse.
+- **Persistence enables provenance but adds lifecycle obligations.** Version-pinned evidence, summaries, exports, and benchmark artifacts are more defensible than mutable latest-only output, but they require expiry, supersession, authorization, and stale-source policies.
+- **Product behavior can invalidate research assumptions.** Concurrency, cancellation, selected-context UI state, streaming order, and saved-answer reuse can change the effective experiment unless request identity and configuration are isolated.
+- **Implemented, tested, and empirically better are separate statuses.** A subsystem can be architecturally complete and well regression-tested while its comparative quality gate remains open; the README intentionally reports both facts.
+
+These lessons shape the next work: add semantic and human-calibrated evaluation without weakening deterministic artifacts; add database-enforced defense in depth without creating divergent policy semantics; and measure capacity on supported workstations without turning one machine's result into a universal hardware claim.
 
 ---
 
